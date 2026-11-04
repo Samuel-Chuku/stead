@@ -1,0 +1,14 @@
+# Aave V3 Sepolia addresses. Source: https://github.com/bgd-labs/aave-address-book/blob/main/src/AaveV3Sepolia.sol
+# (verified live 2026-10-29). Public data, safe to commit.
+export AAVE_POOL=0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951
+export AAVE_POOL_ADDRESSES_PROVIDER=0x012bAC54348C0E635dCAc9D5FB99f06F24136C9A
+export AAVE_ORACLE=0x2da88497588bf89281816106C7259e31AF45a663
+export AAVE_ACL_MANAGER=0x7F2bE3b178deeFF716CD6Ff03Ef79A1dFf360ddD
+export AAVE_ACL_ADMIN=0xfA0e305E0f46AB04f00ae6b5f4560d61a2183E00
+export AAVE_FAUCET=0xC959483DBa39aa9E78757139af0e9a2EDEb3f42D
+export LINK=0xf8Fb3713D459D7C1018BD0A49D19b4C44290EBE5
+export A_LINK=0x3FfAf50D4F4E96eB78f2407c090b72e86eCaed24
+export DAI=0xFF34B3d4Aee8ddCd6F9AFFFB6Fe49bD371b8a357
+export V_DAI=0x22675C506A8FC26447aFFfa33640f6af5d4D4cF0
+# anvil dev account #0: public, well-known test account; only ever used on the local fork
+export FORK_ADMIN=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266

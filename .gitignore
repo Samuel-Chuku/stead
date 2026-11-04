@@ -1,0 +1,4 @@
+# Secrets: must be ignored before the first commit .
+.env
+.env.*
+!.env.example
