@@ -601,15 +601,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
-name = "lifeline-spike"
-version = "0.1.0"
-dependencies = [
- "hex",
- "near-sdk",
- "omni-transaction",
-]
-
-[[package]]
 name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1067,6 +1058,28 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+
+[[package]]
+name = "stead"
+version = "0.1.0"
+dependencies = [
+ "bs58",
+ "hex",
+ "near-sdk",
+ "omni-transaction",
+ "stead-core",
+]
+
+[[package]]
+name = "stead-core"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "hex",
+ "omni-transaction",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "strsim"

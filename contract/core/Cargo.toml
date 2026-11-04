@@ -1,0 +1,15 @@
+[package]
+name = "stead-core"
+version = "0.1.0"
+edition = "2021"
+description = "Stead rules with no NEAR SDK: allow-list, nonce tracker, claim lock, auction, claims, settlement B. Tested natively."
+
+[dependencies]
+borsh = { version = "=1.8.1", features = ["derive"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+hex = "0.4"
+omni-transaction = { version = "=0.5.0", default-features = false, features = ["evm"] }
+serde_json = "=1.0.154"
+
+[dev-dependencies]
+serde_json = "=1.0.154"

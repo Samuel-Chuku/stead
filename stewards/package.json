@@ -1,0 +1,26 @@
+{
+  "name": "stead-stewards",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stead steward bots and keeper (reporter + relayer), TypeScript",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "keeper": "tsx scripts/keeper.ts",
+    "steward": "tsx scripts/steward.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "near-api-js": "7.3.1",
+    "viem": "2.57.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "4.1.12"
+  }
+}

@@ -1,7 +1,11 @@
 [package]
-name = "lifeline-spike"
+name = "stead"
 version = "0.1.0"
 edition = "2021"
+description = "Stead: liquidation rescue market. NEAR contract controlling Aave V3 positions via chain signatures."
+
+[workspace]
+members = [".", "core"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -9,7 +13,9 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 near-sdk = "=5.30.0"
 hex = "0.4"
+bs58 = "=0.5.1"
 omni-transaction = { version = "=0.5.0", default-features = false, features = ["evm"] }
+stead-core = { path = "core" }
 
 [profile.release]
 codegen-units = 1
