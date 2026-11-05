@@ -51,6 +51,16 @@ export class Steward {
     this.settings = { ...DEFAULTS[name] };
   }
 
+  private marketOf = new Map<number, number>();
+  private async onMyMarket(pid: number): Promise<boolean> {
+    if (!this.marketOf.has(pid)) {
+      const p = await view<Position | null>("get_position", { position_id: pid });
+      if (!p) return false;
+      this.marketOf.set(pid, p.market_id);
+    }
+    return this.marketOf.get(pid) === cfg.marketId;
+  }
+
   private remember(e: AiContext["recent"][number]) {
     this.recent = [...this.recent.filter((x) => !(x.rescue === e.rescue && x.outcome === e.outcome)), e].slice(-10);
   }
@@ -110,6 +120,8 @@ export class Steward {
       if (page.length < 50) break;
     }
     for (const r of rescues.filter((r) => !this.scope || this.scope.has(r.position_id))) {
+      // only rescues on this chain's market: other positions live on another EVM chain
+      if (!["bought_back", "settled", "failed"].includes(r.state) && !(await this.onMyMarket(r.position_id))) continue;
       try {
         if (r.state === "auction") await this.onAuction(r, params);
         else if (r.state === "top_up_pending") await this.onTopUp(r);

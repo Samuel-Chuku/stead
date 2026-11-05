@@ -1,0 +1,45 @@
+# Keeper + four stewards, one container each, restarted on crash, logs rotated.
+#   cd stewards/deploy && docker compose up -d --build
+# Secrets on the host (owned by uid 1000, mode 600, never in the image):
+#   /opt/stead/secrets/.env   steward EVM keys, NEAR RPC, optional SEPOLIA_RPC_URL / NEAR_AI_API_KEY
+#   /opt/stead/secrets/near/  NEAR keys of the reporter and the stewards (not the contract owner's)
+name: stead
+
+x-bot: &bot
+  build:
+    context: ../..
+    dockerfile: stewards/deploy/Dockerfile
+  image: stead-bots:local
+  restart: always
+  environment:
+    STEAD_EVM: sepolia
+    NEAR_CREDENTIALS_DIR: /secrets/near
+    KEEPER_INTERVAL_MS: "6000"
+    STEWARD_INTERVAL_MS: "5000"
+  volumes:
+    - /opt/stead/secrets/.env:/app/.env:ro
+    - /opt/stead/secrets/near:/secrets/near:ro
+    - /opt/stead/logs:/app/stewards/logs
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+  mem_limit: 384m
+
+services:
+  keeper:
+    <<: *bot
+    command: ["scripts/keeper.ts"]
+  steward-patient:
+    <<: *bot
+    command: ["scripts/steward.ts", "patient"]
+  steward-swift:
+    <<: *bot
+    command: ["scripts/steward.ts", "swift"]
+  steward-deep:
+    <<: *bot
+    command: ["scripts/steward.ts", "deep"]
+  steward-pool:
+    <<: *bot
+    command: ["scripts/steward.ts", "pool"]

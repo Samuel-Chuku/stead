@@ -16,6 +16,7 @@ const GAS = cfg.evm === "sepolia"
   : { gas_limit: "400000", max_fee_per_gas: "20000000000", max_priority_fee_per_gas: "1000000000" };
 const REPORT_EVERY_MS = 60_000; // refresh even when nothing moved (settlement needs ≤ 120 s old)
 const VERIFY_BUSY_MS = 30_000; // verified reading cadence while an auction or claim is open
+const VERIFY_IDLE_MS = 30 * 60_000; // HF comfortably above the trigger: one proof per 30 min
 const VERIFY_DEPTH = 3n; // the proof program reads head − 3
 const VERIFY_MIN_GAP_MS = 20_000; // never faster (each run costs NEAR; Sepolia blocks are 12 s)
 
@@ -28,6 +29,7 @@ export class Keeper {
   private logCursor = 0n;
   private payoutOf = new Map<string, string>(); // steward → payout (lowercase)
   private running = false;
+  private nextProbe = 0; // first position id not seen yet
   private verifiedMarkets?: Set<number>;
   private lastVerify = new Map<number, number>(); // pid → when a verified read was last requested
   private verifyNow = new Map<number, bigint>(); // pid → block of fresh evidence (a Supply) the proof must reach
@@ -67,9 +69,16 @@ export class Keeper {
       }
       return;
     }
-    for (let id = 0; ; id++) {
+    // Long-running: re-read this market's known positions, then probe only for new ids
+    // (keeps a 24/7 keeper well under public RPC rate limits)
+    for (const id of this.positions.keys()) {
+      const p = await view<Position | null>("get_position", { position_id: id });
+      if (p) this.positions.set(id, p);
+    }
+    for (let id = this.nextProbe; ; id++) {
       const p = await view<Position | null>("get_position", { position_id: id });
       if (!p) break;
+      this.nextProbe = id + 1;
       if (p.market_id === cfg.marketId) this.positions.set(id, p);
     }
   }
@@ -99,7 +108,14 @@ export class Keeper {
       view<Books>("get_books", { position_id: pid }),
     ]);
     const behind = BigInt(books.last_event_block) > BigInt(v?.last_block ?? 0);
-    const due = last === undefined || Date.now() - last >= (busy ? VERIFY_BUSY_MS : 5 * REPORT_EVERY_MS);
+    // Idle cadence: a plain (unverified) RPC read is only a TRIGGER for paying for a proof; the
+    // contract decides on the proof alone. Near the trigger: every minute; comfortable: every 30 min.
+    let idleMs = VERIFY_IDLE_MS;
+    if (!busy) {
+      const [d, params] = await Promise.all([accountData(p.evm_address as Address), view<{ trigger_hf_bps: number }>("get_params")]);
+      if (d.debtBase > 0n && d.hfWad < (BigInt(params.trigger_hf_bps) * 105n * 10n ** 14n) / 100n) idleMs = REPORT_EVERY_MS;
+    }
+    const due = last === undefined || Date.now() - last >= (busy ? VERIFY_BUSY_MS : idleMs);
     if (!force && !behind && !due && !deep) return;
     if (evidence !== undefined && !deep && !due) return;
     this.lastVerify.set(pid, Date.now());
