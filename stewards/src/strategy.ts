@@ -1,7 +1,9 @@
 // Rule-based steward strategies. Pure functions: no I/O.
 // Every steward computes the borrower's own HF net of open claims after its rescue,
 // and its distance to the early-settle level (the "margin") drives what it does.
+// The knobs each strategy reads are its RiskSettings (defaults in risk.ts).
 import type { StewardName } from "./config.js";
+import { DEFAULTS, type RiskSettings } from "./risk.js";
 
 export interface AuctionView {
   capBps: number;
@@ -14,6 +16,9 @@ export interface AuctionView {
   ltBps: number;
   debtBase: bigint;
   earlyHf: number; // early_settle_hf
+  /** Most this steward will put into one rescue (its risk limit), in collateral units. A top-up
+   *  above it is bid partially, so a large rescue needs a coalition. Undefined = no limit. */
+  capacityUnits?: bigint;
 }
 
 export type Decision = { bid: true; bps: number; amountUnits: bigint; why: string } | { bid: false; wait?: boolean; why: string };
@@ -25,41 +30,52 @@ export function netHfAfter(a: AuctionView, bps: number): number {
 }
 
 const clampBps = (bps: number, cap: number) => Math.max(0, Math.min(cap, Math.round(bps)));
+const upTo = (a: AuctionView, units: bigint) => (a.capacityUnits !== undefined && a.capacityUnits < units ? a.capacityUnits : units);
+const partial = (a: AuctionView, units: bigint) => (upTo(a, units) < units ? ` (capacity-limited to ${(Number(upTo(a, units)) / 1e18).toFixed(2)})` : "");
 const elapsed = (a: AuctionView) => Number(a.nowNs - a.openedAtNs) / 1e9;
-const left = (a: AuctionView) => Number(a.closesAtNs - a.nowNs) / 1e9;
+const share = (a: AuctionView, s: RiskSettings) =>
+  s.shareFraction >= 1 ? a.topupUnits : (a.topupUnits * BigInt(Math.round(s.shareFraction * 10_000))) / 10_000n;
+const usd = (x: number) => BigInt(Math.round(x)) * 10n ** 8n;
 
-export const strategies: Record<StewardName, (a: AuctionView) => Decision> = {
+export const strategies: Record<StewardName, (a: AuctionView, s?: RiskSettings) => Decision> = {
   /** Swift: bids first, a fixed spread, whatever the margin. */
-  swift(a) {
-    const bps = clampBps(400, a.capBps);
-    return { bid: true, bps, amountUnits: a.topupUnits, why: `first in at a fixed ${bps} bps` };
+  swift(a, s = DEFAULTS.swift) {
+    if (elapsed(a) < s.bidDelayS) return { bid: false, wait: true, why: `waiting ${s.bidDelayS} s` };
+    const bps = clampBps(s.spreadBps, a.capBps);
+    const want = share(a, s);
+    return { bid: true, bps, amountUnits: upTo(a, want), why: `first in at a fixed ${bps} bps${partial(a, want)}` };
   },
 
   /** Patient: bids near the end; accepts thin margins the others skip, priced for the risk
    *  (the closer net HF sits to the early level, the likelier an early, shorter claim). */
-  patient(a) {
-    if (left(a) > 12) return { bid: false, wait: true, why: "waiting for the last 12 s" };
+  patient(a, s = DEFAULTS.patient) {
+    if (elapsed(a) < s.bidDelayS) return { bid: false, wait: true, why: `waiting until ${s.bidDelayS} s in` };
     const margin = netHfAfter(a, 200) - a.earlyHf;
-    const bps = clampBps(150 + 2500 * Math.max(0, 0.08 - margin), a.capBps);
-    return { bid: true, bps, amountUnits: a.topupUnits, why: `late bid, margin ${margin.toFixed(3)} → ${bps} bps` };
+    if (margin < s.minMargin) return { bid: false, why: `skips: margin ${margin.toFixed(3)} < ${s.minMargin}` };
+    const bps = clampBps(s.spreadBps + 2500 * Math.max(0, 0.08 - margin), a.capBps);
+    const want = share(a, s);
+    return { bid: true, bps, amountUnits: upTo(a, want), why: `late bid, margin ${margin.toFixed(3)} → ${bps} bps${partial(a, want)}` };
   },
 
   /** Deep: capital-heavy, low risk. Only comfortable margins and sizeable top-ups; low premium. */
-  deep(a) {
-    const margin = netHfAfter(a, 150) - a.earlyHf;
-    if (margin < 0.03) return { bid: false, why: `skips: margin ${margin.toFixed(3)} < 0.03 above early settlement` };
-    if (a.topupBase < 500n * 10n ** 8n) return { bid: false, why: "skips: top-up under $500" };
-    if (elapsed(a) < 15) return { bid: false, wait: true, why: "waiting for mid-window" };
-    const bps = clampBps(150, a.capBps);
-    return { bid: true, bps, amountUnits: a.topupUnits, why: `margin ${margin.toFixed(3)} ok → ${bps} bps, full amount` };
+  deep(a, s = DEFAULTS.deep) {
+    const margin = netHfAfter(a, s.spreadBps) - a.earlyHf;
+    if (margin < s.minMargin) return { bid: false, why: `skips: margin ${margin.toFixed(3)} < ${s.minMargin} above early settlement` };
+    if (a.topupBase < usd(s.minTopupUsd)) return { bid: false, why: `skips: top-up under $${s.minTopupUsd}` };
+    if (elapsed(a) < s.bidDelayS) return { bid: false, wait: true, why: "waiting for mid-window" };
+    const bps = clampBps(s.spreadBps, a.capBps);
+    const want = share(a, s);
+    return { bid: true, bps, amountUnits: upTo(a, want), why: `margin ${margin.toFixed(3)} ok → ${bps} bps${partial(a, want) || (want === a.topupUnits ? ", full amount" : "")}` };
   },
 
   /** Pool: joins coalitions with a partial amount; same margin filter as deep. */
-  pool(a) {
-    const margin = netHfAfter(a, 300) - a.earlyHf;
-    if (margin < 0.03) return { bid: false, why: `skips: margin ${margin.toFixed(3)} < 0.03` };
-    if (elapsed(a) < 5) return { bid: false, wait: true, why: "waiting 5 s" };
-    const bps = clampBps(300, a.capBps);
-    return { bid: true, bps, amountUnits: (a.topupUnits * 40n) / 100n, why: `partial 40 % at ${bps} bps` };
+  pool(a, s = DEFAULTS.pool) {
+    const margin = netHfAfter(a, s.spreadBps) - a.earlyHf;
+    if (margin < s.minMargin) return { bid: false, why: `skips: margin ${margin.toFixed(3)} < ${s.minMargin}` };
+    if (a.topupBase < usd(s.minTopupUsd)) return { bid: false, why: `skips: top-up under $${s.minTopupUsd}` };
+    if (elapsed(a) < s.bidDelayS) return { bid: false, wait: true, why: `waiting ${s.bidDelayS} s` };
+    const bps = clampBps(s.spreadBps, a.capBps);
+    const want = share(a, s);
+    return { bid: true, bps, amountUnits: upTo(a, want), why: `partial ${Math.round(s.shareFraction * 100)} % at ${bps} bps${partial(a, want)}` };
   },
 };

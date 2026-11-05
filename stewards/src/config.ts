@@ -42,9 +42,14 @@ export const cfg = {
   reporter: env("NEAR_REPORTER_ACCOUNT", "reporter.steadfi.testnet"),
   borrower: env("NEAR_BORROWER_ACCOUNT", "borrower.steadfi.testnet"),
   credentialsDir: env("NEAR_CREDENTIALS_DIR", join(homedir(), ".near-credentials", "testnet")).replace(/^~/, homedir()),
-  forkRpc: env("FORK_RPC_URL", "http://127.0.0.1:8545"),
-  chainId: Number(env("FORK_CHAIN_ID", "31337")),
-  marketId: 0,
+  /** EVM side: "fork" (local anvil fork, mock price, TEMPORARY reporter) or "sepolia" (real
+   *  testnet, readings verified on OutLayer). Set STEAD_EVM=sepolia. */
+  evm: (process.env.STEAD_EVM === "sepolia" ? "sepolia" : "fork") as "fork" | "sepolia",
+  forkRpc: process.env.STEAD_EVM === "sepolia"
+    ? env("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
+    : env("FORK_RPC_URL", "http://127.0.0.1:8545"),
+  chainId: process.env.STEAD_EVM === "sepolia" ? 11155111 : Number(env("FORK_CHAIN_ID", "31337")),
+  marketId: Number(env("STEAD_MARKET_ID", process.env.STEAD_EVM === "sepolia" ? "1" : "0")),
   aave: {
     pool: book.AAVE_POOL as `0x${string}`,
     oracle: book.AAVE_ORACLE as `0x${string}`,

@@ -471,6 +471,50 @@ pub struct Books {
     pub stray_repays: Vec<StrayRepay>,
 }
 
+/// Verified reads (OutLayer TEE running the pinned proof program). Set by the owner.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub struct VerifyConfig {
+    /// The OutLayer contract (e.g. `outlayer.testnet`).
+    pub outlayer: String,
+    /// The proof program, pinned by URL and sha256.
+    pub wasm_url: String,
+    pub wasm_hash: String,
+    /// Markets whose readings and top-up/escrow evidence come only from verified proofs.
+    pub markets: BTreeSet<u32>,
+    /// Optional OutLayer secret (the keyed RPC) as (owner account, profile).
+    pub secrets: Option<(String, String)>,
+}
+
+/// Per position: the last verified block, and the collateral snapshot taken when a verified
+/// auction opened (to prove the top-up landed).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub struct VerifiedState {
+    pub last_block: u64,
+    /// (rescue id, collateral units at auction open)
+    pub snapshot: Option<(u64, u128)>,
+}
+
+/// The proof program's result (subset the contract uses). Amounts are decimal strings.
+#[derive(Clone, Debug, Deserialize)]
+pub struct VerifiedOutput {
+    pub v: u8,
+    pub pos: String,
+    pub chain: u64,
+    pub block: u64,
+    pub hf: String,
+    pub cb: String,
+    pub db: String,
+    pub res: Vec<VerifiedReserve>,
+    pub bal: Vec<(String, String)>,
+    pub agree: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct VerifiedReserve {
+    pub a: String,
+    pub p: String,
+}
+
 /// A repay a steward made on the position without having committed a settlement.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct StrayRepay {
@@ -504,6 +548,8 @@ pub struct Stead {
     pub bonds_held: u128,
     /// Buy-back escrow, payout queue, last event block and stray repays, per position.
     pub books: BTreeMap<u64, Books>,
+    pub verify_cfg: Option<VerifyConfig>,
+    pub verified: BTreeMap<u64, VerifiedState>,
     /// NEP-297 events produced by the last call; the wrapper drains and logs them.
     #[borsh(skip)]
     pub events: Vec<String>,
@@ -513,9 +559,9 @@ pub struct Stead {
     pub payouts: Vec<Transfer>,
 }
 
-/// The stored layout before the buy-back escrow (for `migrate`). Field order must match it.
+/// The stored layout before verified reads (for `migrate`). Field order must match it.
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct SteadV1 {
+pub struct SteadV2 {
     pub owner: String,
     pub reporters: BTreeSet<String>,
     pub stewards: BTreeSet<String>,
@@ -531,10 +577,11 @@ pub struct SteadV1 {
     pub next_position_id: u64,
     pub next_rescue_id: u64,
     pub bonds_held: u128,
+    pub books: BTreeMap<u64, Books>,
 }
 
-impl From<SteadV1> for Stead {
-    fn from(o: SteadV1) -> Self {
+impl From<SteadV2> for Stead {
+    fn from(o: SteadV2) -> Self {
         Stead {
             owner: o.owner,
             reporters: o.reporters,
@@ -551,7 +598,9 @@ impl From<SteadV1> for Stead {
             next_position_id: o.next_position_id,
             next_rescue_id: o.next_rescue_id,
             bonds_held: o.bonds_held,
-            books: BTreeMap::new(),
+            books: o.books,
+            verify_cfg: None,
+            verified: BTreeMap::new(),
             events: vec![],
             payouts: vec![],
         }
@@ -577,6 +626,8 @@ impl Stead {
             next_rescue_id: 0,
             bonds_held: 0,
             books: BTreeMap::new(),
+            verify_cfg: None,
+            verified: BTreeMap::new(),
             events: vec![],
             payouts: vec![],
         }
@@ -894,6 +945,7 @@ impl Stead {
     /// TEMPORARY trusted reporter. Records a reading; opens an auction if HF < trigger. Returns the rescue id.
     pub fn report_health(&mut self, c: &str, id: u64, r: HealthReport, now: u64) -> R<Option<u64>> {
         self.only_reporter(c)?;
+        ensure!(!self.is_verified(id)?, "verified market: readings come only from proofs");
         let last = self.book(id).last_event_block;
         ensure!(r.block >= last, "reading older than the last confirmed event (block {} < {last})", r.block);
         let out = self.report_health_inner(c, id, r, now)?;
@@ -1103,6 +1155,7 @@ impl Stead {
             return Ok(vec![]); // duplicate
         }
         let pid = self.rescue(rid)?.position_id;
+        ensure!(!self.is_verified(pid)?, "verified market: a top-up is confirmed only by a proof");
         self.note_event(pid, block);
         let r = self.rescue_mut(rid)?;
         ensure!(r.state == RescueState::TopUpPending, "rescue not awaiting top-up");
@@ -1280,6 +1333,11 @@ impl Stead {
     /// payout is queued; then any buy-back the balance covers commits at once (oldest first).
     pub fn confirm_escrow(&mut self, c: &str, pid: u64, collateral_units: u128, debt_units: u128, block: u64, now: u64) -> R<()> {
         self.only_reporter(c)?;
+        ensure!(!self.is_verified(pid)?, "verified market: balances come only from proofs");
+        self.set_escrow(pid, collateral_units, debt_units, block, now, "TEMPORARY reporter")
+    }
+
+    fn set_escrow(&mut self, pid: u64, collateral_units: u128, debt_units: u128, block: u64, now: u64, trust: &str) -> R<()> {
         let p = self.position(pid)?;
         ensure!(!p.open_rescues.is_empty(), "no open claim: nothing to hold");
         ensure!(self.book(pid).outflows.is_empty(), "payouts queued: prove the balance after they're sent");
@@ -1290,7 +1348,7 @@ impl Stead {
         ensure!(block >= prev.block, "balance proof older than the previous one");
         self.book_mut(pid).escrow = Escrow { collateral_units, debt_units, block, collateral_committed: 0, debt_committed: 0 };
         self.note_event(pid, block);
-        self.emit("escrow_proven", json!({"position_id": pid, "collateral_units": collateral_units.to_string(), "debt_units": debt_units.to_string(), "block": block, "trust": "TEMPORARY reporter"}));
+        self.emit("escrow_proven", json!({"position_id": pid, "collateral_units": collateral_units.to_string(), "debt_units": debt_units.to_string(), "block": block, "trust": trust}));
         self.settle_books(pid, now)
     }
 
@@ -1313,6 +1371,88 @@ impl Stead {
         self.book_mut(pid).stray_repays.push(StrayRepay { steward: steward.into(), units, evm_tx: evm_tx.into() });
         self.emit("stray_repay", json!({"position_id": pid, "steward": steward, "units": units.to_string(), "evm_tx": evm_tx}));
         Ok(())
+    }
+
+    pub fn set_verify_config(&mut self, c: &str, cfg: Option<VerifyConfig>) -> R<()> {
+        self.only_owner(c)?;
+        self.verify_cfg = cfg;
+        Ok(())
+    }
+
+    pub fn is_verified(&self, pid: u64) -> R<bool> {
+        let p = self.position(pid)?;
+        Ok(self.verify_cfg.as_ref().is_some_and(|v| v.markets.contains(&p.market_id)))
+    }
+
+    /// A result of the pinned proof program (delivered only to the contract's own callback).
+    /// It is the position's reading in a verified market: it may open an auction (HF < trigger),
+    /// it proves a top-up landed (collateral grew by at least the winning shares since the
+    /// auction opened) and it proves the escrow balances. Older or foreign results are refused.
+    pub fn apply_verified(&mut self, pid: u64, out: &VerifiedOutput, now: u64) -> R<Option<u64>> {
+        ensure!(self.is_verified(pid)?, "not a verified market");
+        ensure!(out.v == 1, "unknown proof version");
+        let p = self.position(pid)?;
+        let addr = p.evm_address.ok_or("position address not derived yet")?;
+        ensure!(out.pos.to_lowercase() == addr.to_hex(), "proof is for another address");
+        let m = self.market_of(p).clone();
+        ensure!(out.chain == m.chain_id, "proof is for another chain");
+        let st = self.verified.get(&pid).cloned().unwrap_or_default();
+        ensure!(out.block > st.last_block, "proof not newer than the last verified block {}", st.last_block);
+        let num = |s: &str| s.parse::<u128>().map_err(|_| format!("bad number {s}"));
+        let price_of = |a: &EvmAddr| -> R<u128> {
+            let r = out.res.iter().find(|r| r.a.to_lowercase() == a.to_hex()).ok_or_else(|| format!("no price for {}", a.to_hex()))?;
+            num(&r.p)
+        };
+        let (cb, db) = (num(&out.cb)?, num(&out.db)?);
+        let hf = out.hf.parse::<u128>().unwrap_or(u128::MAX); // no debt: uint256 max
+        let pc = price_of(&m.collateral)?;
+        let pd = if db > 0 { price_of(&m.debt)? } else { out.res.iter().find(|r| r.a.to_lowercase() == m.debt.to_hex()).map_or(Ok(100_000_000), |r| num(&r.p))? };
+        let units = math::base_to_units_floor(cb, pc, m.collateral_decimals);
+
+        // a verified top-up: collateral grew by the winners' shares since the auction opened
+        if let (Some(rid), Some((srid, units0))) = (p.active_auction, st.snapshot) {
+            let r = self.rescue(rid)?.clone();
+            if rid == srid && r.state == RescueState::TopUpPending {
+                let need: u128 = r.members.iter().map(|x| x.share_units).sum();
+                // units are recovered from base values (8 dp): allow 2 base units of rounding
+                let slack = math::base_to_units_ceil(2, pc, m.collateral_decimals);
+                if units + slack >= units0 + need {
+                    let refunds: Vec<Transfer> = r.members.iter().filter(|x| !x.confirmed).map(|x| Transfer { to: x.steward.clone(), amount: x.bond }).collect();
+                    for x in self.rescue_mut(rid)?.members.iter_mut() {
+                        x.confirmed = true;
+                        x.evm_tx = Some(format!("verified@{}", out.block));
+                    }
+                    self.release_bonds(&refunds);
+                    self.payouts.extend(refunds);
+                    self.note_event(pid, out.block);
+                    self.emit("topup_verified", json!({"rescue_id": rid, "block": out.block, "collateral_units": units.to_string(), "at_open": units0.to_string()}));
+                    self.open_claims(rid, now)?;
+                }
+            }
+        }
+
+        let last = self.book(pid).last_event_block;
+        ensure!(out.block >= last, "proof older than the last event (block {} < {last})", out.block);
+        let r = HealthReport { hf_wad: hf, collateral_base: cb, debt_base: db, collateral_price_base: pc, debt_price_base: pd, block: out.block };
+        let opened = self.report_health_inner("verified", pid, r, now)?;
+        let snapshot = match opened {
+            Some(rid) => Some((rid, units)),
+            None => st.snapshot.filter(|(rid, _)| self.rescues.get(rid).is_some_and(|r| matches!(r.state, RescueState::Auction | RescueState::TopUpPending))),
+        };
+        self.verified.insert(pid, VerifiedState { last_block: out.block, snapshot });
+        self.emit("health_verified", json!({"position_id": pid, "block": out.block, "hf_wad": hf.to_string(), "rpcs_agreeing": out.agree}));
+
+        // escrow: the position's own balances, proven
+        if !self.position(pid)?.open_rescues.is_empty() && self.book(pid).outflows.is_empty() {
+            let bal = |a: &EvmAddr| -> R<u128> { out.bal.iter().find(|b| b.0.to_lowercase() == a.to_hex()).map_or(Ok(0), |b| num(&b.1)) };
+            let (bc, bd) = (bal(&m.collateral)?, bal(&m.debt)?);
+            let e = self.book(pid).escrow;
+            if (bc, bd) != (e.collateral_units, e.debt_units) {
+                self.set_escrow(pid, bc, bd, out.block, now, "verified")?;
+            }
+        }
+        self.settle_books(pid, now)?;
+        Ok(opened)
     }
 
     /// Commit every buy-back the escrow covers, oldest open rescue and claim first. Pays the

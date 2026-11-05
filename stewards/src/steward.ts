@@ -1,14 +1,24 @@
 // A steward bot: watches auctions, bids by its strategy, tops up when it wins, settles its
 // claims when they expire (or early), and takes over stalled settlements.
 import { type Address, type Hex } from "viem";
-import { cfg, env, stewardAccount, type StewardName } from "./config.js";
+import { cfg, env, hasEnv, stewardAccount, type StewardName } from "./config.js";
 import { call, view, NEAR, TGAS } from "./near.js";
 import { wallet, write, ensureTokens, fundEth, poolAbi, erc20Abi, MAX, pub } from "./fork.js";
 import { strategies, type AuctionView } from "./strategy.js";
+import { sourceCapital } from "./intents.js";
+import { DEFAULTS, type RiskSettings } from "./risk.js";
+import { adjust, aiEnabled, type AiContext } from "./ai.js";
 import { log, short, fmt } from "./log.js";
 import { nowNs, type Rescue, type Position, type Params, type Claim } from "./types.js";
 
 const TAKEOVER_AFTER_NS = 180n * 1_000_000_000n;
+const AI_EVERY_MS = 5 * 60_000;
+const ROLES: Record<StewardName, string> = {
+  swift: "bids first at a fixed spread, whatever the margin",
+  patient: "bids late; takes thin margins the others skip, priced for the risk",
+  deep: "capital-heavy, low risk: only comfortable margins and sizeable top-ups, low premium, full amount",
+  pool: "joins coalitions with a partial amount; same margin filter as deep",
+};
 
 export class Steward {
   readonly account: string;
@@ -24,9 +34,47 @@ export class Steward {
   /** Positions to act on; undefined = all (long-running bot). The local-fork demo script scopes it to its own run. */
   public scope?: Set<number>;
 
+  /** Risk limit per rescue, in collateral units (STEWARD_<NAME>_CAPACITY, whole LINK). */
+  capacityUnits?: bigint;
+  /** What the strategy reads. Defaults unless a verified model answer changed them. */
+  settings: RiskSettings;
+  private recent: AiContext["recent"] = [];
+  private prices: AiContext["prices"] = [];
+  private lastAi = 0;
+  private aiBusy = false;
+
   constructor(readonly name: StewardName) {
     this.account = stewardAccount(name);
     this.evm = wallet(env(`STEWARD_${name.toUpperCase()}_EVM_KEY`) as Hex);
+    const cap = `STEWARD_${name.toUpperCase()}_CAPACITY`;
+    if (hasEnv(cap)) this.capacityUnits = BigInt(Math.round(Number(env(cap)) * 1e6)) * 10n ** 12n;
+    this.settings = { ...DEFAULTS[name] };
+  }
+
+  private remember(e: AiContext["recent"][number]) {
+    this.recent = [...this.recent.filter((x) => !(x.rescue === e.rescue && x.outcome === e.outcome)), e].slice(-10);
+  }
+
+  /** Optional AI risk tuning (NEAR AI Cloud). Runs beside the tick loop, never blocks it. */
+  private maybeAdjust() {
+    if (!aiEnabled() || this.aiBusy || Date.now() - this.lastAi < AI_EVERY_MS) return;
+    this.aiBusy = true;
+    this.lastAi = Date.now();
+    const before = this.settings;
+    adjust({ steward: this.name, role: ROLES[this.name], current: before, recent: this.recent, prices: this.prices })
+      .then((r) => {
+        if (!r.verified) {
+          log(this.name, `[ai] UNVERIFIED (${r.error}): keeping settings · ${r.model}`);
+          return;
+        }
+        this.settings = r.applied;
+        const diff = (Object.keys(before) as (keyof RiskSettings)[])
+          .filter((k) => before[k] !== r.applied[k])
+          .map((k) => `${k} ${before[k]}→${r.applied[k]}`)
+          .join(", ");
+        log(this.name, `[ai] ${diff || "no change"}: "${r.reason ?? ""}" ✔ signed by ${short(r.signing_address ?? "")} (${r.model}) ${r.verify_url}`);
+      })
+      .finally(() => (this.aiBusy = false));
   }
 
   private note(rid: number, msg: string) {
@@ -43,11 +91,14 @@ export class Steward {
     this.approved.add(token);
   }
 
-  /** Fork-only: gas and test tokens for this steward's EVM wallet. */
+  /** Test tokens from Aave's faucet (and, on the fork, gas), plus Pool approvals up front so a
+   *  won top-up is a single supply tx inside the deadline. */
   async fund() {
     await fundEth(this.evm.address);
     await ensureTokens(this.evm, cfg.aave.link, 2_000n * 10n ** 18n);
     await ensureTokens(this.evm, cfg.aave.dai, 20_000n * 10n ** 18n);
+    await this.approveOnce(cfg.aave.link);
+    await this.approveOnce(cfg.aave.dai);
   }
 
   async tick() {
@@ -78,6 +129,8 @@ export class Steward {
       view<{ lt_bps: number }>("get_market", { market_id: cfg.marketId }),
     ]);
     if (!nh || !pos.health) return;
+    const px = Number(BigInt(pos.health.collateral_price_base)) / 1e8;
+    if (this.prices.at(-1)?.collateralUsd !== px) this.prices = [...this.prices, { at: new Date().toISOString(), collateralUsd: px }].slice(-20);
     const a: AuctionView = {
       capBps: r.cap_bps,
       topupUnits: BigInt(r.topup_units),
@@ -89,13 +142,16 @@ export class Steward {
       ltBps: market.lt_bps,
       debtBase: BigInt(pos.health.debt_base),
       earlyHf: params.early_settle_hf_bps / 10_000,
+      capacityUnits: this.capacityUnits,
     };
     if (a.nowNs >= a.closesAtNs) return;
-    const d = strategies[this.name](a);
+    const d = strategies[this.name](a, this.settings);
     if (!d.bid) {
       this.note(r.id, `auction ${r.id}: ${d.why}`);
+      if (!d.wait) this.remember({ rescue: r.id, outcome: `skipped: ${d.why}` });
       return;
     }
+    this.remember({ rescue: r.id, outcome: "bid", bps: d.bps });
     this.bid.add(r.id);
     const c = await call(this.account, "bid", { rescue_id: r.id, premium_bps: d.bps, amount_units: d.amountUnits.toString() }, { deposit: BigInt(params.bid_bond), gas: 30n * TGAS });
     log(this.name, `bid on auction ${r.id}: ${d.bps} bps for ${fmt(d.amountUnits)} LINK (${d.why}) ${short(c.hash)}`);
@@ -109,10 +165,11 @@ export class Steward {
     if (this.supplied.has(key)) return;
     const pos = await view<Position>("get_position", { position_id: r.position_id });
     this.supplied.add(key);
-    await ensureTokens(this.evm, cfg.aave.link, BigInt(m.share_units));
+    this.remember({ rescue: r.id, outcome: "won", bps: m.premium_bps });
+    await sourceCapital(this.name, this.evm, cfg.aave.link, "LINK", BigInt(m.share_units));
     await this.approveOnce(cfg.aave.link);
     const tx = await write(this.evm, cfg.aave.pool, poolAbi, "supply", [cfg.aave.link, BigInt(m.share_units), pos.evm_address, 0]);
-    log(this.name, `won rescue ${r.id}: supplied ${fmt(BigInt(m.share_units))} LINK onBehalfOf the position (fork ${short(tx)})`);
+    log(this.name, `won rescue ${r.id}: supplied ${fmt(BigInt(m.share_units))} LINK onBehalfOf the position (${cfg.evm} ${short(tx)})`);
     this.onAction?.("top-up", tx);
   }
 
@@ -152,7 +209,7 @@ export class Steward {
     await ensureTokens(this.evm, cfg.aave.dai, BigInt(s.repay_units));
     await this.approveOnce(cfg.aave.dai);
     const tx = await write(this.evm, cfg.aave.pool, poolAbi, "repay", [cfg.aave.dai, BigInt(s.repay_units), 2n, pos.evm_address]);
-    log(this.name, `settlement ${r.id}: repaid ${fmt(BigInt(s.repay_units))} DAI onBehalfOf the position (fork ${short(tx)})`);
+    log(this.name, `settlement ${r.id}: repaid ${fmt(BigInt(s.repay_units))} DAI onBehalfOf the position (${cfg.evm} ${short(tx)})`);
     this.onAction?.("settlement repay", tx);
   }
 
@@ -164,6 +221,7 @@ export class Steward {
       } catch (e) {
         log(this.name, `tick failed: ${(e as Error).message}`);
       }
+      this.maybeAdjust();
       await new Promise((r) => setTimeout(r, intervalMs));
     }
   }

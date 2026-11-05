@@ -1,0 +1,8 @@
+/var/log/stead/*.log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    copytruncate
+}

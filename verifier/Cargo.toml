@@ -1,0 +1,28 @@
+[package]
+name = "stead-verifier"
+version = "0.1.0"
+edition = "2021"
+description = "Verified Aave V3 reads for Stead: header agreement, Merkle-Patricia proofs, HF from raw storage"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "stead-proof"
+path = "src/bin/stead-proof.rs"
+
+[dependencies]
+rlp = "=0.6.1"
+tiny-keccak = { version = "=2.0.2", features = ["keccak"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+
+[target.'cfg(target_os = "wasi")'.dependencies]
+wasi-http-client = "=0.2.1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1

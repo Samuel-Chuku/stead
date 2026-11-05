@@ -1,17 +1,23 @@
 // The keeper: reporter + relayer + public housekeeping, one loop.
-//  - reports each position's Aave health (TEMPORARY trusted reporter; OutLayer-verified reads replace it)
+//  - reports each position's Aave health (TEMPORARY trusted reporter), or, in a verified market,
+//    asks the contract for an OutLayer-verified reading instead (the proof decides, not the keeper)
 //  - broadcasts MPC-signed txs stored on the contract, then confirms the position nonce
 //  - confirms steward top-ups, settlement repays and buy-backs by reading fork logs itself
 //  - closes auctions, expires missed top-ups, advances settlement legs (anyone may)
 import { type Address, type Hex, decodeEventLog } from "viem";
 import { cfg } from "./config.js";
-import { call, view } from "./near.js";
+import { call, view, NEAR, TGAS } from "./near.js";
 import { accountData, price, pub, poolAbi, balance } from "./fork.js";
 import { log, short } from "./log.js";
 import { nowNs, type Position, type Rescue, type Books } from "./types.js";
 
-const GAS = { gas_limit: "400000", max_fee_per_gas: "20000000000", max_priority_fee_per_gas: "1000000000" };
+const GAS = cfg.evm === "sepolia"
+  ? { gas_limit: "500000", max_fee_per_gas: "2000000000", max_priority_fee_per_gas: "100000000" } // a first Aave supply costs ~460k; the market caps gas at 500k
+  : { gas_limit: "400000", max_fee_per_gas: "20000000000", max_priority_fee_per_gas: "1000000000" };
 const REPORT_EVERY_MS = 60_000; // refresh even when nothing moved (settlement needs ≤ 120 s old)
+const VERIFY_BUSY_MS = 30_000; // verified reading cadence while an auction or claim is open
+const VERIFY_DEPTH = 3n; // the proof program reads head − 3
+const VERIFY_MIN_GAP_MS = 20_000; // never faster (each run costs NEAR; Sepolia blocks are 12 s)
 
 export class Keeper {
   private positions = new Map<number, Position>();
@@ -22,16 +28,24 @@ export class Keeper {
   private logCursor = 0n;
   private payoutOf = new Map<string, string>(); // steward → payout (lowercase)
   private running = false;
+  private verifiedMarkets?: Set<number>;
+  private lastVerify = new Map<number, number>(); // pid → when a verified read was last requested
+  private verifyNow = new Map<number, bigint>(); // pid → block of fresh evidence (a Supply) the proof must reach
   public onEvent?: (e: { event: string; data: any }, hash: string) => void;
 
   /** Positions to manage; undefined = all (the long-running keeper). The local-fork demo script scopes it to its own
    *  run, since positions from older runs point at EVM state on forks that no longer exist. */
   public scope?: Set<number>;
 
-  constructor(private who = cfg.reporter) {}
+  /** Account that pays for verified reads (any account may; it must be on the OutLayer secret's access list). */
+  public verifyPayer: string;
 
-  private async callR(method: string, args: Record<string, unknown>, gas?: bigint) {
-    const r = await call(this.who, method, args, gas ? { gas } : {});
+  constructor(private who = cfg.reporter) {
+    this.verifyPayer = process.env.VERIFY_PAYER || who;
+  }
+
+  private async callR(method: string, args: Record<string, unknown>, gas?: bigint, deposit?: bigint) {
+    const r = await call(this.who, method, args, { ...(gas ? { gas } : {}), ...(deposit ? { deposit } : {}) });
     for (const e of r.events) this.onEvent?.(e, r.hash);
     return r;
   }
@@ -45,18 +59,60 @@ export class Keeper {
   }
 
   async refreshPositions() {
+    // Only this chain's market: positions on other markets point at another EVM chain.
     if (this.scope) {
       for (const id of this.scope) {
         const p = await view<Position | null>("get_position", { position_id: id });
-        if (p) this.positions.set(id, p);
+        if (p && p.market_id === cfg.marketId) this.positions.set(id, p);
       }
       return;
     }
     for (let id = 0; ; id++) {
       const p = await view<Position | null>("get_position", { position_id: id });
       if (!p) break;
-      this.positions.set(id, p);
+      if (p.market_id === cfg.marketId) this.positions.set(id, p);
     }
+  }
+
+  async isVerified(pid: number): Promise<boolean> {
+    if (!this.verifiedMarkets) {
+      const c = await view<{ markets: number[] } | null>("get_verify_config");
+      this.verifiedMarkets = new Set(c?.markets ?? []);
+    }
+    const p = this.positions.get(pid);
+    return p !== undefined && this.verifiedMarkets.has(p.market_id);
+  }
+
+  /** Verified market: ask the contract to run the pinned proof program on OutLayer. The result
+   *  goes straight to the contract's callback; this keeper only pays for the run and can't alter it. */
+  async verify(pid: number, force = false): Promise<{ hash: string; note: string } | undefined> {
+    const p = this.positions.get(pid);
+    if (!p?.evm_address) return;
+    const last = this.lastVerify.get(pid);
+    const evidence = this.verifyNow.get(pid);
+    // the proof reads head − 3 (re-org margin): wait until the evidence is that deep, then go at once
+    const deep = evidence !== undefined && (await pub.getBlockNumber()) - VERIFY_DEPTH >= evidence;
+    if (last !== undefined && Date.now() - last < (deep ? 8_000 : VERIFY_MIN_GAP_MS)) return;
+    const busy = p.active_auction !== null || p.open_rescues.length > 0;
+    const [v, books] = await Promise.all([
+      view<{ last_block: number } | null>("get_verified", { position_id: pid }),
+      view<Books>("get_books", { position_id: pid }),
+    ]);
+    const behind = BigInt(books.last_event_block) > BigInt(v?.last_block ?? 0);
+    const due = last === undefined || Date.now() - last >= (busy ? VERIFY_BUSY_MS : 5 * REPORT_EVERY_MS);
+    if (!force && !behind && !due && !deep) return;
+    if (evidence !== undefined && !deep && !due) return;
+    this.lastVerify.set(pid, Date.now());
+    // The payer must be allowed to use the proof program's OutLayer secret (the keyed RPC)
+    const r = await call(this.verifyPayer, "request_verified", { position_id: pid }, { gas: 300n * TGAS, deposit: NEAR / 10n });
+    for (const e of r.events) this.onEvent?.(e, r.hash);
+    const ev = r.events.find((e) => e.event === "health_verified")?.data;
+    if (ev && evidence !== undefined && BigInt(ev.block) >= evidence) this.verifyNow.delete(pid);
+    const refused = r.logs.find((l) => /verified read (not applied|refused|unreadable|failed)/.test(l));
+    const note = ev
+      ? `block ${ev.block}, HF ${(Number(BigInt(ev.hf_wad) / 10n ** 12n) / 1e6).toFixed(4)}, ${ev.rpcs_agreeing} RPCs agreeing`
+      : refused ?? "no reading applied";
+    return { hash: r.hash, note };
   }
 
   /** Read Aave health for one position and report it if it changed (or is getting old). */
@@ -111,7 +167,14 @@ export class Keeper {
     }
     const rc = await pub.waitForTransactionReceipt({ hash });
     const p = this.positions.get(pid)!;
-    const onchain = await pub.getTransactionCount({ address: p.evm_address as Address });
+    // A load-balanced RPC can answer from a node a block behind the receipt: wait until the
+    // nonce reflects this tx before confirming it
+    let onchain = 0;
+    for (let i = 0; i < 10; i++) {
+      onchain = await pub.getTransactionCount({ address: p.evm_address as Address, blockTag: "latest" });
+      if (onchain > pending.tx.nonce) break;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
     const r = await this.callR("confirm_nonce", { position_id: pid, onchain_nonce: onchain, success: rc.status === "success", block: Number(rc.blockNumber) });
     return { evmTx: hash, ok: rc.status === "success", nearTx: r.hash };
   }
@@ -140,11 +203,11 @@ export class Keeper {
 
   /** Scan fork logs since the last cursor: steward top-ups and repays (in on-chain order). */
   async scanLogs() {
-    const head = await pub.getBlockNumber();
+    // Sepolia: two blocks behind the head, since load-balanced public RPCs can sit a block behind each other
+    const head = (await pub.getBlockNumber()) - (cfg.evm === "sepolia" ? 2n : 0n); // anvil mines only on demand: no lag there
     if (this.logCursor === 0n) this.logCursor = head - 50n;
     if (head <= this.logCursor) return;
     const from = this.logCursor + 1n;
-    this.logCursor = head;
     const positions = [...this.positions.values()].filter((p) => p.evm_address);
     const posAddr = new Set(positions.map((p) => p.evm_address!.toLowerCase()));
     const [, , stewards] = await view<[string, string[], string[], boolean]>("get_roles");
@@ -156,6 +219,7 @@ export class Keeper {
 
     const logs = (await pub.getLogs({ address: cfg.aave.pool, fromBlock: from, toBlock: head }))
       .sort((a, b) => Number(a.blockNumber! - b.blockNumber!) || a.logIndex! - b.logIndex!);
+    this.logCursor = head; // only after a successful read: a failed one is retried, never skipped
     let rescues = await this.liveRescues();
     for (const lg of logs) {
       let ev: any;
@@ -167,11 +231,18 @@ export class Keeper {
       const block = Number(lg.blockNumber);
       if (ev.eventName === "Supply" && posAddr.has(ev.args.onBehalfOf.toLowerCase())) {
         const pos = positions.find((p) => p.evm_address!.toLowerCase() === ev.args.onBehalfOf.toLowerCase())!;
+        if (await this.isVerified(pos.id)) {
+          if (rescues.some((r) => r.position_id === pos.id && r.state === "top_up_pending")) {
+            log("keeper", `supply onBehalfOf position ${pos.id} seen (block ${block}) → requesting a verified reading to prove it`);
+            this.verifyNow.set(pos.id, BigInt(block));
+          }
+          continue;
+        }
         for (const r of rescues.filter((r) => r.position_id === pos.id && r.state === "top_up_pending")) {
           for (const m of r.members.filter((m) => !m.confirmed)) {
             if ((await this.payout(m.steward)) === ev.args.user.toLowerCase() && BigInt(ev.args.amount) >= BigInt(m.share_units)) {
               const c = await this.callR("confirm_topup", { rescue_id: r.id, steward: m.steward, units: ev.args.amount.toString(), evm_tx: lg.transactionHash, block });
-              log("reporter", `top-up by ${m.steward.split(".")[0]} seen (fork ${short(lg.transactionHash!)}, block ${block}) → confirm_topup ${short(c.hash)}`);
+              log("reporter", `top-up by ${m.steward.split(".")[0]} seen (${cfg.evm} ${short(lg.transactionHash!)}, block ${block}) → confirm_topup ${short(c.hash)}`);
               rescues = await this.liveRescues();
             }
           }
@@ -182,14 +253,14 @@ export class Keeper {
         const settling = rescues.find((r) => r.position_id === pos.id && r.state === "settling" && r.settlement && !r.settlement.repay_confirmed);
         if (settling && (await this.payout(settling.settlement!.settler)) === repayer && BigInt(ev.args.amount) >= BigInt(settling.settlement!.repay_units)) {
           const c = await this.callR("confirm_settlement_repay", { rescue_id: settling.id, evm_tx: lg.transactionHash, units: ev.args.amount.toString(), block });
-          log("reporter", `settlement repay by ${settling.settlement!.settler.split(".")[0]} seen (fork ${short(lg.transactionHash!)}) → confirmed ${short(c.hash)}`);
+          log("reporter", `settlement repay by ${settling.settlement!.settler.split(".")[0]} seen (${cfg.evm} ${short(lg.transactionHash!)}) → confirmed ${short(c.hash)}`);
           rescues = await this.liveRescues();
         } else if (stewardOf.has(repayer) && rescues.some((r) => r.position_id === pos.id && (r.state === "open" || r.state === "settling"))) {
           // A steward repaid without a committed settlement of its own: reimbursed at par later
           const st = stewardOf.get(repayer)!;
           try {
             const c = await this.callR("confirm_stray_repay", { position_id: pos.id, steward: st, units: ev.args.amount.toString(), evm_tx: lg.transactionHash, block });
-            log("reporter", `uncommitted repay by ${st.split(".")[0]} (fork ${short(lg.transactionHash!)}) → recorded for reimbursement ${short(c.hash)}`);
+            log("reporter", `uncommitted repay by ${st.split(".")[0]} (${cfg.evm} ${short(lg.transactionHash!)}) → recorded for reimbursement ${short(c.hash)}`);
           } catch (e) {
             log("reporter", `repay by ${st.split(".")[0]} not recorded: ${(e as Error).message}`);
           }
@@ -203,6 +274,7 @@ export class Keeper {
   async proveEscrow(pid: number) {
     const p = this.positions.get(pid)!;
     if (!p.evm_address || p.open_rescues.length === 0) return;
+    if (await this.isVerified(pid)) return; // balances come from the verified reading
     if (p.pending && JSON.stringify(p.pending.kind).toLowerCase().includes("outflow")) return;
     const books = await view<Books>("get_books", { position_id: pid });
     if (books.outflows.length) return;
@@ -274,13 +346,18 @@ export class Keeper {
       const p = this.positions.get(pid)!;
       if (p.pending?.signed_raw) {
         const r = await this.relay(pid);
-        if (r) log("relayer", `position ${pid} nonce ${p.pending.tx.nonce}: fork ${short(r.evmTx)} ${r.ok ? "ok" : "REVERTED"} → confirm_nonce ${short(r.nearTx)}`);
+        if (r) log("relayer", `position ${pid} nonce ${p.pending.tx.nonce}: ${cfg.evm} ${short(r.evmTx)} ${r.ok ? "ok" : "REVERTED"} → confirm_nonce ${short(r.nearTx)}`);
       }
     }
     await this.scanLogs();
     for (const pid of this.positions.keys()) await this.proveEscrow(pid);
     for (const pid of this.positions.keys()) {
       try {
+        if (await this.isVerified(pid)) {
+          const v = await this.verify(pid);
+          if (v) log("verifier", `position ${pid}: verified read ${short(v.hash)} → ${v.note}`);
+          continue;
+        }
         const r = await this.report(pid);
         if (r) log("reporter", `report_health position ${pid} ${short(r.hash)}${r.auction != null ? ` → auction ${r.auction} opened` : ""}`);
       } catch (e) {

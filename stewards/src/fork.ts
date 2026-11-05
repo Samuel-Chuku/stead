@@ -1,5 +1,6 @@
-// EVM side: the local Sepolia fork (anvil, chain 31337). Aave reads, steward/borrower wallets,
-// and fork-only helpers (gas funding, test-token faucet, mock oracle price).
+// EVM side: the local Sepolia fork (anvil, chain 31337) or Sepolia itself (STEAD_EVM=sepolia).
+// Aave reads, steward/borrower wallets, and helpers (test-token faucet; fork-only gas funding and
+// mock oracle price).
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -11,7 +12,7 @@ import { cfg, REPO } from "./config.js";
 
 export const fork = defineChain({
   id: cfg.chainId,
-  name: "stead-fork",
+  name: cfg.evm === "sepolia" ? "sepolia" : "stead-fork",
   nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
   rpcUrls: { default: { http: [cfg.forkRpc] } },
 });
@@ -74,6 +75,7 @@ export async function balance(token: Address, who: Address): Promise<bigint> {
 
 /** Gas funding for an address on the fork (on a real chain the position address needs ETH; here anvil sets it). */
 export async function fundEth(who: Address, eth = 10n) {
+  if (cfg.evm !== "fork") return; // real chain: funded by hand (testnet ETH)
   await test.setBalance({ address: who, value: eth * E18 });
 }
 
@@ -95,6 +97,7 @@ const mockAddr = () => readFileSync(join(REPO, "fork", "state", "mock.addr"), "u
 
 /** Set the mock LINK/USD answer (8 decimals). Returns the fork tx hash. */
 export async function setLinkPrice(price8: bigint): Promise<Hex> {
+  if (cfg.evm !== "fork") throw new Error("the mock price exists only on the local fork");
   const admin = createWalletClient({ account: cfg.forkAdmin, chain: fork, transport: http(cfg.forkRpc) });
   const hash = await admin.writeContract({ address: mockAddr(), abi: mockAbi, functionName: "setAnswer", args: [price8], account: cfg.forkAdmin, chain: fork });
   await pub.waitForTransactionReceipt({ hash });

@@ -1,0 +1,26 @@
+# One Stead steward bot per instance: stead-steward@patient, @swift, @deep, @pool.
+[Unit]
+Description=Stead steward %i
+After=network-online.target stead-keeper.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stead
+WorkingDirectory=/opt/stead/stewards
+Environment=STEAD_EVM=sepolia
+Environment=NODE_ENV=production
+ExecStart=/opt/stead/stewards/node_modules/.bin/tsx scripts/steward.ts %i
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+StandardOutput=append:/var/log/stead/steward-%i.log
+StandardError=append:/var/log/stead/steward-%i.log
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/stead /opt/stead/stewards/logs
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

@@ -13,16 +13,20 @@ use near_sdk::{env, ext_contract, near, AccountId, Gas, NearToken, PanicOnDefaul
 use omni_transaction::evm::types::Signature;
 use stead_core::{
     Action, Books, Claim, ClaimStatus, EvmAddr, GasArgs, HealthReport, Market, Params, PendingTx, Position, Rescue,
-    SignPlan, Stead, SteadV1, Transfer,
+    SignPlan, Stead, SteadV2, Transfer, VerifiedOutput, VerifyConfig,
 };
 
-/// The stored contract before the buy-back escrow, for `migrate`.
+/// The stored contract before verified reads, for `migrate`.
 #[derive(near_sdk::borsh::BorshDeserialize)]
 #[borsh(crate = "near_sdk::borsh")]
-struct ContractV1 {
-    core: SteadV1,
+struct ContractV2 {
+    core: SteadV2,
     mpc: AccountId,
 }
+
+/// OutLayer execution: generous gas for the yield/resume round trip; the callback is small.
+const VERIFY_GAS: Gas = Gas::from_tgas(200);
+const VERIFY_CALLBACK_GAS: Gas = Gas::from_tgas(40);
 
 /// Live `config().sign_call_gas_attachment_requirement_tera_gas` is 15; leave headroom (spike).
 const SIGN_GAS: Gas = Gas::from_tgas(50);
@@ -111,6 +115,28 @@ fn caller() -> String {
     env::predecessor_account_id().to_string()
 }
 
+/// OutLayer returns the program's stdout as JSON: the result object itself, a JSON string
+/// holding it, or an envelope with it under `output` / `result` / `stdout`.
+fn parse_verified(b: &[u8]) -> Option<VerifiedOutput> {
+    use near_sdk::serde_json::from_slice;
+    #[derive(near_sdk::serde::Deserialize)]
+    #[serde(crate = "near_sdk::serde")]
+    struct Envelope {
+        output: Option<String>,
+        result: Option<String>,
+        stdout: Option<String>,
+    }
+    if let Ok(o) = from_slice::<VerifiedOutput>(b) {
+        return Some(o);
+    }
+    if let Ok(s) = from_slice::<String>(b) {
+        return from_slice::<VerifiedOutput>(s.as_bytes()).ok();
+    }
+    let e = from_slice::<Envelope>(b).ok()?;
+    let s = e.output.or(e.result).or(e.stdout)?;
+    from_slice::<VerifiedOutput>(s.as_bytes()).ok()
+}
+
 fn parse_addr(s: &str) -> EvmAddr {
     ok(EvmAddr::parse(s))
 }
@@ -141,13 +167,79 @@ impl Contract {
         Self { core: Stead::new(owner.as_str(), reporter.as_str()), mpc }
     }
 
-    /// One-off state migration to the escrow layout (adds empty escrow, payout queue, event
-    /// blocks). Only the contract account itself can call it, right after deploying the code.
+    /// One-off state migration to the verified-reads layout (adds the verify config and per-
+    /// position verified state). Only the contract account itself can call it, with the deploy.
     #[private]
     #[init(ignore_state)]
     pub fn migrate() -> Self {
-        let old: ContractV1 = env::state_read().unwrap_or_else(|| env::panic_str("no state to migrate"));
+        let old: ContractV2 = env::state_read().unwrap_or_else(|| env::panic_str("no state to migrate"));
         Self { core: old.core.into(), mpc: old.mpc }
+    }
+
+    // ── verified reads (OutLayer) ──
+    pub fn set_verify_config(&mut self, config: Option<VerifyConfig>) {
+        ok(self.core.set_verify_config(&caller(), config));
+    }
+
+    /// Anyone: run the pinned proof program for a position on OutLayer. The attached deposit
+    /// pays OutLayer (unused part refunded to the caller). The result is accepted only in this
+    /// contract's own callback.
+    #[payable]
+    pub fn request_verified(&mut self, position_id: u64) -> Promise {
+        let cfg = self.core.verify_cfg.clone().unwrap_or_else(|| env::panic_str("verified reads not configured"));
+        ok(self.core.is_verified(position_id).and_then(|v| if v { Ok(()) } else { Err("not a verified market".into()) }));
+        let addr = self.core.position(position_id).ok().and_then(|p| p.evm_address).unwrap_or_else(|| env::panic_str("no position address"));
+        // built as text (no generic JSON values: keeps the wasm, and its storage cost, small)
+        let secrets = match &cfg.secrets {
+            Some((owner, profile)) => format!("{{\"profile\":\"{profile}\",\"account_id\":\"{owner}\"}}"),
+            None => "null".into(),
+        };
+        let args = format!(
+            "{{\"source\":{{\"WasmUrl\":{{\"url\":\"{}\",\"hash\":\"{}\",\"build_target\":\"wasm32-wasip2\"}}}},\
+\"resource_limits\":{{\"max_instructions\":20000000000,\"max_memory_mb\":128,\"max_execution_seconds\":120}},\
+\"input_data\":\"{{\\\"position\\\":\\\"{}\\\",\\\"block\\\":null}}\",\
+\"secrets_ref\":{},\"response_format\":\"Json\",\"payer_account_id\":\"{}\",\"params\":null}}",
+            cfg.wasm_url, cfg.wasm_hash, addr.to_hex(), secrets, env::predecessor_account_id()
+        );
+        let outlayer: AccountId = cfg.outlayer.parse().unwrap_or_else(|_| env::panic_str("bad outlayer account"));
+        Promise::new(outlayer)
+            .function_call("request_execution", args.into_bytes(), env::attached_deposit(), VERIFY_GAS)
+            .then(Self::ext(env::current_account_id()).with_static_gas(VERIFY_CALLBACK_GAS).on_verified(position_id))
+    }
+
+    /// OutLayer's answer: the proof program's stdout as JSON. Errors from the program, or a
+    /// result for anything other than this position, change nothing.
+    #[private]
+    pub fn on_verified(&mut self, position_id: u64) -> Option<u64> {
+        let bytes = match env::promise_result(0) {
+            near_sdk::PromiseResult::Successful(b) => b,
+            _ => {
+                env::log_str("verified read failed: OutLayer returned no result");
+                return None;
+            }
+        };
+        let Some(out) = parse_verified(&bytes) else {
+            let shown = String::from_utf8_lossy(&bytes[..bytes.len().min(300)]).to_string();
+            env::log_str(&format!("verified read refused or unreadable: {shown}"));
+            return None;
+        };
+        let res = match self.core.apply_verified(position_id, &out, env::block_timestamp()) {
+            Ok(r) => r,
+            Err(e) => {
+                env::log_str(&format!("verified read not applied: {e}"));
+                None
+            }
+        };
+        self.flush();
+        Self::pay(self.core.payouts.drain(..).collect());
+        res
+    }
+
+    pub fn get_verify_config(&self) -> Option<VerifyConfig> {
+        self.core.verify_cfg.clone()
+    }
+    pub fn get_verified(&self, position_id: u64) -> Option<stead_core::VerifiedState> {
+        self.core.verified.get(&position_id).cloned()
     }
 
     fn flush(&mut self) {
