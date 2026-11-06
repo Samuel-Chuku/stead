@@ -21,7 +21,8 @@ Built for the NEAR HACKATHON (deadline 2026-11-14). **Testnets only** (NEAR test
 | | |
 |---|---|
 | Contract | [`steadfi.testnet`](https://testnet.nearblocks.io/address/steadfi.testnet) (NEAR testnet) |
-| Stewards and keeper | running 24/7 against Sepolia: `patient`, `swift`, `deep`, `pool` `.steadfi.testnet` |
+| Market | **2**: Sepolia Aave V3, LINK collateral, DAI debt, gas cap 670k per signed tx. Market 1 is legacy (its 500k cap is too low for a new account's first borrow); it holds only position 9's recorded run |
+| Stewards and keeper | running 24/7 against market 2: `patient`, `swift`, `deep`, `pool` `.steadfi.testnet` |
 | Proof program | OutLayer WASM, SHA-256 `5da1e8b95764fa98208aeb0f71611a3681c1024204d2bdbb5eb5e214f4ec75bc` ([source](verifier/)) |
 | A verified rescue | position [`0x98deab0b…5b34`](https://sepolia.etherscan.io/address/0x98deab0b3751f5421aa3c32ac6b8dca0010e5b34) on Sepolia ([the run](#recorded-runs)) |
 
@@ -51,7 +52,7 @@ Built for the NEAR HACKATHON (deadline 2026-11-14). **Testnets only** (NEAR test
 
 ## Recorded runs
 
-**Verified rescue on Sepolia** (2026-11-05, position 9, rescue 12). Every Aave reading that drove a
+**Verified rescue on Sepolia** (2026-11-05, position 9, rescue 12, legacy market 1). Every Aave reading that drove a
 decision came from the proof program.
 
 | Step | Evidence |
@@ -123,6 +124,11 @@ share, bid timing). It's off unless an API key is set. Any OpenAI-compatible cha
 - **What is still trusted.** On Sepolia, health factors, top-ups and buy-back balances are verified.
   A **temporary reporter** still confirms transaction nonces and settlement repays. On the local fork,
   the reporter reports everything ("unverified demo mode"). Every log line carries its mode's label.
+- **Who paid.** A verified reading proves that a position's collateral grew, not who paid. Anyone can
+  call Aave's `supply` on behalf of a position directly, so collateral added by someone else while a
+  rescue waits for its top-up is credited to the winning steward. Don't add collateral to a position
+  while an auction is open. A receipt proof of the steward's own transaction would close this; it isn't
+  built.
 - **Verified readings lag.** The proof reads 3 blocks behind the head (about 36 s on Sepolia), and the
   contract refuses a reading older than the last event it has seen.
 - **Liquidation baseline.** An Aave liquidation costs the borrower 5–10 % of the repaid debt (50 % close

@@ -11,9 +11,17 @@ import { accountData, price, pub, poolAbi, balance } from "./fork.js";
 import { log, short } from "./log.js";
 import { nowNs, type Position, type Rescue, type Books } from "./types.js";
 
-const GAS = cfg.evm === "sepolia"
-  ? { gas_limit: "500000", max_fee_per_gas: "2000000000", max_priority_fee_per_gas: "100000000" } // a first Aave supply costs ~460k; the market caps gas at 500k
+// Gas for the txs the keeper has signed (payouts, settlement legs, nonce burns). Measured on live
+// Sepolia from a fresh account, the costliest is a withdraw to a new payout (~415k): 600k leaves a
+// margin, lowered to the market's own cap where that is smaller.
+const GAS_BASE = cfg.evm === "sepolia"
+  ? { gas_limit: "600000", max_fee_per_gas: "2000000000", max_priority_fee_per_gas: "100000000" }
   : { gas_limit: "400000", max_fee_per_gas: "20000000000", max_priority_fee_per_gas: "1000000000" };
+let GAS = GAS_BASE;
+async function loadGas() {
+  const m = await view<{ gas_limit_cap: string } | null>("get_market", { market_id: cfg.marketId });
+  if (m && BigInt(m.gas_limit_cap) < BigInt(GAS_BASE.gas_limit)) GAS = { ...GAS_BASE, gas_limit: m.gas_limit_cap };
+}
 const REPORT_EVERY_MS = 60_000; // refresh even when nothing moved (settlement needs ≤ 120 s old)
 const VERIFY_BUSY_MS = 30_000; // verified reading cadence while an auction or claim is open
 const VERIFY_IDLE_MS = 30 * 60_000; // HF comfortably above the trigger: one proof per 30 min
@@ -385,6 +393,7 @@ export class Keeper {
 
   async run(intervalMs = 3000) {
     this.running = true;
+    await loadGas().catch((e) => log("keeper", `market gas cap not read (${(e as Error).message}); using ${GAS.gas_limit}`));
     while (this.running) {
       try {
         await this.tick();

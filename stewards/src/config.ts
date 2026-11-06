@@ -51,7 +51,8 @@ export const cfg = {
     ? env("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
     : env("FORK_RPC_URL", "http://127.0.0.1:8545"),
   chainId: process.env.STEAD_EVM === "sepolia" ? 11155111 : Number(env("FORK_CHAIN_ID", "31337")),
-  marketId: Number(env("STEAD_MARKET_ID", process.env.STEAD_EVM === "sepolia" ? "1" : "0")),
+  // Sepolia: market 2 (gas cap 670k, set from live measurements); market 1 is legacy (500k, too low for a first borrow)
+  marketId: Number(env("STEAD_MARKET_ID", process.env.STEAD_EVM === "sepolia" ? "2" : "0")),
   aave: {
     pool: book.AAVE_POOL as `0x${string}`,
     oracle: book.AAVE_ORACLE as `0x${string}`,

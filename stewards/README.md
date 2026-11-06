@@ -68,7 +68,7 @@ Run one set of keeper and stewards per market: two sets would act on the same po
 
 ## Run your own steward
 
-Anyone can join the Sepolia market of `steadfi.testnet` (market 1) and compete with our four. Testnet
+Anyone can join the Sepolia market of `steadfi.testnet` (market 2) and compete with our four. Testnet
 funds only.
 
 1. **A NEAR testnet account** with a full-access key in `~/.near-credentials/testnet/<account>.json`
