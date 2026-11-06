@@ -12,6 +12,7 @@ import { log, short, fmt } from "./log.js";
 import { nowNs, type Rescue, type Position, type Params, type Claim } from "./types.js";
 
 const TAKEOVER_AFTER_NS = 180n * 1_000_000_000n;
+const TOPUP_MARGIN_NS = 30n * 1_000_000_000n; // a top-up needs this long left to land before the deadline
 const AI_EVERY_MS = 5 * 60_000;
 const ROLES: Record<StewardName, string> = {
   swift: "bids first at a fixed spread, whatever the margin",
@@ -208,14 +209,24 @@ export class Steward {
     if (!m) return;
     const key = `${r.id}`;
     if (this.supplied.has(key)) return;
+    // a supply landing after the deadline would be a gift to the borrower: don't start one this late
+    if (nowNs() > BigInt(r.topup_deadline) - TOPUP_MARGIN_NS) return;
     const pos = await view<Position>("get_position", { position_id: r.position_id });
     this.supplied.add(key);
     this.remember({ rescue: r.id, outcome: "won", bps: m.premium_bps });
-    await sourceCapital(this.name, this.evm, cfg.aave.link, "LINK", BigInt(m.share_units));
-    await this.approveOnce(cfg.aave.link);
-    const tx = await write(this.evm, cfg.aave.pool, poolAbi, "supply", [cfg.aave.link, BigInt(m.share_units), pos.evm_address, 0]);
-    log(this.name, `won rescue ${r.id}: supplied ${fmt(BigInt(m.share_units))} LINK onBehalfOf the position (${cfg.evm} ${short(tx)})`);
-    this.onAction?.("top-up", tx);
+    let sent = false;
+    try {
+      await sourceCapital(this.name, this.evm, cfg.aave.link, "LINK", BigInt(m.share_units));
+      await this.approveOnce(cfg.aave.link);
+      const tx = await write(this.evm, cfg.aave.pool, poolAbi, "supply", [cfg.aave.link, BigInt(m.share_units), pos.evm_address, 0], () => (sent = true));
+      log(this.name, `won rescue ${r.id}: supplied ${fmt(BigInt(m.share_units))} LINK onBehalfOf the position (${cfg.evm} ${short(tx)})`);
+      this.onAction?.("top-up", tx);
+    } catch (e) {
+      // Nothing broadcast (e.g. a load-balanced RPC node that hasn't seen our approve yet): the next
+      // tick tries again. Once a supply is broadcast it is never resent, so it can't land twice.
+      if (!sent) this.supplied.delete(key);
+      throw e;
+    }
   }
 
   private async onOpen(r: Rescue, params: Params) {

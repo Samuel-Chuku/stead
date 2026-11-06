@@ -51,8 +51,9 @@ export function wallet(key: Hex): WalletClient & { address: Address } {
 }
 
 /** Send a contract write and wait for its receipt; returns the tx hash. */
-export async function write(w: WalletClient, address: Address, abi: any, functionName: string, args: unknown[]): Promise<Hex> {
+export async function write(w: WalletClient, address: Address, abi: any, functionName: string, args: unknown[], onSent?: (hash: Hex) => void): Promise<Hex> {
   const hash = await w.writeContract({ address, abi, functionName, args, account: w.account!, chain: fork } as any);
+  onSent?.(hash);
   const r = await pub.waitForTransactionReceipt({ hash });
   if (r.status !== "success") throw new Error(`${functionName} reverted (${hash})`);
   return hash;
