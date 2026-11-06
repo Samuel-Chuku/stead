@@ -13,14 +13,14 @@ use near_sdk::{env, ext_contract, near, AccountId, Gas, NearToken, PanicOnDefaul
 use omni_transaction::evm::types::Signature;
 use stead_core::{
     Action, Books, Claim, ClaimStatus, EvmAddr, GasArgs, HealthReport, Market, Params, PendingTx, Position, Rescue,
-    SignPlan, Stead, SteadV2, Transfer, VerifiedOutput, VerifyConfig,
+    SignPlan, Stead, SteadV3, Transfer, VerifiedOutput, VerifyConfig,
 };
 
-/// The stored contract before verified reads, for `migrate`.
+/// The stored contract before steward self-registration, for `migrate`.
 #[derive(near_sdk::borsh::BorshDeserialize)]
 #[borsh(crate = "near_sdk::borsh")]
-struct ContractV2 {
-    core: SteadV2,
+struct ContractV3 {
+    core: SteadV3,
     mpc: AccountId,
 }
 
@@ -162,17 +162,25 @@ fn signature_from(r: &SignResponse) -> Result<Signature, String> {
 
 #[near]
 impl Contract {
+    /// `buyback_window_s` is for demo deployments only (e.g. 180 on the Sepolia demo contract);
+    /// omitted, the window is the production 24 h.
     #[init]
-    pub fn new(owner: AccountId, mpc: AccountId, reporter: AccountId) -> Self {
-        Self { core: Stead::new(owner.as_str(), reporter.as_str()), mpc }
+    pub fn new(owner: AccountId, mpc: AccountId, reporter: AccountId, buyback_window_s: Option<u64>) -> Self {
+        let mut core = Stead::new(owner.as_str(), reporter.as_str());
+        if let Some(s) = buyback_window_s {
+            ok(core.init_buyback_window(s * stead_core::SEC));
+        }
+        let mut c = Self { core, mpc };
+        c.flush();
+        c
     }
 
-    /// One-off state migration to the verified-reads layout (adds the verify config and per-
-    /// position verified state). Only the contract account itself can call it, with the deploy.
+    /// One-off state migration to the self-registration layout (adds the removed-steward set).
+    /// Only the contract account itself can call it, with the deploy.
     #[private]
     #[init(ignore_state)]
     pub fn migrate() -> Self {
-        let old: ContractV2 = env::state_read().unwrap_or_else(|| env::panic_str("no state to migrate"));
+        let old: ContractV3 = env::state_read().unwrap_or_else(|| env::panic_str("no state to migrate"));
         Self { core: old.core.into(), mpc: old.mpc }
     }
 
@@ -293,6 +301,7 @@ impl Contract {
     }
     pub fn set_role(&mut self, role: String, account_id: AccountId, enabled: bool) {
         ok(self.core.set_role(&caller(), &role, account_id.as_str(), enabled));
+        self.flush();
     }
     pub fn set_paused(&mut self, paused: bool) {
         ok(self.core.set_paused(&caller(), paused));
@@ -301,6 +310,23 @@ impl Contract {
     // ── anyone ──
     pub fn set_evm_payout(&mut self, address: String) {
         ok(self.core.set_evm_payout(&caller(), parse_addr(&address)));
+    }
+
+    /// Anyone can become a steward: attach `STEWARD_DEPOSIT` (0.005 NEAR; the rest is refunded)
+    /// and give the EVM address settlement pays. The owner can remove a steward: that stops new
+    /// bids only, never its open claims, bonds or payouts.
+    #[payable]
+    pub fn register_steward(&mut self, payout: String) {
+        let dep = env::attached_deposit().as_yoctonear();
+        let ts = ok(self.core.register_steward(&caller(), parse_addr(&payout), dep));
+        self.flush();
+        Self::pay(ts);
+    }
+    pub fn get_steward_deposit(&self) -> U128 {
+        U128(stead_core::STEWARD_DEPOSIT)
+    }
+    pub fn get_removed_stewards(&self) -> Vec<String> {
+        self.core.removed_stewards.iter().cloned().collect()
     }
 
     // ── borrower ──

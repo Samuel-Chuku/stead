@@ -22,6 +22,10 @@ pub const TAKEOVER_AFTER_NS: u64 = 3 * 60 * SEC;
 /// The taker's fee, as a share of the R leg it takes on (covers oracle lag in a fall). Paid
 /// from the stalled settler's own leg, capped at that claim's premium: never from the borrower.
 pub const TAKEOVER_FEE_BPS: u128 = 100;
+/// Paid once by `register_steward`, kept as the storage it uses. Measured worst case (a 64-byte
+/// account id in the steward set and a payout entry) is about 156 bytes = 0.00156 NEAR; this is
+/// about 3x that (a test pins the margin).
+pub const STEWARD_DEPOSIT: u128 = 5_000_000_000_000_000_000_000; // 0.005 NEAR
 
 // ───────────────────────────── config ─────────────────────────────
 
@@ -75,6 +79,7 @@ impl Params {
         ensure!(self.trigger_hf_bps < self.target_hf_bps, "trigger_hf must be < target_hf");
         ensure!(self.auction_window_ns > 0 && self.topup_deadline_ns > 0, "windows must be > 0");
         ensure!(self.max_price_age_ns > 0, "max_price_age must be > 0");
+        ensure!(self.buyback_window_ns > 0, "buyback_window must be > 0");
         Ok(())
     }
 }
@@ -550,6 +555,9 @@ pub struct Stead {
     pub books: BTreeMap<u64, Books>,
     pub verify_cfg: Option<VerifyConfig>,
     pub verified: BTreeMap<u64, VerifiedState>,
+    /// Stewards the owner removed: they can't bid or re-register. Their open claims, bonds and
+    /// payouts are untouched.
+    pub removed_stewards: BTreeSet<String>,
     /// NEP-297 events produced by the last call; the wrapper drains and logs them.
     #[borsh(skip)]
     pub events: Vec<String>,
@@ -559,9 +567,9 @@ pub struct Stead {
     pub payouts: Vec<Transfer>,
 }
 
-/// The stored layout before verified reads (for `migrate`). Field order must match it.
+/// The stored layout before steward self-registration (for `migrate`). Field order must match it.
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct SteadV2 {
+pub struct SteadV3 {
     pub owner: String,
     pub reporters: BTreeSet<String>,
     pub stewards: BTreeSet<String>,
@@ -578,10 +586,12 @@ pub struct SteadV2 {
     pub next_rescue_id: u64,
     pub bonds_held: u128,
     pub books: BTreeMap<u64, Books>,
+    pub verify_cfg: Option<VerifyConfig>,
+    pub verified: BTreeMap<u64, VerifiedState>,
 }
 
-impl From<SteadV2> for Stead {
-    fn from(o: SteadV2) -> Self {
+impl From<SteadV3> for Stead {
+    fn from(o: SteadV3) -> Self {
         Stead {
             owner: o.owner,
             reporters: o.reporters,
@@ -599,8 +609,9 @@ impl From<SteadV2> for Stead {
             next_rescue_id: o.next_rescue_id,
             bonds_held: o.bonds_held,
             books: o.books,
-            verify_cfg: None,
-            verified: BTreeMap::new(),
+            verify_cfg: o.verify_cfg,
+            verified: o.verified,
+            removed_stewards: BTreeSet::new(),
             events: vec![],
             payouts: vec![],
         }
@@ -628,9 +639,18 @@ impl Stead {
             books: BTreeMap::new(),
             verify_cfg: None,
             verified: BTreeMap::new(),
+            removed_stewards: BTreeSet::new(),
             events: vec![],
             payouts: vec![],
         }
+    }
+
+    /// Init only: a contract deployed for a demo sets a shorter buy-back window here.
+    pub fn init_buyback_window(&mut self, window_ns: u64) -> R<()> {
+        ensure!(window_ns > 0, "buyback_window must be > 0");
+        self.params.buyback_window_ns = window_ns;
+        self.emit("buyback_window_set", json!({"buyback_window_s": window_ns / SEC, "demo_setting": window_ns < 24 * 3600 * SEC}));
+        Ok(())
     }
 
     fn emit(&mut self, event: &str, data: serde_json::Value) {
@@ -708,8 +728,33 @@ impl Stead {
         } else {
             set.remove(account);
         }
+        if role == "steward" {
+            // Removal only stops new bids (and re-registration). Open claims, bonds and payouts
+            // are never touched.
+            if on {
+                self.removed_stewards.remove(account);
+            } else {
+                self.removed_stewards.insert(account.into());
+                self.emit("steward_removed", json!({"steward": account}));
+            }
+        }
         Ok(())
     }
+    // ── anyone: become a steward ──
+    /// Open registration: pays `STEWARD_DEPOSIT` once (the storage it uses; the rest is refunded)
+    /// and sets the payout address. The bid bond still applies to every bid.
+    pub fn register_steward(&mut self, c: &str, payout: EvmAddr, deposit: u128) -> R<Vec<Transfer>> {
+        self.not_paused()?;
+        ensure!(!self.removed_stewards.contains(c), "removed by the owner: can't re-register");
+        ensure!(!self.stewards.contains(c), "already a steward");
+        ensure!(payout != EvmAddr::default(), "zero payout address");
+        ensure!(deposit >= STEWARD_DEPOSIT, "deposit of {STEWARD_DEPOSIT} yocto required");
+        self.stewards.insert(c.into());
+        self.evm_payouts.insert(c.into(), payout);
+        self.emit("steward_registered", json!({"steward": c, "payout": payout.to_hex()}));
+        Ok(if deposit > STEWARD_DEPOSIT { vec![Transfer { to: c.into(), amount: deposit - STEWARD_DEPOSIT }] } else { vec![] })
+    }
+
     pub fn set_paused(&mut self, c: &str, paused: bool) -> R<()> {
         self.only_owner(c)?;
         self.paused = paused;
@@ -1359,7 +1404,8 @@ impl Stead {
         if !self.use_key(format!("stray:{evm_tx}")) {
             return Ok(());
         }
-        ensure!(self.stewards.contains(steward) && self.evm_payouts.contains_key(steward), "not a registered steward with a payout");
+        let holds_claim = self.claims.values().any(|x| x.position_id == pid && x.owner == steward && x.status == ClaimStatus::Open);
+        ensure!((self.stewards.contains(steward) || holds_claim) && self.evm_payouts.contains_key(steward), "not a registered steward (or claim holder) with a payout");
         let p = self.position(pid)?;
         ensure!(!p.open_rescues.is_empty(), "no open claim: a repay now is the steward's own choice");
         for rid in &p.open_rescues {
@@ -1652,13 +1698,14 @@ impl Stead {
         Ok(())
     }
 
-    /// Any registered steward (not the settler) may take over a settlement whose repayment
+    /// Any registered steward or holder of a claim in this rescue (not the settler) may take over a settlement whose repayment
     /// hasn't been supplied 3 min after it started. The taker supplies the repayment and receives the
     /// R leg plus a fee of `TAKEOVER_FEE_BPS` of it, taken from the stalled settler's own leg and
     /// capped at that claim's premium. What leaves the position is unchanged, so the borrower's cost
     /// is still exactly the premium. One takeover per settlement; the 15-min fallback stays.
     pub fn take_over_settlement(&mut self, c: &str, rid: u64, now: u64) -> R<()> {
-        self.only_steward(c)?;
+        let holds_claim = self.claims.values().any(|x| x.rescue_id == rid && x.owner == c && x.status == ClaimStatus::Open);
+        ensure!(self.stewards.contains(c) || holds_claim, "only a registered steward or a claim holder of this rescue");
         let to = *self.evm_payouts.get(c).ok_or("set_evm_payout first")?;
         let r = self.rescue(rid)?;
         let s = match (&r.state, &r.settlement) {

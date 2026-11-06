@@ -7,7 +7,7 @@ import { wallet, write, ensureTokens, fundEth, poolAbi, erc20Abi, MAX, pub } fro
 import { strategies, type AuctionView } from "./strategy.js";
 import { sourceCapital } from "./intents.js";
 import { DEFAULTS, type RiskSettings } from "./risk.js";
-import { adjust, aiEnabled, type AiContext } from "./ai.js";
+import { adjust, aiConfig, aiEnabled, aiWarning, type AiContext } from "./ai.js";
 import { log, short, fmt } from "./log.js";
 import { nowNs, type Rescue, type Position, type Params, type Claim } from "./types.js";
 
@@ -73,8 +73,8 @@ export class Steward {
     const before = this.settings;
     adjust({ steward: this.name, role: ROLES[this.name], current: before, recent: this.recent, prices: this.prices })
       .then((r) => {
-        if (!r.verified) {
-          log(this.name, `[ai] UNVERIFIED (${r.error}): keeping settings · ${r.model}`);
+        if (!r.verified && !r.applied_unverified) {
+          log(this.name, `[ai] not applied (${r.error}): keeping settings · ${r.model} @ ${r.provider}`);
           return;
         }
         this.settings = r.applied;
@@ -82,7 +82,10 @@ export class Steward {
           .filter((k) => before[k] !== r.applied[k])
           .map((k) => `${k} ${before[k]}→${r.applied[k]}`)
           .join(", ");
-        log(this.name, `[ai] ${diff || "no change"}: "${r.reason ?? ""}" ✔ signed by ${short(r.signing_address ?? "")} (${r.model}) ${r.verify_url}`);
+        const proof = r.verified
+          ? `✔ signed by ${short(r.signing_address ?? "")} (${r.model}) ${r.verify_url}`
+          : `UNVERIFIED: ${r.provider} signs nothing; applied because AI_REQUIRE_SIGNATURE is off (${r.model})`;
+        log(this.name, `[ai] ${diff || "no change"}: "${r.reason ?? ""}" ${proof}`);
       })
       .finally(() => (this.aiBusy = false));
   }
@@ -227,6 +230,12 @@ export class Steward {
 
   async run(intervalMs = 2000) {
     this.running = true;
+    if (aiEnabled()) {
+      const c = aiConfig();
+      log(this.name, `[ai] tuning on: ${c.models.join(" → ")} @ ${c.host}, every ${AI_EVERY_MS / 60_000} min`);
+      const w = aiWarning();
+      if (w) log(this.name, `[ai] ${w}`);
+    }
     while (this.running) {
       try {
         await this.tick();

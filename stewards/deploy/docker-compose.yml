@@ -16,6 +16,10 @@ x-bot: &bot
     NEAR_CREDENTIALS_DIR: /secrets/near
     KEEPER_INTERVAL_MS: "6000"
     STEWARD_INTERVAL_MS: "5000"
+    # Our stewards' AI tuning (on only when a key is in the secrets .env): NEAR AI Cloud only, and a
+    # change applies only with a valid response signature. These override the .env.
+    AI_BASE_URL: https://cloud-api.near.ai/v1
+    AI_REQUIRE_SIGNATURE: "true"
   volumes:
     - /opt/stead/secrets/.env:/app/.env:ro
     - /opt/stead/secrets/near:/secrets/near:ro
