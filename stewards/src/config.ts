@@ -37,6 +37,8 @@ export function hasEnv(name: string) {
 
 export const cfg = {
   nearRpc: env("NEAR_RPC_URL", "https://rpc.testnet.near.org"),
+  /** Transactions can go through another RPC than views (views are the high-volume part). */
+  nearTxRpc: env("NEAR_TX_RPC_URL", env("NEAR_RPC_URL", "https://rpc.testnet.near.org")),
   contract: env("NEAR_CONTRACT_ID", "steadfi.testnet"),
   owner: env("NEAR_OWNER_ACCOUNT", "steadfi.testnet"),
   reporter: env("NEAR_REPORTER_ACCOUNT", "reporter.steadfi.testnet"),

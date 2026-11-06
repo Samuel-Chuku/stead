@@ -53,10 +53,13 @@ export function aiConfig(): AiConfig {
   };
 }
 
-/** On with a key (hosted providers), or with an explicit base URL and model (a local server). */
+/** On with a key, or keyless only for a local server named explicitly (AI_BASE_URL and AI_MODEL,
+ *  not NEAR AI). A base URL alone (as our compose file pins it) never switches it on. */
 export function aiEnabled(): boolean {
   const c = aiConfig();
-  return c.models.length > 0 && (Boolean(c.key) || hasEnv("AI_BASE_URL"));
+  if (c.models.length === 0) return false;
+  if (c.key) return true;
+  return c.attestation === "none" && hasEnv("AI_BASE_URL") && hasEnv("AI_MODEL");
 }
 
 /** A one-line warning when the settings can never apply anything, else undefined. */

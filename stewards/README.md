@@ -29,10 +29,21 @@ it, the steward bids only part, so several stewards share the rescue.
 the shortfall. No NEAR Intents testnet exists, so a test-token faucet mint stands in, labelled
 `SIMULATED NEAR Intents` in the log.
 
-**Optional AI tuning.** With `NEAR_AI_API_KEY` set, each steward asks a TEE-hosted model on NEAR AI
-Cloud every 5 minutes for new settings (`src/ai.ts`). An answer is applied only when its signature
-covers the exact request and response bytes; it is then clamped to the bounds. Records go to
-`logs/ai-<steward>.jsonl` with the model's reason and a `cloud.near.ai/verify` link.
+**Optional AI tuning** (`src/ai.ts`). Off unless an API key is set. Every 5 minutes a steward asks a
+model for new settings, from any OpenAI-compatible endpoint:
+
+| Setting | Default | |
+|---|---|---|
+| `AI_BASE_URL` | `https://cloud-api.near.ai/v1` | OpenAI, OpenRouter, Groq, Together, a local Ollama… |
+| `AI_API_KEY` | | the provider's key (`NEAR_AI_API_KEY` also works, for NEAR AI only) |
+| `AI_MODEL` / `AI_FALLBACK_MODEL` | `z-ai/glm-5.3-flash` / `Qwen/Qwen3.6-35B-A3B-FP8` on NEAR AI | |
+| `AI_REQUIRE_SIGNATURE` | `true` | apply an answer only with a valid response signature |
+
+NEAR AI Cloud signs each response: the answer is applied only when the signature covers the exact
+request and response bytes. Other providers sign nothing, so their answers are logged and never applied
+unless you set `AI_REQUIRE_SIGNATURE=false`; every adjustment is then labelled **UNVERIFIED**. Either way
+the result is clamped to the bounds and the contract caps every premium. Records go to
+`logs/ai-<steward>.jsonl`. Our own stewards run NEAR AI with the signature required.
 
 ## Setup
 1. Node ≥ 22; in `stewards/`: `npm ci --ignore-scripts`. For the fork, Foundry (`anvil`, `cast`).
@@ -54,3 +65,48 @@ STEAD_EVM=sepolia npm run keeper                # the same against Sepolia
 
 As services (containers or systemd), with restart on crash and rotated logs: [deploy/README.md](deploy/README.md).
 Run one set of keeper and stewards per market: two sets would act on the same positions.
+
+## Run your own steward
+
+Anyone can join the Sepolia market of `steadfi.testnet` (market 1) and compete with our four. Testnet
+funds only.
+
+1. **A NEAR testnet account** with a full-access key in `~/.near-credentials/testnet/<account>.json`
+   (`near account create-account sponsor-by-faucet-service <name>.testnet …`). It needs about 0.5 NEAR:
+   0.005 to register, and a 0.1 NEAR bond per bid, returned after the auction (or after your top-up
+   if you win).
+2. **A Sepolia wallet** (a new key, nothing else on it) with about 0.005 Sepolia ETH for gas. Test LINK
+   and DAI come from Aave's Sepolia faucet: `STEWARD_FUND_ON_START=true` mints them and approves the
+   Pool on the first start.
+3. **A `.env`** at the repo root:
+   ```
+   STEAD_EVM=sepolia
+   STEWARD_ACCOUNT=<name>.testnet
+   STEWARD_EVM_KEY=0x…                # the Sepolia wallet; claims are paid out to it
+   STEWARD_FUND_ON_START=true
+   # optional: STEWARD_CAPACITY=20 (whole LINK per rescue)
+   # optional: STEWARD_SETTINGS={"spreadBps":250,"bidDelayS":10}   clamped to src/risk.ts bounds
+   ```
+4. **Start it** with a strategy (`swift`, `patient`, `deep` or `pool`) as the starting point:
+   ```
+   cd stewards && npm ci --ignore-scripts && npm run steward -- deep
+   ```
+   or in a container, from the repo root:
+   ```
+   docker build -f stewards/deploy/Dockerfile -t stead-bots .
+   docker run -d --restart always --name my-steward -v "$PWD/.env:/app/.env:ro" \
+     -v ~/.near-credentials/testnet:/secrets/near:ro -e NEAR_CREDENTIALS_DIR=/secrets/near \
+     stead-bots scripts/steward.ts deep
+   ```
+
+On first start the bot calls `register_steward` (deposit 0.005 NEAR, payout = your Sepolia wallet);
+`STEWARD_AUTO_REGISTER=false` stops it from spending the deposit.
+
+- **What you'll see.** Each auction it watches, its decision and why; a bid, a win, the top-up on
+  Sepolia, then a claim NFT in your NEAR account.
+- **How you get paid.** When the borrower buys back, the contract pays your Sepolia wallet exactly the
+  owed amount. If not, your bot settles when the window ends and withdraws the owed LINK.
+- **What you risk.** Claims are owed in LINK, so a falling LINK price is your risk. A winner that misses
+  its top-up deadline loses its 0.1 NEAR bond.
+- **The owner's power.** The contract owner can remove a steward. That stops its new bids only; open
+  claims, bonds and payouts are untouched.

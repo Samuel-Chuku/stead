@@ -6,7 +6,7 @@ import { call, view, NEAR, TGAS } from "./near.js";
 import { wallet, write, ensureTokens, fundEth, poolAbi, erc20Abi, MAX, pub } from "./fork.js";
 import { strategies, type AuctionView } from "./strategy.js";
 import { sourceCapital } from "./intents.js";
-import { DEFAULTS, type RiskSettings } from "./risk.js";
+import { DEFAULTS, clamp, type RiskSettings } from "./risk.js";
 import { adjust, aiConfig, aiEnabled, aiWarning, type AiContext } from "./ai.js";
 import { log, short, fmt } from "./log.js";
 import { nowNs, type Rescue, type Position, type Params, type Claim } from "./types.js";
@@ -43,12 +43,42 @@ export class Steward {
   private lastAi = 0;
   private aiBusy = false;
 
+  /** `name` is the strategy. Our four run as `<name>.steadfi.testnet`; anyone else sets
+   *  STEWARD_ACCOUNT, STEWARD_EVM_KEY, and optionally STEWARD_CAPACITY (whole LINK) and
+   *  STEWARD_SETTINGS (JSON, clamped to the same bounds as every other change). */
   constructor(readonly name: StewardName) {
-    this.account = stewardAccount(name);
-    this.evm = wallet(env(`STEWARD_${name.toUpperCase()}_EVM_KEY`) as Hex);
-    const cap = `STEWARD_${name.toUpperCase()}_CAPACITY`;
-    if (hasEnv(cap)) this.capacityUnits = BigInt(Math.round(Number(env(cap)) * 1e6)) * 10n ** 12n;
-    this.settings = { ...DEFAULTS[name] };
+    const N = name.toUpperCase();
+    const pick = (specific: string, generic: string) => (hasEnv(specific) ? env(specific) : hasEnv(generic) ? env(generic) : undefined);
+    this.account = process.env.STEWARD_ACCOUNT || stewardAccount(name);
+    const key = pick(`STEWARD_${N}_EVM_KEY`, "STEWARD_EVM_KEY");
+    if (!key) throw new Error(`missing STEWARD_${N}_EVM_KEY or STEWARD_EVM_KEY in .env`);
+    this.evm = wallet(key as Hex);
+    const cap = pick(`STEWARD_${N}_CAPACITY`, "STEWARD_CAPACITY");
+    if (cap) this.capacityUnits = BigInt(Math.round(Number(cap) * 1e6)) * 10n ** 12n;
+    const own = process.env.STEWARD_SETTINGS;
+    this.settings = own ? clamp(JSON.parse(own), DEFAULTS[name]) : { ...DEFAULTS[name] };
+  }
+
+  /** Joins the market on first start: `register_steward` with the storage deposit, paying out to
+   *  this bot's EVM wallet. A steward the owner removed keeps settling its claims but never bids. */
+  async ensureRegistered(): Promise<"steward" | "removed"> {
+    const [, , stewards] = await view<[string, string[], string[], boolean]>("get_roles");
+    if (stewards.includes(this.account)) {
+      const payout = await view<string | null>("get_evm_payout", { account_id: this.account });
+      if (!payout) await call(this.account, "set_evm_payout", { address: this.evm.address }, { gas: 10n * TGAS });
+      else if (payout.toLowerCase() !== this.evm.address.toLowerCase()) log(this.name, `note: payout on the contract is ${short(payout)}, this wallet is ${short(this.evm.address)}`);
+      return "steward";
+    }
+    const removed = await view<string[]>("get_removed_stewards");
+    if (removed.includes(this.account)) {
+      log(this.name, `${this.account} was removed by the contract owner: no new bids; open claims still settle`);
+      return "removed";
+    }
+    if (process.env.STEWARD_AUTO_REGISTER === "false") throw new Error(`${this.account} is not a steward; register_steward first`);
+    const deposit = BigInt(await view<string>("get_steward_deposit"));
+    const c = await call(this.account, "register_steward", { payout: this.evm.address }, { deposit, gas: 10n * TGAS });
+    log(this.name, `registered ${this.account} as a steward (deposit ${Number(deposit) / 1e24} NEAR, payout ${short(this.evm.address)}) ${short(c.hash)}`);
+    return "steward";
   }
 
   private marketOf = new Map<number, number>();
@@ -230,6 +260,18 @@ export class Steward {
 
   async run(intervalMs = 2000) {
     this.running = true;
+    log(this.name, `${this.account} · ${cfg.contract} market ${cfg.marketId} · wallet ${short(this.evm.address)}`);
+    while (this.running) {
+      try {
+        await this.ensureRegistered();
+        // optional: test LINK/DAI from Aave's faucet and Pool approvals, so a won top-up is one tx
+        if (process.env.STEWARD_FUND_ON_START === "true") await this.fund();
+        break;
+      } catch (e) {
+        log(this.name, `start-up failed: ${(e as Error).message}; retrying in 30 s`);
+        await new Promise((r) => setTimeout(r, 30_000));
+      }
+    }
     if (aiEnabled()) {
       const c = aiConfig();
       log(this.name, `[ai] tuning on: ${c.models.join(" → ")} @ ${c.host}, every ${AI_EVERY_MS / 60_000} min`);

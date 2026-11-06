@@ -3,12 +3,13 @@ import { Account, JsonRpcProvider } from "near-api-js";
 import { cfg, nearKey } from "./config.js";
 
 export const provider = new JsonRpcProvider({ url: cfg.nearRpc });
+const txProvider = cfg.nearTxRpc === cfg.nearRpc ? provider : new JsonRpcProvider({ url: cfg.nearTxRpc });
 const accounts = new Map<string, Account>();
 
 export function account(id: string): Account {
   let a = accounts.get(id);
   if (!a) {
-    a = new Account(id, provider, nearKey(id) as any);
+    a = new Account(id, txProvider, nearKey(id) as any);
     accounts.set(id, a);
   }
   return a;

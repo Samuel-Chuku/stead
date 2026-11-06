@@ -1,0 +1,58 @@
+# A second, separate stack for the Sepolia demo contract (sepolia-demo.steadfi.testnet): the
+# same bots, its own NEAR keys, Sepolia wallets and logs, so it never shares a nonce or a wallet
+# with the main stack. That contract's 3-minute buy-back window is a demo setting.
+#   cd stewards/deploy && docker compose -f docker-compose.demo.yml up -d --build
+# Secrets on the host (uid 1000, mode 600):
+#   /opt/stead/secrets-demo/.env   the demo stewards' EVM keys, NEAR_RPC_URL, optional SEPOLIA_RPC_URL
+#   /opt/stead/secrets-demo/near/  a second NEAR key of the reporter and of each steward
+name: stead-demo
+
+x-bot: &bot
+  build:
+    context: ../..
+    dockerfile: stewards/deploy/Dockerfile
+  image: stead-bots:local
+  restart: always
+  environment:
+    STEAD_EVM: sepolia
+    NEAR_CONTRACT_ID: sepolia-demo.steadfi.testnet
+    # market 1: Sepolia LINK/DAI with an 800k gas cap (an account's first Aave borrow needs ~514k)
+    STEAD_MARKET_ID: "1"
+    # views (the high-volume part) on a different public RPC from the main stack, so the two
+    # don't share one rate limit; transactions on FastNEAR, which waits for long callbacks
+    NEAR_RPC_URL: https://near-testnet.drpc.org
+    NEAR_TX_RPC_URL: https://test.rpc.fastnear.com
+    NEAR_CREDENTIALS_DIR: /secrets/near
+    KEEPER_INTERVAL_MS: "6000"
+    STEWARD_INTERVAL_MS: "5000"
+    # the stewards join through register_steward and mint test tokens on first start
+    STEWARD_FUND_ON_START: "true"
+    AI_BASE_URL: https://cloud-api.near.ai/v1
+    AI_REQUIRE_SIGNATURE: "true"
+  volumes:
+    - /opt/stead/secrets-demo/.env:/app/.env:ro
+    - /opt/stead/secrets-demo/near:/secrets/near:ro
+    - /opt/stead/logs-demo:/app/stewards/logs
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+  mem_limit: 384m
+
+services:
+  keeper:
+    <<: *bot
+    command: ["scripts/keeper.ts"]
+  steward-patient:
+    <<: *bot
+    command: ["scripts/steward.ts", "patient"]
+  steward-swift:
+    <<: *bot
+    command: ["scripts/steward.ts", "swift"]
+  steward-deep:
+    <<: *bot
+    command: ["scripts/steward.ts", "deep"]
+  steward-pool:
+    <<: *bot
+    command: ["scripts/steward.ts", "pool"]

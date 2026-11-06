@@ -64,6 +64,23 @@ decision came from the proof program.
 | Borrower pays 1,924.1433 DAI into the position (1 DAI more than owed) | Sepolia [`0x92183653…88e6`](https://sepolia.etherscan.io/tx/0x9218365e5e7010dc50b41d85aab0382f6bf691f1c11264bb0844dacc52d188e6) |
 | Claim owner receives exactly 1,923.1433 DAI; 1 DAI refunded to the borrower; NFT burned | position's transfers on Sepolia |
 
+**Expiry settlement and buy-back on Sepolia** (2026-11-06, demo contract
+[`sepolia-demo.steadfi.testnet`](https://testnet.nearblocks.io/address/sepolia-demo.steadfi.testnet),
+position 1). Its buy-back window is **3 minutes, a demo setting** (the main contract keeps 24 h), so
+both endings can be shown in one sitting. Readings verified as above; the stewards joined through
+`register_steward`.
+
+| Step | Evidence |
+|---|---|
+| Verified HF 1.14 opens an auction; `deep` 150 bps, `patient` 268, `swift` 400; `deep` supplies 63.1571 LINK | Sepolia [`0xe4915add…7ce86`](https://sepolia.etherscan.io/tx/0xe4915addb98fa9b9bb7dd32c3069e93f509862e7abe787bd488c225e01c7ce86) |
+| No buy-back: the window ends, `deep` settles and repays 1,922.92 DAI | Sepolia [`0x9698a75b…51dac`](https://sepolia.etherscan.io/tx/0x9698a75be00a9fe089c2ee286d41c53513063e667fd96238c0e7ef22fba51dac) |
+| `deep` withdraws 128.2017 LINK: the 64.1044 owed plus 64.097 for its repayment at the oracle price; position left at HF 1.50 | position's transfers on Sepolia |
+| Second rescue on the same position, `deep` at 150 bps; the borrower pays 1,298.8990 DAI into the position within the window | Sepolia [`0x9959cd29…ea883`](https://sepolia.etherscan.io/tx/0x9959cd2956dca59f9feb6ba49eb3b905adad389751587d5968d620dc183ea883) |
+| `deep` receives exactly 1,297.8990 DAI; the rest is refunded to the borrower | position's transfers on Sepolia |
+
+Early settlement (the borrower's own HF falling below 1.10 while a claim is open) needs a price fall,
+and Sepolia's Aave prices are fixed, so it is shown on the fork below.
+
 **Pooled rescue** (local Sepolia fork, position 10, rescue 14). `deep` could supply 20 LINK and
 `patient` 15, so the 31.58 LINK top-up went to both: `deep` 20.00 at 150 bps and `patient` 11.58 at
 268 bps. Two claim NFTs. One buy-back payment of 881.69 DAI; the owners received exactly 555.4080 and
@@ -88,16 +105,18 @@ Stewards, keeper and deployment: **[stewards/README.md](stewards/README.md)**.
 
 ## Optional: AI risk tuning
 
-Each steward can ask a TEE-hosted model on NEAR AI Cloud (`z-ai/glm-5.3-flash`) to adjust its own risk
-settings (spread, minimum margin, minimum top-up, share, bid timing). It's off unless `NEAR_AI_API_KEY`
-is set.
+A steward can ask a model to adjust its own risk settings (spread, minimum margin, minimum top-up,
+share, bid timing). It's off unless an API key is set. Any OpenAI-compatible chat endpoint works:
+`AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `AI_FALLBACK_MODEL`. The default is NEAR AI Cloud
+(`z-ai/glm-5.3-flash`), whose TEE-hosted models sign each response.
 
-- An answer is applied only if its signature checks out. The signed text must carry the SHA-256 of the
-  exact request and response bytes, and the EIP-191 signer must match the reported signing address.
-- The settings are then clamped to fixed bounds. The contract's premium cap applies to every bid
-  whatever the model says.
-- Each adjustment is logged with the model's reason and a link to `cloud.near.ai/verify`. A failed,
-  slow or unsigned answer keeps the current settings and is logged as unverified.
+- With `AI_REQUIRE_SIGNATURE` on (the default), an answer is applied only if its signature checks out.
+  The signed text must carry the SHA-256 of the exact request and response bytes, and the EIP-191 signer
+  must match the reported signing address. Our stewards always run this way, on NEAR AI.
+- An operator using a provider that signs nothing can switch the requirement off. Every adjustment is
+  then labelled UNVERIFIED in the log and the record.
+- Either way, the settings are clamped to fixed bounds, and the contract's premium cap applies to every
+  bid whatever the model says. A failed, slow or unsigned answer keeps the current settings.
 
 ## Honest limits
 
@@ -109,6 +128,9 @@ is set.
 - **Liquidation baseline.** An Aave liquidation costs the borrower 5–10 % of the repaid debt (50 % close
   factor, or 100 % at HF ≤ 0.95 or under $2,000 on Aave v3.3+). Stead caps premiums at the **lower**
   figure. Sepolia's Pool is v3.0 (`POOL_REVISION() = 1`).
+- **Who can be a steward.** Anyone, by calling `register_steward` with a 0.005 NEAR storage deposit.
+  The contract owner can remove a steward: that stops its new bids only, never its open claims, bonds
+  or payouts.
 - **Scope.** One market pair: LINK collateral, DAI debt.
 - **A falling price is the steward's risk.** Claims are owed in LINK. In a timed model of the verified
   path (simulated, not measured on-chain), every steward whose top-up lands is repaid in full at
