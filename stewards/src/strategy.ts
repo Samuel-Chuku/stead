@@ -3,7 +3,8 @@
 // and its distance to the early-settle level (the "margin") drives what it does.
 // The knobs each strategy reads are its RiskSettings (defaults in risk.ts).
 import type { StewardName } from "./config.js";
-import { DEFAULTS, type RiskSettings } from "./risk.js";
+import { BOUNDS, DEFAULTS, type RiskSettings } from "./risk.js";
+import type { HedgeQuote } from "./hedge.js";
 
 export interface AuctionView {
   capBps: number;
@@ -19,6 +20,10 @@ export interface AuctionView {
   /** Most this steward will put into one rescue (its risk limit), in collateral units. A top-up
    *  above it is bid partially, so a large rescue needs a coalition. Undefined = no limit. */
   capacityUnits?: bigint;
+  /** The collateral's decimals (for logs). Default 18. */
+  decimals?: number;
+  /** The hedged steward only: what the venue can do for this top-up now. */
+  hedge?: HedgeQuote;
 }
 
 export type Decision = { bid: true; bps: number; amountUnits: bigint; why: string } | { bid: false; wait?: boolean; why: string };
@@ -31,7 +36,7 @@ export function netHfAfter(a: AuctionView, bps: number): number {
 
 const clampBps = (bps: number, cap: number) => Math.max(0, Math.min(cap, Math.round(bps)));
 const upTo = (a: AuctionView, units: bigint) => (a.capacityUnits !== undefined && a.capacityUnits < units ? a.capacityUnits : units);
-const partial = (a: AuctionView, units: bigint) => (upTo(a, units) < units ? ` (capacity-limited to ${(Number(upTo(a, units)) / 1e18).toFixed(2)})` : "");
+const partial = (a: AuctionView, units: bigint) => (upTo(a, units) < units ? ` (capacity-limited to ${(Number(upTo(a, units)) / 10 ** (a.decimals ?? 18)).toFixed(4)})` : "");
 const elapsed = (a: AuctionView) => Number(a.nowNs - a.openedAtNs) / 1e9;
 const share = (a: AuctionView, s: RiskSettings) =>
   s.shareFraction >= 1 ? a.topupUnits : (a.topupUnits * BigInt(Math.round(s.shareFraction * 10_000))) / 10_000n;
@@ -77,5 +82,28 @@ export const strategies: Record<StewardName, (a: AuctionView, s?: RiskSettings) 
     const bps = clampBps(s.spreadBps, a.capBps);
     const want = share(a, s);
     return { bid: true, bps, amountUnits: upTo(a, want), why: `partial ${Math.round(s.shareFraction * 100)} % at ${bps} bps${partial(a, want)}` };
+  },
+
+  /** Hedged: deep's filters, priced without the price-risk term it hedges away:
+   *  floor − λ·σ₂₄ + funding + fees. If the venue can't take the hedge now, deep's unhedged floor. */
+  hedged(a, s = DEFAULTS.hedged) {
+    const margin = netHfAfter(a, s.spreadBps) - a.earlyHf;
+    if (margin < s.minMargin) return { bid: false, why: `skips: margin ${margin.toFixed(3)} < ${s.minMargin} above early settlement` };
+    if (a.topupBase < usd(s.minTopupUsd)) return { bid: false, why: `skips: top-up under $${s.minTopupUsd}` };
+    if (elapsed(a) < s.bidDelayS) return { bid: false, wait: true, why: "waiting for mid-window" };
+    const want = share(a, s);
+    const h = a.hedge;
+    if (!h?.ok) {
+      const bps = clampBps(s.spreadBps, a.capBps);
+      return { bid: true, bps, amountUnits: upTo(a, want), why: `UNHEDGED price ${bps} bps (${h?.why ?? "no venue quote"})${partial(a, want)}` };
+    }
+    const raw = s.spreadBps - h.priceRiskBps + h.fundingBps + h.feeBps;
+    const bps = clampBps(Math.max(BOUNDS.spreadBps[0], raw), a.capBps);
+    return {
+      bid: true,
+      bps,
+      amountUnits: upTo(a, want),
+      why: `hedged: ${s.spreadBps} − ${h.priceRiskBps.toFixed(1)} risk + ${h.fundingBps.toFixed(1)} funding + ${h.feeBps.toFixed(1)} fees → ${bps} bps; ${h.why}${partial(a, want)}`,
+    };
   },
 };

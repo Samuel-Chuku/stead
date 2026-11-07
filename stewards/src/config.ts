@@ -36,9 +36,9 @@ export function hasEnv(name: string) {
 }
 
 export const cfg = {
-  nearRpc: env("NEAR_RPC_URL", "https://rpc.testnet.near.org"),
+  nearRpc: env("NEAR_RPC_URL", "https://test.rpc.fastnear.com"),
   /** Transactions can go through another RPC than views (views are the high-volume part). */
-  nearTxRpc: env("NEAR_TX_RPC_URL", env("NEAR_RPC_URL", "https://rpc.testnet.near.org")),
+  nearTxRpc: env("NEAR_TX_RPC_URL", env("NEAR_RPC_URL", "https://test.rpc.fastnear.com")),
   contract: env("NEAR_CONTRACT_ID", "steadfi.testnet"),
   owner: env("NEAR_OWNER_ACCOUNT", "steadfi.testnet"),
   reporter: env("NEAR_REPORTER_ACCOUNT", "reporter.steadfi.testnet"),
@@ -64,7 +64,7 @@ export const cfg = {
   forkAdmin: book.FORK_ADMIN as `0x${string}`,
 };
 
-export const STEWARDS = ["patient", "swift", "deep", "pool"] as const;
+export const STEWARDS = ["patient", "swift", "deep", "pool", "hedged"] as const;
 export type StewardName = (typeof STEWARDS)[number];
 export const stewardAccount = (n: StewardName) => `${n}.steadfi.testnet`;
 

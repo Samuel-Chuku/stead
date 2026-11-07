@@ -11,7 +11,7 @@ Sepolia (`STEAD_EVM=sepolia`) or a local Sepolia fork (anvil, chain id 31337, th
 | Process | What it does |
 |---|---|
 | `keeper` | Reporter, relayer and housekeeping. Requests verified readings (Sepolia) or reports health (fork); broadcasts the MPC-signed txs the contract stores and confirms the position nonce; watches EVM logs for top-ups, repays and buy-back payments; closes auctions, expires missed top-ups, signs settlement legs. |
-| `steward <name>` | One steward bot: `patient`, `swift`, `deep` or `pool`. Watches auctions on its market, bids by its strategy, supplies the top-up when it wins, settles its claim when it expires (or early), takes over stalled settlements. |
+| `steward <name>` | One steward bot: `patient`, `swift`, `deep`, `pool` or `hedged`. Watches auctions on its market, bids by its strategy, supplies the top-up when it wins, settles its claim when it expires (or early), takes over stalled settlements. |
 
 ## Strategies
 Each steward computes the borrower's own health factor **net of open claims** before bidding; the
@@ -20,6 +20,12 @@ margin above the early-settle level drives what it does:
 - **patient** bids late; accepts thin margins, priced higher the thinner the margin.
 - **deep** bids only with a comfortable margin and a top-up over $500, at a low premium, full amount.
 - **pool** bids a partial amount (40 %) to join coalitions; same margin filter as deep.
+- **hedged**: shorts the top-up asset while a claim is open, so it can bid the lowest premiums.
+  Mechanics shown on testnet; neutrality shown by replaying 2026 price paths.
+  Its bid is deep's floor minus the price-risk premium it no longer carries, plus the expected
+  funding and fees for a 24 h hold (about 63 bps for LINK). The short is placed after its own top-up
+  and sized to the units it is still owed, so every exit closes it. Venue: Orderly **testnet** only
+  (`scripts/orderly.ts setup` creates the account; if the venue can't take the hedge, it bids unhedged).
 
 The numbers (spread, minimum margin, minimum top-up, share, bid delay) are data with fixed bounds
 (`src/risk.ts`). A steward's risk limit per rescue is `STEWARD_<NAME>_CAPACITY` (whole LINK); above

@@ -12,8 +12,9 @@ back within 24 hours.
 - The contract holds the position: every EVM transaction is built on NEAR and signed by the MPC network
   (`v1.signer-prod.testnet`), from a fixed allow-list of calls.
 - Decisions on Sepolia rest on **verified reads**: an OutLayer program (TEE) proves the position's
-  Aave state from Ethereum storage proofs, with several RPCs agreeing on the block.
-- Claims are owed in the units the steward supplied (LINK), not USD, so a rescue costs the borrower
+  Aave state from Ethereum storage proofs, with at least three RPCs, and a majority of those that
+  answer, agreeing on the block.
+- Claims are owed in the units the steward supplied (LINK, WBTC), not USD, so a rescue costs the borrower
   only its premium.
 
 Built for the NEAR HACKATHON (deadline 2026-11-14). **Testnets only** (NEAR testnet, Ethereum Sepolia).
@@ -40,7 +41,9 @@ Built for the NEAR HACKATHON (deadline 2026-11-14). **Testnets only** (NEAR test
    (50 % close factor × liquidation bonus × debt), counted across all open claims.
 3. **Top up.** Each winner supplies its share to Aave on the position's behalf. Only a verified
    reading showing the collateral increase mints the winner a **claim NFT (NEP-171)**: owed the same
-   units back, plus a fixed-unit premium.
+   units back, plus a fixed-unit premium. A missed deadline is also decided by a verified reading,
+   one from a block after the deadline, so a top-up that landed in time but wasn't proven yet still
+   counts. If no reading arrives within 15 minutes, anyone may expire the top-up directly.
 4. **Buy back (24 h).** The borrower pays what's owed **into the position**, not to the steward. Once a
    verified reading proves the balance, the contract signs the payment of exactly the owed amount to
    the claim owner and refunds any excess to the borrower. While a claim is open the borrower can only
@@ -48,7 +51,14 @@ Built for the NEAR HACKATHON (deadline 2026-11-14). **Testnets only** (NEAR test
 5. **Or settle.** If the claim isn't bought back in time, or the borrower's own health factor (net of
    what the claims are owed) falls below **1.10**, the claim owner deleverages the position at the
    oracle price: repays debt, withdraws its owed collateral. A stalled settler can be taken over after
-   3 minutes. Buy-back and settlement are decided atomically on NEAR, whichever commits first.
+   3 minutes. Buy-back and settlement are decided atomically on NEAR, whichever commits first. The
+   withdrawals go out one at a time, each after a fresh reading: every claim's principal first, the
+   premiums last.
+6. **If Aave liquidates anyway.** While a claim is open, Stead signs no collateral withdrawal except
+   settlement legs, so a verified reading showing less collateral than the highest seen (net of those
+   legs) is proof of a liquidation. Every open claim then shrinks to the units supplied: the premium is
+   forfeited, so the borrower never pays Aave's penalty and a premium. A settlement whose repay isn't
+   confirmed yet goes back to open; after the repay, the unsent premium legs are dropped.
 
 ## Recorded runs
 
@@ -121,14 +131,25 @@ share, bid timing). It's off unless an API key is set. Any OpenAI-compatible cha
 
 ## Honest limits
 
-- **What is still trusted.** On Sepolia, health factors, top-ups and buy-back balances are verified.
-  A **temporary reporter** still confirms transaction nonces and settlement repays. On the local fork,
+- **What is still trusted.** On Sepolia, health factors, top-ups, buy-back balances and settlement
+  repays (from the drop in the position's scaled debt) are verified. A **temporary reporter** still
+  confirms transaction nonces. On the local fork,
   the reporter reports everything ("unverified demo mode"). Every log line carries its mode's label.
 - **Who paid.** A verified reading proves that a position's collateral grew, not who paid. Anyone can
   call Aave's `supply` on behalf of a position directly, so collateral added by someone else while a
   rescue waits for its top-up is credited to the winning steward. Don't add collateral to a position
   while an auction is open. A receipt proof of the steward's own transaction would close this; it isn't
   built.
+- **Repays during a settlement.** The settlement repay is proven from the drop in the position's
+  debt, which any repay causes. A borrower who repays the position directly on Aave while it settles is
+  credited toward the settler's repay (the settler never gets more than the collateral it was owed for
+  it). Don't repay a settling position on Aave directly. A receipt proof of the settler's own repay
+  would close this.
+- **Liquidation evidence between two readings.** A supply and a liquidation that both land between two
+  verified readings can cancel out in the collateral, and then the premium isn't forfeited. Proving
+  Aave's `LiquidationCall` event would close this.
+- **A premium leg already signed.** If a liquidation is proven while a premium withdrawal is already
+  in flight, that one premium is still paid (at most one claim's premium).
 - **Verified readings lag.** The proof reads 3 blocks behind the head (about 36 s on Sepolia), and the
   contract refuses a reading older than the last event it has seen.
 - **Liquidation baseline.** An Aave liquidation costs the borrower 5–10 % of the repaid debt (50 % close
@@ -139,10 +160,11 @@ share, bid timing). It's off unless an API key is set. Any OpenAI-compatible cha
   or payouts.
 - **Scope.** One market pair: LINK collateral, DAI debt.
 - **A falling price is the steward's risk.** Claims are owed in LINK. In a timed model of the verified
-  path (simulated, not measured on-chain), every steward whose top-up lands is repaid in full at
-  constant falls up to **10 % per minute**. Faster than about 12 %/min the rescue can't land before Aave
-  liquidates: no steward money is at risk then, but there is no rescue either. If a settling steward
-  goes silent, the fallback only protects in slow markets (≤ 0.5 %/min).
+  path (simulated, not measured on-chain; one fresh reading before each settlement withdrawal), every
+  steward whose top-up lands is repaid in full at constant falls up to **10 % per minute**. Faster than
+  about 12 %/min the rescue can't land before Aave liquidates: no steward money is at risk then, but
+  there is no rescue either. If a settling steward goes silent and another takes over after 3 minutes,
+  up to **5 %/min**; if nobody takes over, the fallback only protects in slow markets (≤ 0.5 %/min).
 - **NEAR Intents is simulated.** No testnet exists. When a steward lacks the asset, a faucet mint
   stands in for an Intents swap, and the log says so.
 - **Sepolia prices are fixed.** Its Aave oracle is admin-only, so on Sepolia a borrow moves the health

@@ -125,6 +125,31 @@ export interface Outflow {
   token_id: string | null;
 }
 
+/** `get_watch`: the collateral watch, and on a verified market the settlement start, whose
+ *  `need` is the scaled debt drop that confirms the repay. */
+export interface Watch {
+  last: { cs: string; ds: string; ci: string; di: string; block: number } | null;
+  hw: string;
+  withdrawn: string;
+  settle: { rescue_id: number; start: { cs: string; ds: string; ci: string; di: string; block: number }; need: string } | null;
+}
+
+export const RAY = 10n ** 27n;
+
+/** The settlement repay in debt units. With a verified start the contract confirms the repay from
+ *  the scaled debt drop (`need`), so the repay covers `need` at the debt index it executes at.
+ *  The index read now is already stale when the repay lands a block or more later, and a repay
+ *  that burns even a few wei short is not confirmed, so the index gets a margin of
+ *  INDEX_MARGIN_BPS (at an 80 % borrow rate that is about an hour of interest), plus 2 wei for
+ *  Aave's rounding; never less than `repay_units`. The margin pays down the borrower's debt. */
+export const INDEX_MARGIN_BPS = 1n;
+export function settlementRepayUnits(repayUnits: bigint, need: bigint | undefined, debtIndexNow: bigint): bigint {
+  if (need === undefined || need === 0n) return repayUnits;
+  const index = debtIndexNow + (debtIndexNow * INDEX_MARGIN_BPS + 9_999n) / 10_000n;
+  const v = (need * index + RAY - 1n) / RAY + 2n;
+  return v > repayUnits ? v : repayUnits;
+}
+
 export interface Books {
   escrow: { collateral_units: string; debt_units: string; block: number; collateral_committed: string; debt_committed: string };
   outflows: Outflow[];

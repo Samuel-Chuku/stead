@@ -3,7 +3,7 @@
 # with the main stack. That contract's 3-minute buy-back window is a demo setting.
 #   cd stewards/deploy && docker compose -f docker-compose.demo.yml up -d --build
 # Secrets on the host (uid 1000, mode 600):
-#   /opt/stead/secrets-demo/.env   the demo stewards' EVM keys, NEAR_RPC_URL, optional SEPOLIA_RPC_URL
+#   /opt/stead/secrets-demo/.env   the demo stewards' EVM keys, NEAR_TX_RPC_URL, ORDERLY_* (hedged), optional SEPOLIA_RPC_URL
 #   /opt/stead/secrets-demo/near/  a second NEAR key of the reporter and of each steward
 name: stead-demo
 
@@ -16,15 +16,21 @@ x-bot: &bot
   environment:
     STEAD_EVM: sepolia
     NEAR_CONTRACT_ID: sepolia-demo.steadfi.testnet
-    # market 1: Sepolia LINK/DAI with an 800k gas cap (an account's first Aave borrow needs ~514k)
-    STEAD_MARKET_ID: "1"
-    # views (the high-volume part) on a different public RPC from the main stack, so the two
-    # don't share one rate limit; transactions on FastNEAR, which waits for long callbacks
+    # market 1: Sepolia LINK/DAI (800k gas cap; an account's first Aave borrow needs ~514k);
+    # market 2: WBTC/DAI (8-decimal collateral, 600k cap). Pick with DEMO_MARKET_ID at `up` time.
+    STEAD_MARKET_ID: "${DEMO_MARKET_ID:-1}"
+    # Neither stack shares a rate limit with the other: the main stack uses FastNEAR for
+    # everything; this one reads from dRPC and sends transactions through a keyed RPC set as
+    # NEAR_TX_RPC_URL in the secrets .env (dRPC answers long transactions such as
+    # report_health with "Internal server error"; rpc.testnet.near.org is deprecated)
     NEAR_RPC_URL: https://near-testnet.drpc.org
-    NEAR_TX_RPC_URL: https://test.rpc.fastnear.com
+    NEAR_RPC_FALLBACK: https://test.rpc.fastnear.com # only while dRPC is failing
     NEAR_CREDENTIALS_DIR: /secrets/near
     KEEPER_INTERVAL_MS: "6000"
     STEWARD_INTERVAL_MS: "5000"
+    # no rescue live on this market: poll every 10 s (a new auction is seen ≤ 10 s after it opens,
+    # well inside its 45 s); full speed again as soon as one is live
+    STEWARD_IDLE_INTERVAL_MS: "10000"
     # the stewards join through register_steward and mint test tokens on first start
     STEWARD_FUND_ON_START: "true"
     AI_BASE_URL: https://cloud-api.near.ai/v1
@@ -56,3 +62,8 @@ services:
   steward-pool:
     <<: *bot
     command: ["scripts/steward.ts", "pool"]
+  # shorts the top-up asset on Orderly TESTNET while its claim is open (WBTC → PERP_BTC_USDC);
+  # venue keys ORDERLY_EVM_KEY / ORDERLY_KEY_SEED in the secrets .env
+  steward-hedged:
+    <<: *bot
+    command: ["scripts/steward.ts", "hedged"]

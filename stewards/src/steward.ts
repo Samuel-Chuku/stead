@@ -2,14 +2,18 @@
 // claims when they expire (or early), and takes over stalled settlements.
 import { type Address, type Hex } from "viem";
 import { cfg, env, hasEnv, stewardAccount, type StewardName } from "./config.js";
-import { call, view, NEAR, TGAS } from "./near.js";
-import { wallet, write, ensureTokens, fundEth, poolAbi, erc20Abi, MAX, pub } from "./fork.js";
+import { call, view, viewReport, NEAR, TGAS } from "./near.js";
+import { wallet, write, ensureTokens, fundEth, poolAbi, erc20Abi, MAX, pub, price } from "./fork.js";
 import { strategies, type AuctionView } from "./strategy.js";
 import { sourceCapital } from "./intents.js";
 import { DEFAULTS, clamp, type RiskSettings } from "./risk.js";
+import { marketAssets, units } from "./market.js";
+import { FINAL, RescueCursor, pollDelay } from "./rescues.js";
+import { Hedger, type Venue } from "./hedge.js";
+import { PERP } from "./orderly.js";
 import { adjust, aiConfig, aiEnabled, aiWarning, type AiContext } from "./ai.js";
 import { log, short, fmt } from "./log.js";
-import { nowNs, type Rescue, type Position, type Params, type Claim } from "./types.js";
+import { nowNs, settlementRepayUnits, type Rescue, type Position, type Params, type Claim, type Watch } from "./types.js";
 
 const TAKEOVER_AFTER_NS = 180n * 1_000_000_000n;
 const TOPUP_MARGIN_NS = 30n * 1_000_000_000n; // a top-up needs this long left to land before the deadline
@@ -19,6 +23,7 @@ const ROLES: Record<StewardName, string> = {
   patient: "bids late; takes thin margins the others skip, priced for the risk",
   deep: "capital-heavy, low risk: only comfortable margins and sizeable top-ups, low premium, full amount",
   pool: "joins coalitions with a partial amount; same margin filter as deep",
+  hedged: "deep's filters; shorts the top-up asset on a testnet perps venue while its claim is open, so it bids without the price-risk premium",
 };
 
 export class Steward {
@@ -29,13 +34,20 @@ export class Steward {
   private supplied = new Set<string>();
   private repaid = new Set<number>();
   private approved = new Set<string>();
+  /** Rescues whose top-up supply this steward has broadcast (the hedge may follow only these). */
+  private toppedUp = new Set<number>();
+  /** The hedged strategy's venue side (created on first use, once the market is known). */
+  private hedger?: Hedger;
+  /** Tests inject a fake venue here. */
+  venue?: Venue;
   private running = false;
   public onAction?: (what: string, hash: string) => void;
 
   /** Positions to act on; undefined = all (long-running bot). The local-fork demo script scopes it to its own run. */
   public scope?: Set<number>;
 
-  /** Risk limit per rescue, in collateral units (STEWARD_<NAME>_CAPACITY, whole LINK). */
+  /** Risk limit per rescue, in whole collateral tokens (STEWARD_<NAME>_CAPACITY; may be fractional, e.g. 0.5 WBTC). */
+  capacity?: number;
   capacityUnits?: bigint;
   /** What the strategy reads. Defaults unless a verified model answer changed them. */
   settings: RiskSettings;
@@ -45,7 +57,7 @@ export class Steward {
   private aiBusy = false;
 
   /** `name` is the strategy. Our four run as `<name>.steadfi.testnet`; anyone else sets
-   *  STEWARD_ACCOUNT, STEWARD_EVM_KEY, and optionally STEWARD_CAPACITY (whole LINK) and
+   *  STEWARD_ACCOUNT, STEWARD_EVM_KEY, and optionally STEWARD_CAPACITY (whole collateral tokens) and
    *  STEWARD_SETTINGS (JSON, clamped to the same bounds as every other change). */
   constructor(readonly name: StewardName) {
     const N = name.toUpperCase();
@@ -55,7 +67,7 @@ export class Steward {
     if (!key) throw new Error(`missing STEWARD_${N}_EVM_KEY or STEWARD_EVM_KEY in .env`);
     this.evm = wallet(key as Hex);
     const cap = pick(`STEWARD_${N}_CAPACITY`, "STEWARD_CAPACITY");
-    if (cap) this.capacityUnits = BigInt(Math.round(Number(cap) * 1e6)) * 10n ** 12n;
+    if (cap) this.capacity = Number(cap); // turned into units once the market's decimals are known
     const own = process.env.STEWARD_SETTINGS;
     this.settings = own ? clamp(JSON.parse(own), DEFAULTS[name]) : { ...DEFAULTS[name] };
   }
@@ -139,21 +151,26 @@ export class Steward {
    *  won top-up is a single supply tx inside the deadline. */
   async fund() {
     await fundEth(this.evm.address);
-    await ensureTokens(this.evm, cfg.aave.link, 2_000n * 10n ** 18n);
-    await ensureTokens(this.evm, cfg.aave.dai, 20_000n * 10n ** 18n);
-    await this.approveOnce(cfg.aave.link);
-    await this.approveOnce(cfg.aave.dai);
+    const a = await marketAssets();
+    // about $60,000 of collateral at the oracle price, and 20,000 of the debt asset
+    const px = await price(a.collateral);
+    await ensureTokens(this.evm, a.collateral, (60_000n * 10n ** 8n * 10n ** BigInt(a.cDec)) / px);
+    await ensureTokens(this.evm, a.debt, units(20_000, a.dDec));
+    await this.approveOnce(a.collateral);
+    await this.approveOnce(a.debt);
   }
+
+  /** True after a tick that saw a live rescue on this steward's market (poll at full speed). */
+  busy = false;
+  private cursor = new RescueCursor();
 
   async tick() {
     const params = await view<Params>("get_params");
-    const rescues: Rescue[] = [];
-    for (let from = 0; ; from += 50) {
-      const page = await view<Rescue[]>("get_rescues", { from, limit: 50 });
-      rescues.push(...page);
-      if (page.length < 50) break;
-    }
-    for (const r of rescues.filter((r) => !this.scope || this.scope.has(r.position_id))) {
+    const rescues = await this.cursor.read();
+    this.busy = false;
+    const mine = rescues.filter((r) => !this.scope || this.scope.has(r.position_id));
+    for (const r of mine) {
+      if (!FINAL.includes(r.state) && (await this.onMyMarket(r.position_id))) this.busy = true;
       // only rescues on this chain's market: other positions live on another EVM chain
       if (!["bought_back", "settled", "failed"].includes(r.state) && !(await this.onMyMarket(r.position_id))) continue;
       try {
@@ -164,6 +181,55 @@ export class Steward {
       } catch (e) {
         this.note(r.id, `rescue ${r.id}: ${(e as Error).message}`);
       }
+    }
+    // after every rescue action of this tick: the top-up always comes before the hedge
+    if (this.name === "hedged") await this.syncHedge(mine);
+  }
+
+  private async hedge(): Promise<Hedger> {
+    if (!this.hedger) {
+      const a = await marketAssets();
+      const symbol = PERP[a.cSym];
+      if (!symbol) throw new Error(`no perp for ${a.cSym} on the venue`);
+      this.hedger = new Hedger(this.name, symbol, a.cSym, this.venue);
+    }
+    return this.hedger;
+  }
+
+  /** The units this steward is still owed, from the contract alone (base units of the collateral):
+   *  its share once its supply is broadcast; then each open claim's share minus the settlement
+   *  legs already paid to it. Every exit (buy-back, settlement, forfeit, failed or refunded top-up,
+   *  takeover) drops it to 0 by itself. */
+  async hedgeTarget(rescues: Rescue[]): Promise<bigint> {
+    let owed = 0n;
+    for (const r of rescues) {
+      if (FINAL.includes(r.state) || !(await this.onMyMarket(r.position_id))) continue;
+      const m = r.members.find((x) => x.steward === this.account);
+      if (!m) continue;
+      if (r.state === "top_up_pending") {
+        if (this.toppedUp.has(r.id)) owed += BigInt(m.share_units);
+        continue;
+      }
+      if ((r.state !== "open" && r.state !== "settling") || !m.claim_id) continue;
+      const claim = await view<Claim>("get_claim", { token_id: m.claim_id });
+      if (claim.status !== "open" || claim.owner !== this.account) continue;
+      const paid = (r.settlement?.legs ?? [])
+        .filter((l) => l.claim_id === m.claim_id && l.done && l.amount !== "max")
+        .reduce((x, l) => x + BigInt((l.amount as { exact: string }).exact), 0n);
+      const left = BigInt(m.share_units) - paid;
+      if (left > 0n) owed += left;
+    }
+    return owed;
+  }
+
+  private async syncHedge(rescues: Rescue[]) {
+    try {
+      const owed = await this.hedgeTarget(rescues);
+      const a = await marketAssets();
+      const live = rescues.filter((r) => !FINAL.includes(r.state) && r.members.some((x) => x.steward === this.account)).map((r) => r.id);
+      await (await this.hedge()).reconcile(Number(owed) / 10 ** a.cDec, `rescues [${live.join(",")}] owed ${fmt(owed, a.cDec)} ${a.cSym}`);
+    } catch (e) {
+      log(this.name, `unhedged: ${(e as Error).message} (retrying next tick; the top-up is unaffected)`);
     }
   }
 
@@ -188,8 +254,13 @@ export class Steward {
       ltBps: market.lt_bps,
       debtBase: BigInt(pos.health.debt_base),
       earlyHf: params.early_settle_hf_bps / 10_000,
-      capacityUnits: this.capacityUnits,
+      capacityUnits: this.capacityUnits ?? (this.capacity !== undefined ? units(this.capacity, (await marketAssets()).cDec) : undefined),
+      decimals: (await marketAssets()).cDec,
     };
+    if (this.name === "hedged") {
+      const units = a.capacityUnits !== undefined && a.capacityUnits < a.topupUnits ? a.capacityUnits : a.topupUnits;
+      a.hedge = await (await this.hedge()).quote(Number(units) / 10 ** (a.decimals ?? 18));
+    }
     if (a.nowNs >= a.closesAtNs) return;
     const d = strategies[this.name](a, this.settings);
     if (!d.bid) {
@@ -200,7 +271,8 @@ export class Steward {
     this.remember({ rescue: r.id, outcome: "bid", bps: d.bps });
     this.bid.add(r.id);
     const c = await call(this.account, "bid", { rescue_id: r.id, premium_bps: d.bps, amount_units: d.amountUnits.toString() }, { deposit: BigInt(params.bid_bond), gas: 30n * TGAS });
-    log(this.name, `bid on auction ${r.id}: ${d.bps} bps for ${fmt(d.amountUnits)} LINK (${d.why}) ${short(c.hash)}`);
+    const ma = await marketAssets();
+    log(this.name, `bid on auction ${r.id}: ${d.bps} bps for ${fmt(d.amountUnits, ma.cDec)} ${ma.cSym} (${d.why}) ${short(c.hash)}`);
     this.onAction?.(`bid ${d.bps} bps`, c.hash);
   }
 
@@ -216,10 +288,14 @@ export class Steward {
     this.remember({ rescue: r.id, outcome: "won", bps: m.premium_bps });
     let sent = false;
     try {
-      await sourceCapital(this.name, this.evm, cfg.aave.link, "LINK", BigInt(m.share_units));
-      await this.approveOnce(cfg.aave.link);
-      const tx = await write(this.evm, cfg.aave.pool, poolAbi, "supply", [cfg.aave.link, BigInt(m.share_units), pos.evm_address, 0], () => (sent = true));
-      log(this.name, `won rescue ${r.id}: supplied ${fmt(BigInt(m.share_units))} LINK onBehalfOf the position (${cfg.evm} ${short(tx)})`);
+      const a = await marketAssets();
+      await sourceCapital(this.name, this.evm, a.collateral, a.cSym, BigInt(m.share_units), a.cDec);
+      await this.approveOnce(a.collateral);
+      const tx = await write(this.evm, cfg.aave.pool, poolAbi, "supply", [a.collateral, BigInt(m.share_units), pos.evm_address, 0], () => {
+        sent = true;
+        this.toppedUp.add(r.id);
+      });
+      log(this.name, `won rescue ${r.id}: supplied ${fmt(BigInt(m.share_units), a.cDec)} ${a.cSym} onBehalfOf the position (${cfg.evm} ${short(tx)})`);
       this.onAction?.("top-up", tx);
     } catch (e) {
       // Nothing broadcast (e.g. a load-balanced RPC node that hasn't seen our approve yet): the next
@@ -261,12 +337,23 @@ export class Steward {
     }
     if (this.repaid.has(r.id) || BigInt(s.repay_units) === 0n) return;
     this.repaid.add(r.id);
-    const pos = await view<Position>("get_position", { position_id: r.position_id });
-    await ensureTokens(this.evm, cfg.aave.dai, BigInt(s.repay_units));
-    await this.approveOnce(cfg.aave.dai);
-    const tx = await write(this.evm, cfg.aave.pool, poolAbi, "repay", [cfg.aave.dai, BigInt(s.repay_units), 2n, pos.evm_address]);
-    log(this.name, `settlement ${r.id}: repaid ${fmt(BigInt(s.repay_units))} DAI onBehalfOf the position (${cfg.evm} ${short(tx)})`);
-    this.onAction?.("settlement repay", tx);
+    let sent = false;
+    try {
+      const [pos, w] = await Promise.all([view<Position>("get_position", { position_id: r.position_id }), view<Watch | null>("get_watch", { position_id: r.position_id }).catch(() => null)]); // older contract: no watch
+      // a verified start: the contract confirms the repay from the scaled debt drop
+      const need = w?.settle?.rescue_id === r.id ? BigInt(w.settle.need) : undefined;
+      const a = await marketAssets();
+      const di = need ? ((await pub.readContract({ address: cfg.aave.pool, abi: poolAbi, functionName: "getReserveNormalizedVariableDebt", args: [a.debt] })) as bigint) : 0n;
+      const amount = settlementRepayUnits(BigInt(s.repay_units), need, di);
+      await ensureTokens(this.evm, a.debt, amount);
+      await this.approveOnce(a.debt);
+      const tx = await write(this.evm, cfg.aave.pool, poolAbi, "repay", [a.debt, amount, 2n, pos.evm_address], () => (sent = true));
+      log(this.name, `settlement ${r.id}: repaid ${fmt(amount, a.dDec)} ${a.dSym} onBehalfOf the position${need ? " (covers the proven scaled drop)" : ""} (${cfg.evm} ${short(tx)})`);
+      this.onAction?.("settlement repay", tx);
+    } catch (e) {
+      if (!sent) this.repaid.delete(r.id); // nothing broadcast: try again next tick
+      throw e;
+    }
   }
 
   async run(intervalMs = 2000) {
@@ -275,7 +362,7 @@ export class Steward {
     while (this.running) {
       try {
         await this.ensureRegistered();
-        // optional: test LINK/DAI from Aave's faucet and Pool approvals, so a won top-up is one tx
+        // optional: test tokens from Aave's faucet and Pool approvals, so a won top-up is one tx
         if (process.env.STEWARD_FUND_ON_START === "true") await this.fund();
         break;
       } catch (e) {
@@ -289,14 +376,26 @@ export class Steward {
       const w = aiWarning();
       if (w) log(this.name, `[ai] ${w}`);
     }
+    // Two speeds: full speed while a rescue on this market is live; the idle interval otherwise
+    // (STEWARD_IDLE_INTERVAL_MS, default = the full-speed interval). Repeated failures (a
+    // throttled RPC) back off up to a minute and recover on their own.
+    const idleMs = Number(process.env.STEWARD_IDLE_INTERVAL_MS ?? intervalMs);
+    let failures = 0;
+    let statsAt = Date.now();
     while (this.running) {
       try {
         await this.tick();
+        failures = 0;
       } catch (e) {
-        log(this.name, `tick failed: ${(e as Error).message}`);
+        failures++;
+        log(this.name, `tick failed${failures > 1 ? ` (${failures} in a row)` : ""}: ${(e as Error).message}`);
+      }
+      if (Date.now() - statsAt >= 10 * 60_000) {
+        log(this.name, viewReport(Date.now() - statsAt));
+        statsAt = Date.now();
       }
       this.maybeAdjust();
-      await new Promise((r) => setTimeout(r, intervalMs));
+      await new Promise((r) => setTimeout(r, pollDelay(this.busy ? intervalMs : idleMs, failures)));
     }
   }
   stop() {

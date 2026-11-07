@@ -10,12 +10,12 @@ import { log, fmt } from "./log.js";
 export const INTENTS_LABEL = "[SIMULATED NEAR Intents: no solver delivers these test tokens; the faucet stands in]";
 
 /** Make sure `w` holds `units` of `token`; any shortfall "arrives via Intents" (simulated). */
-export async function sourceCapital(who: string, w: ReturnType<typeof wallet>, token: Address, symbol: string, units: bigint): Promise<bigint> {
+export async function sourceCapital(who: string, w: ReturnType<typeof wallet>, token: Address, symbol: string, units: bigint, decimals = 18): Promise<bigint> {
   const have = await balance(token, w.address);
   if (have >= units) return 0n;
   const short = units - have;
-  log(who, `capital: needs ${fmt(short)} more ${symbol} on the EVM side → intent "NEAR → ${symbol}" ${INTENTS_LABEL}`);
+  log(who, `capital: needs ${fmt(short, decimals)} more ${symbol} on the EVM side → intent "NEAR → ${symbol}" ${INTENTS_LABEL}`);
   await faucet(w, token, w.address, short);
-  log(who, `capital: ${fmt(short)} ${symbol} arrived ${INTENTS_LABEL}`);
+  log(who, `capital: ${fmt(short, decimals)} ${symbol} arrived ${INTENTS_LABEL}`);
   return short;
 }

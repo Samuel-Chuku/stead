@@ -16,6 +16,11 @@ x-bot: &bot
     NEAR_CREDENTIALS_DIR: /secrets/near
     KEEPER_INTERVAL_MS: "6000"
     STEWARD_INTERVAL_MS: "5000"
+    # no rescue live on this market: poll every 10 s (a new auction is seen ≤ 10 s after it opens,
+    # well inside its 45 s); full speed again as soon as one is live
+    STEWARD_IDLE_INTERVAL_MS: "10000"
+    # views read from FastNEAR (secrets .env) and fail over to dRPC only while FastNEAR is failing
+    NEAR_RPC_FALLBACK: https://near-testnet.drpc.org
     # test tokens and Pool approvals on start, so a won top-up is a single supply inside the deadline
     STEWARD_FUND_ON_START: "true"
     # Our stewards' AI tuning (on only when a key is in the secrets .env): NEAR AI Cloud only, and a

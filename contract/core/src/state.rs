@@ -19,6 +19,10 @@ pub const TRANSFER_GAS: u128 = 21_000;
 pub const SETTLE_FALLBACK_NS: u64 = 15 * 60 * SEC;
 /// After this long without the repayment, any registered steward may take the repay step over.
 pub const TAKEOVER_AFTER_NS: u64 = 3 * 60 * SEC;
+/// On a verified market a missed top-up is decided by the first verified reading from after the
+/// deadline (the top-up may have landed but not been proven yet). Only if no such reading arrives
+/// within this long may anyone expire it directly (a proof outage can't lock the position).
+pub const VERIFIED_EXPIRY_GRACE_NS: u64 = 15 * 60 * SEC;
 /// The taker's fee, as a share of the R leg it takes on (covers oracle lag in a fall). Paid
 /// from the stalled settler's own leg, capped at that claim's premium: never from the borrower.
 pub const TAKEOVER_FEE_BPS: u128 = 100;
@@ -26,6 +30,10 @@ pub const TAKEOVER_FEE_BPS: u128 = 100;
 /// account id in the steward set and a payout entry) is about 156 bytes = 0.00156 NEAR; this is
 /// about 3x that (a test pins the margin).
 pub const STEWARD_DEPOSIT: u128 = 5_000_000_000_000_000_000_000; // 0.005 NEAR
+/// Aave's index unit (ray).
+pub const RAY: u128 = 1_000_000_000_000_000_000_000_000_000;
+/// The allowance for a Stead-signed `withdraw(max)` leg: the whole remaining collateral.
+const ALL: u128 = u128::MAX / 4;
 
 // ───────────────────────────── config ─────────────────────────────
 
@@ -506,6 +514,9 @@ pub struct VerifiedOutput {
     pub pos: String,
     pub chain: u64,
     pub block: u64,
+    /// The block's timestamp (seconds). 0 if absent: such a proof never expires a top-up.
+    #[serde(default)]
+    pub ts: u64,
     pub hf: String,
     pub cb: String,
     pub db: String,
@@ -518,6 +529,59 @@ pub struct VerifiedOutput {
 pub struct VerifiedReserve {
     pub a: String,
     pub p: String,
+    /// Scaled aToken balance and scaled variable debt (exact, no interest rounding).
+    #[serde(default)]
+    pub cs: Option<String>,
+    #[serde(default)]
+    pub ds: Option<String>,
+    /// Liquidity and variable-debt indexes (ray), from the program version that outputs them.
+    #[serde(default)]
+    pub ci: Option<String>,
+    #[serde(default)]
+    pub di: Option<String>,
+}
+
+/// Exact Aave values from a verified proof: the collateral reserve's scaled aToken balance and
+/// liquidity index, the debt reserve's scaled variable debt and debt index (indexes are 0 when
+/// the pinned program doesn't output them).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub struct Scaled {
+    #[serde(with = "crate::as_str")]
+    pub cs: u128,
+    #[serde(with = "crate::as_str")]
+    pub ds: u128,
+    #[serde(with = "crate::as_str")]
+    pub ci: u128,
+    #[serde(with = "crate::as_str")]
+    pub di: u128,
+    pub block: u64,
+}
+
+/// A verified settlement's start: the repay is confirmed once the position's scaled variable
+/// debt is at least `need` below `start.ds` at a later block.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub struct SettleStart {
+    pub rescue_id: u64,
+    pub start: Scaled,
+    #[serde(with = "crate::as_str")]
+    pub need: u128,
+}
+
+/// Per position while claims are open: the collateral watch (liquidation evidence) and the
+/// verified settlement start.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub struct Watch {
+    /// The last verified exact reading.
+    pub last: Option<Scaled>,
+    /// The highest collateral seen while claims are open, counting the Stead-signed withdraws
+    /// confirmed since as still there (scaled units on a verified market, token units
+    /// otherwise). 0: not tracking.
+    #[serde(with = "crate::as_str")]
+    pub hw: u128,
+    /// Stead-signed collateral withdraws confirmed since tracking started, in the same unit.
+    #[serde(with = "crate::as_str")]
+    pub withdrawn: u128,
+    pub settle: Option<SettleStart>,
 }
 
 /// A repay a steward made on the position without having committed a settlement.
@@ -558,6 +622,8 @@ pub struct Stead {
     /// Stewards the owner removed: they can't bid or re-register. Their open claims, bonds and
     /// payouts are untouched.
     pub removed_stewards: BTreeSet<String>,
+    /// Collateral watch and verified settlement start, per position.
+    pub watch: BTreeMap<u64, Watch>,
     /// NEP-297 events produced by the last call; the wrapper drains and logs them.
     #[borsh(skip)]
     pub events: Vec<String>,
@@ -567,9 +633,9 @@ pub struct Stead {
     pub payouts: Vec<Transfer>,
 }
 
-/// The stored layout before steward self-registration (for `migrate`). Field order must match it.
+/// The stored layout before the collateral watch (for `migrate`). Field order must match it.
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct SteadV3 {
+pub struct SteadV4 {
     pub owner: String,
     pub reporters: BTreeSet<String>,
     pub stewards: BTreeSet<String>,
@@ -588,10 +654,11 @@ pub struct SteadV3 {
     pub books: BTreeMap<u64, Books>,
     pub verify_cfg: Option<VerifyConfig>,
     pub verified: BTreeMap<u64, VerifiedState>,
+    pub removed_stewards: BTreeSet<String>,
 }
 
-impl From<SteadV3> for Stead {
-    fn from(o: SteadV3) -> Self {
+impl From<SteadV4> for Stead {
+    fn from(o: SteadV4) -> Self {
         Stead {
             owner: o.owner,
             reporters: o.reporters,
@@ -611,7 +678,8 @@ impl From<SteadV3> for Stead {
             books: o.books,
             verify_cfg: o.verify_cfg,
             verified: o.verified,
-            removed_stewards: BTreeSet::new(),
+            removed_stewards: o.removed_stewards,
+            watch: BTreeMap::new(),
             events: vec![],
             payouts: vec![],
         }
@@ -640,6 +708,7 @@ impl Stead {
             verify_cfg: None,
             verified: BTreeMap::new(),
             removed_stewards: BTreeSet::new(),
+            watch: BTreeMap::new(),
             events: vec![],
             payouts: vec![],
         }
@@ -993,12 +1062,14 @@ impl Stead {
         ensure!(!self.is_verified(id)?, "verified market: readings come only from proofs");
         let last = self.book(id).last_event_block;
         ensure!(r.block >= last, "reading older than the last confirmed event (block {} < {last})", r.block);
-        let out = self.report_health_inner(c, id, r, now)?;
+        let out = self.report_health_inner(c, id, r, now, None)?;
         self.settle_books(id, now)?;
         Ok(out)
     }
 
-    fn report_health_inner(&mut self, c: &str, id: u64, r: HealthReport, now: u64) -> R<Option<u64>> {
+    /// `scaled_collateral`: the exact scaled aToken balance from a verified proof (None on the
+    /// reporter path, where collateral units come from the reading's base value).
+    fn report_health_inner(&mut self, c: &str, id: u64, r: HealthReport, now: u64, scaled_collateral: Option<u128>) -> R<Option<u64>> {
         ensure!(r.collateral_price_base > 0 && r.debt_price_base > 0, "zero price");
         let paused = self.paused;
         let params = self.params.clone();
@@ -1013,10 +1084,23 @@ impl Stead {
         // position is locked Stead signs no withdrawal, so collateral units AND debt units both
         // falling between two readings can only be a liquidation (With verified reads: verified balance proofs).
         // HF < 1 alone is not enough: the winner must still supply or be slashed.
+        let claims_were_open = !p.open_rescues.is_empty();
+        let mut liquidated = false;
         if let (Some(prev), Some(aid)) = (p.health.clone(), p.active_auction) {
             if matches!(self.rescue(aid)?.state, RescueState::Auction | RescueState::TopUpPending) && Self::liquidated_between(&prev.r, &r, &m) {
                 self.fail_liquidated(aid, now)?;
+                liquidated = true;
             }
+        }
+        // While claims are open, Stead signs no collateral withdrawal except settlement legs, so
+        // collateral below its high-water mark (net of those legs) can only be a liquidation.
+        if claims_were_open || !self.position(id)?.open_rescues.is_empty() {
+            let c_now = scaled_collateral.unwrap_or_else(|| math::base_to_units_floor(r.collateral_base, r.collateral_price_base, m.collateral_decimals));
+            liquidated |= self.collateral_watch(id, c_now, scaled_collateral.is_some())?;
+        }
+        // The borrower must never pay Aave's liquidation penalty AND a premium
+        if liquidated {
+            self.forfeit_premiums(id)?;
         }
         let p = self.position(id)?;
         let seq = self.rescues.values().filter(|x| x.position_id == id).count() as u32;
@@ -1224,6 +1308,16 @@ impl Stead {
         let r = self.rescue(rid)?;
         ensure!(r.state == RescueState::TopUpPending, "rescue not awaiting top-up");
         ensure!(now > r.topup_deadline, "top-up deadline not passed");
+        // verified market: the first verified reading from after the deadline decides (a top-up
+        // that landed but wasn't proven yet still counts); a direct expiry only after the grace
+        if self.is_verified(r.position_id)? {
+            ensure!(now > r.topup_deadline + VERIFIED_EXPIRY_GRACE_NS, "verified market: waiting for a verified reading from after the top-up deadline");
+        }
+        self.expire_topup_now(rid, now)
+    }
+
+    fn expire_topup_now(&mut self, rid: u64, now: u64) -> R<Vec<Transfer>> {
+        let r = self.rescue(rid)?;
         let borrower = self.position(r.position_id)?.owner.clone();
         let pid = r.position_id;
         let slashed: Vec<_> = r.members.iter().filter(|m| !m.confirmed).map(|m| Transfer { to: borrower.clone(), amount: m.bond }).collect();
@@ -1292,6 +1386,128 @@ impl Stead {
         let cu = |r: &HealthReport| math::base_to_units_floor(r.collateral_base, r.collateral_price_base, m.collateral_decimals);
         let du = |r: &HealthReport| math::base_to_units_floor(r.debt_base, r.debt_price_base, m.debt_decimals);
         cu(now) * BPS < cu(prev) * (BPS - 1) && du(now) < du(prev)
+    }
+
+    /// A claim's first leg pays its principal (and the settler's R); any later leg for the same
+    /// claim pays premium (its premium leg, or a takeover fee taken from it).
+    pub fn is_premium_leg(legs: &[Leg], i: usize) -> bool {
+        let id = &legs[i].claim_id;
+        id.is_some() && legs[..i].iter().any(|l| &l.claim_id == id)
+    }
+
+    pub fn watch_of(&self, pid: u64) -> Watch {
+        self.watch.get(&pid).copied().unwrap_or_default()
+    }
+
+    /// The most a Stead-signed `withdraw(amount)` can take off the watched collateral, in the
+    /// watch's unit. Verified: scaled burned = amount / index at the withdraw ≤ amount / index at
+    /// the settlement start (the index only rises), and ≤ amount without it (index ≥ 1 ray).
+    fn withdraw_allowance(&self, pid: u64, amount: &AmountArg, exact: bool) -> u128 {
+        match amount {
+            AmountArg::Max => ALL,
+            AmountArg::Exact(u) => {
+                let ci0 = self.watch_of(pid).settle.map_or(0, |st| st.start.ci);
+                if exact && ci0 >= RAY {
+                    math::mul_div(*u, RAY, ci0) + 2
+                } else {
+                    *u
+                }
+            }
+        }
+    }
+
+    /// A settlement leg signed but not yet confirmed may already have landed.
+    fn inflight_allowance(&self, pid: u64, exact: bool) -> R<u128> {
+        let Some(TxKind::Settlement { rescue_id, leg }) = self.position(pid)?.pending.as_ref().map(|t| t.kind.clone()) else { return Ok(0) };
+        let leg = self.rescue(rescue_id)?.settlement.as_ref().and_then(|s| s.legs.get(leg as usize)).map(|l| l.amount);
+        Ok(leg.map_or(0, |a| self.withdraw_allowance(pid, &a, exact)))
+    }
+
+    /// Liquidation evidence while claims are open: the collateral fell below its high-water mark
+    /// (the highest seen while claims are open) by more than confirmed and in-flight Stead legs
+    /// explain. A rise lifts the mark, so a supply can't hide a later liquidation. Exact in scaled
+    /// units on a verified market; 1 bps tolerance on the reporter's base-derived units.
+    fn collateral_watch(&mut self, pid: u64, c_now: u128, exact: bool) -> R<bool> {
+        let inflight = self.inflight_allowance(pid, exact)?;
+        let w = self.watch.entry(pid).or_default();
+        let adj = c_now.saturating_add(w.withdrawn);
+        if w.hw == 0 {
+            w.hw = adj;
+            return Ok(false);
+        }
+        let floor = adj.saturating_add(inflight);
+        let liquidated = if exact { floor < w.hw } else { floor.saturating_mul(BPS) < w.hw.saturating_mul(BPS - 1) };
+        w.hw = if liquidated { adj } else { w.hw.max(adj) };
+        Ok(liquidated)
+    }
+
+    /// A proven liquidation while claims are open: every open claim of the position shrinks to
+    /// its principal (premium forfeited). A settlement whose repay isn't confirmed aborts to
+    /// `Open` (a fresh reading decides again; a repay already made becomes a stray repay,
+    /// reimbursed at par). After the repay, the unsent claim legs drop their premium. A leg
+    /// already sent, or in flight, keeps it.
+    fn forfeit_premiums(&mut self, pid: u64) -> R<()> {
+        let p = self.position(pid)?;
+        let inflight = match p.pending.as_ref().map(|t| &t.kind) {
+            Some(TxKind::Settlement { rescue_id, leg }) => Some((*rescue_id, *leg)),
+            _ => None,
+        };
+        for rid in p.open_rescues.clone() {
+            // only a PREMIUM leg in flight keeps its claim's premium (bounded by that one leg)
+            let inflight_claim = inflight.filter(|(r, _)| *r == rid).and_then(|(_, i)| {
+                let legs = &self.rescue(rid).ok()?.settlement.as_ref()?.legs;
+                (Self::is_premium_leg(legs, i as usize)).then(|| legs[i as usize].claim_id.clone()).flatten()
+            });
+            let mut forfeited: BTreeMap<String, u128> = BTreeMap::new();
+            for cl in self.claims.values_mut().filter(|c| c.rescue_id == rid && c.status == ClaimStatus::Open && c.premium_units > 0) {
+                if inflight_claim.as_deref() == Some(cl.token_id.as_str()) {
+                    continue;
+                }
+                forfeited.insert(cl.token_id.clone(), cl.premium_units);
+                cl.owed_units = cl.share_units;
+                cl.premium_units = 0;
+            }
+            if forfeited.is_empty() {
+                continue;
+            }
+            let total: u128 = forfeited.values().sum();
+            let r = self.rescue_mut(rid)?;
+            let mut aborted = false;
+            let mut zero_legs = vec![];
+            if r.state == RescueState::Settling {
+                let s = r.settlement.as_mut().ok_or("no settlement")?;
+                if !s.repay_confirmed {
+                    r.state = RescueState::Open;
+                    r.settlement = None;
+                    aborted = true;
+                } else {
+                    s.owed_units = s.owed_units.saturating_sub(total);
+                    for i in 0..s.legs.len() {
+                        let forfeits = s.legs[i].claim_id.as_ref().is_some_and(|id| forfeited.contains_key(id));
+                        if !s.legs[i].done && inflight != Some((rid, i as u32)) && forfeits && Self::is_premium_leg(&s.legs, i) {
+                            s.legs[i].amount = AmountArg::Exact(0);
+                            zero_legs.push(i as u32); // a premium leg: dropped, nothing sent
+                        }
+                    }
+                }
+            }
+            if aborted {
+                if let Some(w) = self.watch.get_mut(&pid) {
+                    if w.settle.is_some_and(|st| st.rescue_id == rid) {
+                        w.settle = None;
+                    }
+                }
+            }
+            for i in zero_legs {
+                self.settlement_leg_done(rid, i)?;
+            }
+            self.emit(
+                "premiums_forfeited",
+                json!({"rescue_id": rid, "position_id": pid, "claims": forfeited.iter().map(|(k, v)| (k.clone(), v.to_string())).collect::<BTreeMap<_, _>>(),
+                       "settlement_aborted": aborted}),
+            );
+        }
+        Ok(())
     }
 
     /// Refund every bond still held for this rescue (no slash). Members whose top-up was
@@ -1365,9 +1581,19 @@ impl Stead {
         let pid = r.position_id;
         let p = self.position_mut(pid)?;
         p.open_rescues.retain(|x| *x != rid);
-        if p.open_rescues.is_empty() && p.active_auction.is_none() {
+        let unlocked = p.open_rescues.is_empty() && p.active_auction.is_none();
+        if unlocked {
             p.premium_used_base = 0;
             p.premium_cap_base = 0;
+        }
+        if let Some(w) = self.watch.get_mut(&pid) {
+            if w.settle.is_some_and(|st| st.rescue_id == rid) {
+                w.settle = None;
+            }
+            if self.positions[&pid].open_rescues.is_empty() {
+                w.hw = 0;
+                w.withdrawn = 0;
+            }
         }
         Ok(())
     }
@@ -1408,9 +1634,12 @@ impl Stead {
         ensure!((self.stewards.contains(steward) || holds_claim) && self.evm_payouts.contains_key(steward), "not a registered steward (or claim holder) with a payout");
         let p = self.position(pid)?;
         ensure!(!p.open_rescues.is_empty(), "no open claim: a repay now is the steward's own choice");
+        let proving = self.watch_of(pid).settle.map(|st| st.rescue_id);
         for rid in &p.open_rescues {
             if let Some(s) = &self.rescues[rid].settlement {
                 ensure!(!(s.settler == steward && !s.repay_confirmed), "that is the committed settlement's repay: confirm_settlement_repay");
+                // its debt drop already counts toward the settlement: it can't also be reimbursed
+                ensure!(!(proving == Some(*rid) && !s.repay_confirmed), "a settlement repay is being proven on this position: a repay now counts toward it");
             }
         }
         self.note_event(pid, block);
@@ -1454,6 +1683,19 @@ impl Stead {
         let pc = price_of(&m.collateral)?;
         let pd = if db > 0 { price_of(&m.debt)? } else { out.res.iter().find(|r| r.a.to_lowercase() == m.debt.to_hex()).map_or(Ok(100_000_000), |r| num(&r.p))? };
         let units = math::base_to_units_floor(cb, pc, m.collateral_decimals);
+        let reserve = |a: &EvmAddr| out.res.iter().find(|r| r.a.to_lowercase() == a.to_hex());
+        let field = |a: &EvmAddr, f: fn(&VerifiedReserve) -> &Option<String>| -> R<u128> { reserve(a).and_then(|r| f(r).as_deref()).map_or(Ok(0), num) };
+        let scaled = if out.res.iter().any(|r| r.cs.is_some()) {
+            Some(Scaled {
+                cs: field(&m.collateral, |r| &r.cs)?,
+                ci: field(&m.collateral, |r| &r.ci)?,
+                ds: field(&m.debt, |r| &r.ds)?,
+                di: field(&m.debt, |r| &r.di)?,
+                block: out.block,
+            })
+        } else {
+            None
+        };
 
         // a verified top-up: collateral grew by the winners' shares since the auction opened
         if let (Some(rid), Some((srid, units0))) = (p.active_auction, st.snapshot) {
@@ -1476,11 +1718,23 @@ impl Stead {
                 }
             }
         }
+        // no top-up shown by a reading from after the deadline: that reading expires the rescue
+        if let Some(rid) = self.position(pid)?.active_auction {
+            let r = self.rescue(rid)?;
+            if r.state == RescueState::TopUpPending && out.ts > 0 && out.ts.saturating_mul(SEC) > r.topup_deadline {
+                let slashed = self.expire_topup_now(rid, now)?;
+                self.payouts.extend(slashed);
+            }
+        }
 
         let last = self.book(pid).last_event_block;
         ensure!(out.block >= last, "proof older than the last event (block {} < {last})", out.block);
         let r = HealthReport { hf_wad: hf, collateral_base: cb, debt_base: db, collateral_price_base: pc, debt_price_base: pd, block: out.block };
-        let opened = self.report_health_inner("verified", pid, r, now)?;
+        let opened = self.report_health_inner("verified", pid, r, now, scaled.map(|x| x.cs))?;
+        if let Some(sc) = scaled {
+            self.watch.entry(pid).or_default().last = Some(sc);
+            self.prove_settlement_repay(pid, &sc)?;
+        }
         let snapshot = match opened {
             Some(rid) => Some((rid, units)),
             None => st.snapshot.filter(|(rid, _)| self.rescues.get(rid).is_some_and(|r| matches!(r.state, RescueState::Auction | RescueState::TopUpPending))),
@@ -1499,6 +1753,29 @@ impl Stead {
         }
         self.settle_books(pid, now)?;
         Ok(opened)
+    }
+
+    /// A verified reading after a verified settlement started: the repay is confirmed when the
+    /// position's scaled variable debt fell by at least `need` (exact integers, no tolerance).
+    /// Any repay on the position counts (the borrower's own included: Stead can't tell them apart
+    /// without a receipt proof); the settler's credit stays its stored R leg.
+    fn prove_settlement_repay(&mut self, pid: u64, sc: &Scaled) -> R<()> {
+        let Some(st) = self.watch_of(pid).settle else { return Ok(()) };
+        let r = self.rescue(st.rescue_id)?;
+        let Some(s) = r.settlement.as_ref() else { return Ok(()) };
+        if r.state != RescueState::Settling || s.repay_confirmed || sc.block <= st.start.block {
+            return Ok(());
+        }
+        let drop = st.start.ds.saturating_sub(sc.ds);
+        if drop < st.need {
+            return Ok(());
+        }
+        let s = self.rescue_mut(st.rescue_id)?.settlement.as_mut().unwrap();
+        s.repay_confirmed = true;
+        s.committed = true;
+        self.note_event(pid, sc.block);
+        self.emit("settlement_repaid", json!({"rescue_id": st.rescue_id, "scaled_debt_drop": drop.to_string(), "need": st.need.to_string(), "block": sc.block, "trust": "verified"}));
+        Ok(())
     }
 
     /// Commit every buy-back the escrow covers, oldest open rescue and claim first. Pays the
@@ -1655,17 +1932,28 @@ impl Stead {
         let avail = c_units.min(need);
         let settler_r = repay_coll_units.min(avail);
         let rest = avail - settler_r;
+        // Principal legs first (each claim's principal, the settler's with its R), premium legs
+        // last: every leg needs a fresh reading, so no premium is signed after a liquidation is
+        // seen, and earlier legs carry principal only.
         let mut legs = vec![];
+        let mut premium_legs = vec![];
         let mut r_paid = false;
         for cl in &open {
             let to = *payout.get(&cl.owner).ok_or_else(|| format!("{} has no EVM payout", cl.owner))?;
-            let mut units = if avail >= need { cl.owed_units } else { math::mul_div(cl.owed_units, rest, owed_units) };
+            let units = if avail >= need { cl.owed_units } else { math::mul_div(cl.owed_units, rest, owed_units) };
+            let principal = units.min(cl.share_units);
+            let mut first = principal;
             if cl.owner == c && !r_paid {
-                units += settler_r;
+                first += settler_r;
                 r_paid = true;
             }
-            legs.push(Leg { to, amount: AmountArg::Exact(units), claim_id: Some(cl.token_id.clone()), done: false });
+            legs.push(Leg { to, amount: AmountArg::Exact(first), claim_id: Some(cl.token_id.clone()), done: false });
+            if units > principal {
+                premium_legs.push(Leg { to, amount: AmountArg::Exact(units - principal), claim_id: Some(cl.token_id.clone()), done: false });
+            }
         }
+        legs.extend(premium_legs);
+        legs.retain(|l| l.amount != AmountArg::Exact(0)); // nothing to send (deep-crash pro rata)
         if full && avail >= need {
             legs.push(Leg { to: borrower_payout, amount: AmountArg::Max, claim_id: None, done: false });
         }
@@ -1692,6 +1980,15 @@ impl Stead {
             json!({"rescue_id": rid, "settler": c, "early": s.early, "repay_units": repay_units.to_string(),
                    "full_close": full, "price_base": price.to_string(), "trust": "TEMPORARY reporter price"}),
         );
+        // A verified market whose program outputs the debt index: the repay is proven from the
+        // scaled debt, starting from this decision reading.
+        let pid = self.rescue(rid)?.position_id;
+        let verified_start = if self.is_verified(pid)? { self.watch_of(pid).last.filter(|l| l.di > 0) } else { None };
+        if let Some(l) = verified_start {
+            ensure!(l.block == h.r.block, "the decision reading is not the last verified reading");
+            let need = if repay_units == 0 { 0 } else { math::mul_div(repay_units, RAY, l.di) + 1 };
+            self.watch.entry(pid).or_default().settle = Some(SettleStart { rescue_id: rid, start: l, need });
+        }
         let r = self.rescue_mut(rid)?;
         r.state = RescueState::Settling;
         r.settlement = Some(s);
@@ -1721,11 +2018,24 @@ impl Stead {
         let r_units = s.repay_collateral_units;
         let i = s.legs.iter().position(|l| l.claim_id.as_deref() == Some(stalled_id.as_str())).ok_or("settler leg missing")?;
         let AmountArg::Exact(leg_units) = s.legs[i].amount else { return Err("settler leg not exact".into()) };
-        let fee = (r_units * TAKEOVER_FEE_BPS / BPS).min(stalled_premium).min(leg_units.saturating_sub(r_units));
+        ensure!(leg_units >= r_units, "settler leg below its R");
+        // the fee comes out of the stalled settler's premium leg (capped at it), never the borrower
+        let j = (i + 1..s.legs.len()).find(|&k| s.legs[k].claim_id.as_deref() == Some(stalled_id.as_str()));
+        let prem_leg = j.map_or(0, |k| if let AmountArg::Exact(u) = s.legs[k].amount { u } else { 0 });
+        let fee = (r_units * TAKEOVER_FEE_BPS / BPS).min(stalled_premium).min(prem_leg);
         let s = self.rescue_mut(rid)?.settlement.as_mut().unwrap();
-        s.legs[i].amount = AmountArg::Exact(leg_units - r_units - fee);
-        let at = if s.legs.last().is_some_and(|l| l.amount == AmountArg::Max) { s.legs.len() - 1 } else { s.legs.len() };
-        s.legs.insert(at, Leg { to, amount: AmountArg::Exact(r_units + fee), claim_id: None, done: false });
+        s.legs[i].amount = AmountArg::Exact(leg_units - r_units);
+        // the taker's R joins the principal legs; its fee joins the premium legs (paid last, and
+        // forfeited with the premium it came from)
+        let first_premium = (0..s.legs.len()).find(|&k| Self::is_premium_leg(&s.legs, k) || s.legs[k].amount == AmountArg::Max).unwrap_or(s.legs.len());
+        s.legs.insert(first_premium, Leg { to, amount: AmountArg::Exact(r_units), claim_id: None, done: false });
+        if fee > 0 {
+            let k = j.unwrap() + 1; // shifted by the insert above
+            s.legs[k].amount = AmountArg::Exact(prem_leg - fee);
+            let at = if s.legs.last().is_some_and(|l| l.amount == AmountArg::Max) { s.legs.len() - 1 } else { s.legs.len() };
+            s.legs.insert(at, Leg { to, amount: AmountArg::Exact(fee), claim_id: Some(stalled_id.clone()), done: false });
+        }
+        s.legs.retain(|l| l.amount != AmountArg::Exact(0));
         let old = std::mem::replace(&mut s.settler, c.into());
         self.emit(
             "settlement_taken_over",
@@ -1759,11 +2069,15 @@ impl Stead {
         ensure!(h.r.collateral_base > owed, "collateral below what's owed: only the repay path can settle");
         let hf_after = math::hf_wad(h.r.collateral_base - owed, h.r.debt_base, m.lt_bps as u128);
         ensure!(hf_after >= math::WAD, "Aave HF after the withdrawals would be < 1: only the repay path can settle");
-        let mut legs = vec![];
+        let (mut legs, mut premium_legs) = (vec![], vec![]);
         for cl in &open {
             let to = *self.evm_payouts.get(&cl.owner).ok_or_else(|| format!("{} has no EVM payout", cl.owner))?;
-            legs.push(Leg { to, amount: AmountArg::Exact(cl.owed_units), claim_id: Some(cl.token_id.clone()), done: false });
+            legs.push(Leg { to, amount: AmountArg::Exact(cl.share_units), claim_id: Some(cl.token_id.clone()), done: false });
+            if cl.premium_units > 0 {
+                premium_legs.push(Leg { to, amount: AmountArg::Exact(cl.premium_units), claim_id: Some(cl.token_id.clone()), done: false });
+            }
         }
+        legs.extend(premium_legs);
         let s = self.rescue_mut(rid)?.settlement.as_mut().unwrap();
         s.price_base = price;
         s.collateral_base = h.r.collateral_base;
@@ -1788,10 +2102,11 @@ impl Stead {
     /// From here the settlement is committed and buy-back is closed.
     pub fn confirm_settlement_repay(&mut self, c: &str, rid: u64, evm_tx: &str, units: u128, block: u64) -> R<()> {
         self.only_reporter(c)?;
+        let pid = self.rescue(rid)?.position_id;
+        ensure!(self.watch_of(pid).settle.map_or(true, |st| st.rescue_id != rid), "verified market: the repay is confirmed by a proof of the debt drop");
         if !self.use_key(format!("repay:{evm_tx}")) {
             return Ok(());
         }
-        let pid = self.rescue(rid)?.position_id;
         self.note_event(pid, block);
         let r = self.rescue_mut(rid)?;
         ensure!(r.state == RescueState::Settling, "not settling");
@@ -1817,6 +2132,10 @@ impl Stead {
         if let Some(t) = &p.pending {
             return Err(format!("tx in flight: nonce {} unconfirmed", t.tx.nonce));
         }
+        // Each leg needs a reading at least as new as the last event (the repay or the previous
+        // leg): a liquidation since then is seen first, so no leg pays a premium after one.
+        self.decision_reading(pid, now)?;
+        let p = self.position(pid)?;
         let m = self.market_of(p);
         Self::check_gas(m, &gas, TRANSFER_GAS)?;
         let tx = TxFields { chain_id: m.chain_id, nonce: p.next_nonce, to: m.pool, data: evm::withdraw(&m.collateral, leg.amount, &leg.to), gas };
@@ -1825,14 +2144,34 @@ impl Stead {
     }
 
     fn settlement_leg_done(&mut self, rid: u64, leg: u32) -> R<()> {
+        let pid = self.rescue(rid)?.position_id;
+        let amount = self.rescue(rid)?.settlement.as_ref().and_then(|s| s.legs.get(leg as usize)).map(|l| l.amount);
+        let exact = self.watch_of(pid).last.is_some() && self.is_verified(pid)?;
+        if let Some(a) = amount {
+            let allow = self.withdraw_allowance(pid, &a, exact);
+            if let Some(w) = self.watch.get_mut(&pid) {
+                if w.hw > 0 {
+                    w.withdrawn = w.withdrawn.saturating_add(allow);
+                }
+            }
+        }
         let r = self.rescue_mut(rid)?;
         let s = r.settlement.as_mut().ok_or("no settlement")?;
         let l = s.legs.get_mut(leg as usize).ok_or("no such leg")?;
         l.done = true;
         let claim = l.claim_id.clone();
         let all = s.legs.iter().all(|l| l.done);
-        if let Some(id) = claim {
+        let claim_done = claim.as_ref().is_some_and(|id| s.legs.iter().filter(|l| l.claim_id.as_ref() == Some(id)).all(|l| l.done));
+        let mut settled: Vec<String> = if claim_done { claim.into_iter().collect() } else { vec![] };
+        if all {
+            settled.extend(self.claims.values().filter(|c| c.rescue_id == rid && c.status == ClaimStatus::Open).map(|c| c.token_id.clone()));
+            settled.dedup();
+        }
+        for id in settled {
             let cl = self.claims.get_mut(&id).unwrap();
+            if cl.status != ClaimStatus::Open {
+                continue;
+            }
             cl.status = ClaimStatus::Settled;
             let owner = cl.owner.clone();
             self.emit("nft_burn", json!({"owner_id": owner, "token_ids": [id], "memo": "settled"}));
@@ -1857,3 +2196,27 @@ impl Stead {
         Ok(())
     }
 }
+
+/// The OutLayer `request_execution` arguments, built as text (no generic JSON values: keeps the
+/// wasm, and its storage cost, small). The program's input names the market's collateral and
+/// debt: the reserves it reports and the escrow tokens it proves. Aave's testnet tokens keep
+/// balances at storage slot 0; mainnet tokens need their own.
+pub fn outlayer_args(cfg: &VerifyConfig, position: &str, collateral: &str, debt: &str, payer: &str) -> String {
+    let (c, d) = (collateral, debt);
+    let input = format!(
+        "{{\"position\":\"{position}\",\"block\":null,\"tokens\":[{{\"address\":\"{c}\",\"balances_slot\":0}},{{\"address\":\"{d}\",\"balances_slot\":0}}],\"reserves\":[\"{c}\",\"{d}\"]}}"
+    )
+    .replace('"', "\\\"");
+    let secrets = match &cfg.secrets {
+        Some((owner, profile)) => format!("{{\"profile\":\"{profile}\",\"account_id\":\"{owner}\"}}"),
+        None => "null".into(),
+    };
+    format!(
+        "{{\"source\":{{\"WasmUrl\":{{\"url\":\"{}\",\"hash\":\"{}\",\"build_target\":\"wasm32-wasip2\"}}}},\
+\"resource_limits\":{{\"max_instructions\":20000000000,\"max_memory_mb\":128,\"max_execution_seconds\":120}},\
+\"input_data\":\"{input}\",\
+\"secrets_ref\":{secrets},\"response_format\":\"Json\",\"payer_account_id\":\"{payer}\",\"params\":null}}",
+        cfg.wasm_url, cfg.wasm_hash
+    )
+}
+

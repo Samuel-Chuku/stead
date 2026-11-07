@@ -1,7 +1,9 @@
 //! Verified Aave V3 (v3.0) reads for Stead.
 //!
 //! 1. **Header agreement:** the block header (hash, stateRoot, timestamp, receiptsRoot) must be
-//!    byte-identical from at least `min_agree` independent RPCs. Any disagreement is a failure.
+//!    byte-identical from at least `min_agree` independent RPCs, and that answer must outnumber
+//!    all other answers combined. Each call is retried once; without a fixed block the program
+//!    steps back from head − depth to older blocks before giving up.
 //! 2. **Proofs:** every value used is a storage slot proven with `eth_getProof` against that
 //!    stateRoot (account proof, then storage proof). One honest proof source is enough: a proof
 //!    either links to the agreed root or it doesn't.
@@ -44,6 +46,10 @@ pub struct Config {
     /// ERC-20 tokens whose balance *held by the position address itself* is proven (escrow),
     /// with the storage slot of their `_balances` mapping.
     pub tokens: Vec<TokenSlot>,
+    /// The keyed RPC from the secret (also in the lists above). Never printed: errors name it
+    /// `keyed-rpc`.
+    #[serde(default)]
+    pub keyed: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -58,6 +64,14 @@ pub struct Input {
     pub position: String,
     /// Optional fixed block (default: head − depth).
     pub block: Option<u64>,
+    /// Escrow tokens to prove (the market's collateral and debt, with their balance slots).
+    /// Absent: the config's list.
+    #[serde(default)]
+    pub tokens: Option<Vec<TokenSlot>>,
+    /// Reserves to report in `res` (the market's collateral and debt). The health factor always
+    /// counts every reserve the position uses. Absent: all of them.
+    #[serde(default)]
+    pub reserves: Option<Vec<String>>,
 }
 
 /// The ≤ 900-byte result returned to the contract. Amounts are decimal strings.
@@ -75,7 +89,8 @@ pub struct Output {
     pub lt: u64,
     /// The position's account nonce (confirms its signed txs without a reporter).
     pub nonce: u64,
-    /// Per reserve: asset, price (base), scaled aToken balance, scaled variable debt.
+    /// Per reserve: asset, price (base), scaled aToken balance, scaled variable debt, and the
+    /// liquidity and variable-debt indexes (ray).
     pub res: Vec<ReserveOut>,
     /// Escrow: the position address's own token balances.
     pub bal: Vec<(String, String)>,
@@ -88,6 +103,10 @@ pub struct ReserveOut {
     pub p: String,
     pub cs: String,
     pub ds: String,
+    /// The reserve's liquidity index and variable-debt index at the block (ray), as
+    /// `getReserveNormalizedIncome` / `getReserveNormalizedVariableDebt` return them.
+    pub ci: String,
+    pub di: String,
 }
 
 fn hexs(v: &Value) -> Result<String, String> {
@@ -130,29 +149,64 @@ pub struct Header {
     pub agree: usize,
 }
 
+/// The most common answer wins if at least `min_agree` voters return it AND it has more votes
+/// than every other answer combined: a lone lagging or odd node can't block a reading, and a
+/// wrong header still needs a majority of at least `min_agree` voters.
 pub fn agreed_header(rpc: &dyn Rpc, cfg: &Config, block: u64) -> Result<Header, String> {
     let mut seen: Vec<(String, String, String, u64)> = vec![];
+    let mut failed: Vec<String> = vec![];
     for url in &cfg.header_rpcs {
-        if let Ok(h) = rpc.call(url, "eth_getBlockByNumber", json!([format!("0x{block:x}"), false])) {
-            if h.is_null() {
-                continue;
-            }
-            seen.push((hexs(&h["hash"])?, hexs(&h["stateRoot"])?, hexs(&h["receiptsRoot"])?, u64_hex(&h["timestamp"])?));
+        match call_twice(rpc, url, "eth_getBlockByNumber", json!([format!("0x{block:x}"), false])) {
+            Ok(h) if !h.is_null() => seen.push((hexs(&h["hash"])?, hexs(&h["stateRoot"])?, hexs(&h["receiptsRoot"])?, u64_hex(&h["timestamp"])?)),
+            Ok(_) => failed.push(format!("{}: no block", label(cfg, url))),
+            Err(e) => failed.push(format!("{}: {}", label(cfg, url), short(&e))),
         }
     }
-    let first = seen.first().cloned().ok_or("no RPC returned the header")?;
-    let agree = seen.iter().filter(|x| **x == first).count();
-    if seen.iter().any(|x| *x != first) {
-        return Err(format!("header disagreement at block {block}: {} distinct answers", {
-            let mut u = seen.clone();
-            u.dedup();
-            u.len()
-        }));
+    let mut tally: Vec<((String, String, String, u64), usize)> = vec![];
+    for x in &seen {
+        match tally.iter_mut().find(|(k, _)| k == x) {
+            Some((_, n)) => *n += 1,
+            None => tally.push((x.clone(), 1)),
+        }
     }
+    let (best, agree) = tally.iter().max_by_key(|(_, n)| *n).cloned().ok_or_else(|| format!("no RPC returned block {block} ({})", failed.join("; ")))?;
     if agree < cfg.min_agree {
-        return Err(format!("only {agree} RPCs agree on block {block} (need {})", cfg.min_agree));
+        let why = if failed.is_empty() { String::new() } else { format!(" ({})", failed.join("; ")) };
+        return Err(format!("only {agree} RPCs agree on block {block} (need {}){why}", cfg.min_agree));
     }
-    Ok(Header { number: block, hash: first.0, state_root: hex32(&first.1)?, receipts_root: hex32(&first.2)?, timestamp: first.3, agree })
+    if 2 * agree <= seen.len() {
+        return Err(format!("header disagreement at block {block}: {} distinct answers", tally.len()));
+    }
+    Ok(Header { number: block, hash: best.0, state_root: hex32(&best.1)?, receipts_root: hex32(&best.2)?, timestamp: best.3, agree })
+}
+
+/// One retry on any error (a rate limit or a dropped connection is often gone a moment later).
+fn call_twice(rpc: &dyn Rpc, url: &str, method: &str, params: Value) -> Result<Value, String> {
+    rpc.call(url, method, params.clone()).or_else(|_| rpc.call(url, method, params))
+}
+
+/// A voter's name in errors: its host, or `keyed-rpc` (the secret's URL is never printed).
+fn label(cfg: &Config, url: &str) -> String {
+    if cfg.keyed.as_deref() == Some(url) {
+        return "keyed-rpc".into();
+    }
+    url.trim_start_matches("https://").split('/').next().unwrap_or(url).to_string()
+}
+fn short(e: &str) -> String {
+    let e = e.rsplit(": ").next().unwrap_or(e); // drop the "url: " prefix
+    e.chars().take(40).collect()
+}
+
+/// The chain head from the first voter that answers (the keyed RPC first when present).
+fn head(rpc: &dyn Rpc, cfg: &Config) -> Result<u64, String> {
+    let mut last = String::from("no header RPC configured");
+    for url in &cfg.header_rpcs {
+        match call_twice(rpc, url, "eth_blockNumber", json!([])) {
+            Ok(h) => return u64_hex(&h),
+            Err(e) => last = format!("head: {}: {}", label(cfg, url), short(&e)),
+        }
+    }
+    Err(last)
 }
 
 /// Storage reads proven against the agreed state root.
@@ -182,7 +236,7 @@ impl<'a> Prover<'a> {
         let mut last_err = String::from("no proof RPC configured");
         for url in self.cfg.proof_rpcs.clone() {
             self.calls += 1;
-            let res = match self.rpc.call(&url, "eth_getProof", json!([account, keys, format!("0x{:x}", self.header.number)])) {
+            let res = match call_twice(self.rpc, &url, "eth_getProof", json!([account, keys, format!("0x{:x}", self.header.number)])) {
                 Ok(r) => r,
                 Err(e) => {
                     last_err = e;
@@ -284,15 +338,45 @@ const ATOKEN_USER_STATE: u128 = 52;
 const DEBT_USER_STATE: u128 = 56;
 
 /// Recompute the position's health exactly as `Pool.getUserAccountData`, from proven slots.
+/// Errors never contain the keyed RPC's URL.
 pub fn verify_position(rpc: &dyn Rpc, cfg: &Config, input: &Input) -> Result<Output, String> {
-    let block = match input.block {
-        Some(b) => b,
+    verify_inner(rpc, cfg, input).map_err(|e| match &cfg.keyed {
+        Some(k) if !k.is_empty() => e.replace(k.as_str(), "keyed-rpc").replace(k.trim_end_matches('/'), "keyed-rpc"),
+        _ => e,
+    })
+}
+
+/// Blocks tried when the caller didn't fix one: head − depth, then 3 and 6 blocks older (a voter
+/// that hasn't caught up yet has the older block).
+const STEP_BACK: [u64; 3] = [0, 3, 6];
+
+fn verify_inner(rpc: &dyn Rpc, cfg: &Config, input: &Input) -> Result<Output, String> {
+    // the output must stay under OutLayer's 900 bytes
+    let tokens = input.tokens.as_ref().unwrap_or(&cfg.tokens);
+    if tokens.len() > 2 || input.reserves.as_ref().is_some_and(|r| r.len() > 2) {
+        return Err("at most 2 tokens and 2 reserves per request".into());
+    }
+    let wanted = |a: &str| input.reserves.as_ref().map_or(true, |r| r.iter().any(|x| x.eq_ignore_ascii_case(a)));
+    let header = match input.block {
+        Some(b) => agreed_header(rpc, cfg, b)?,
         None => {
-            let head = u64_hex(&rpc.call(&cfg.header_rpcs[0], "eth_blockNumber", json!([]))?)?;
-            head.checked_sub(cfg.depth).ok_or("chain too short")?
+            let h = head(rpc, cfg)?;
+            let mut last = String::new();
+            let mut found = None;
+            for back in STEP_BACK {
+                let b = h.checked_sub(cfg.depth + back).ok_or("chain too short")?;
+                match agreed_header(rpc, cfg, b) {
+                    Ok(x) => {
+                        found = Some(x);
+                        break;
+                    }
+                    Err(e) => last = e,
+                }
+            }
+            found.ok_or(last)?
         }
     };
-    let header = agreed_header(rpc, cfg, block)?;
+    let block = header.number;
     let now = header.timestamp;
     let agree = header.agree;
     let mut pv = Prover::new(rpc, cfg, header);
@@ -328,12 +412,14 @@ pub fn verify_position(rpc: &dyn Rpc, cfg: &Config, input: &Input) -> Result<Out
         let src = as_addr(pv.read(&cfg.oracle, &[map_slot(word_addr(&asset)?, U256::ZERO)])?.values[0]);
         let price = pv.read(&src, &[U256::ZERO])?.values[0];
         let (mut cs, mut ds) = (U256::ZERO, U256::ZERO);
+        let (liq_rate, liq_index) = (s1.shr(128), s1.mask(128));
+        let income = if now != last { ray_mul(linear_interest(liq_rate, last, now), liq_index) } else { liq_index };
+        let (var_rate, var_index) = (s2.shr(128), s2.mask(128));
+        let debt_index = if now != last { ray_mul(compounded_interest(var_rate, last, now), var_index) } else { var_index };
         let collateral = ucfg.bit(2 * rid + 1) && !lt.is_zero();
         if collateral {
             let a_tok = as_addr(r[4]);
             cs = pv.read(&a_tok, &[map_slot(user, U256::from(ATOKEN_USER_STATE))])?.values[0].mask(128);
-            let (liq_rate, liq_index) = (s1.shr(128), s1.mask(128));
-            let income = if now != last { ray_mul(linear_interest(liq_rate, last, now), liq_index) } else { liq_index };
             let bal = ray_mul(cs, income);
             let base = bal * price / unit;
             tot_coll = tot_coll + base;
@@ -346,18 +432,19 @@ pub fn verify_position(rpc: &dyn Rpc, cfg: &Config, input: &Input) -> Result<Out
             if !stable.is_zero() {
                 return Err("stable debt isn't supported".into());
             }
-            let (var_rate, var_index) = (s2.shr(128), s2.mask(128));
-            let debt = if ds.is_zero() { U256::ZERO } else { ray_mul(ds, ray_mul(compounded_interest(var_rate, last, now), var_index)) };
+            let debt = if ds.is_zero() { U256::ZERO } else { ray_mul(ds, debt_index) };
             tot_debt = tot_debt + price * debt / unit;
         }
-        res.push(ReserveOut { a: asset, p: price.to_string(), cs: cs.to_string(), ds: ds.to_string() });
+        if wanted(&asset) {
+            res.push(ReserveOut { a: asset, p: price.to_string(), cs: cs.to_string(), ds: ds.to_string(), ci: income.to_string(), di: debt_index.to_string() });
+        }
     }
     let avg_lt = if tot_coll.is_zero() { U256::ZERO } else { lt_acc / tot_coll };
     let hf = if tot_debt.is_zero() { U256::MAX } else { wad_div(percent_mul(tot_coll, avg_lt), tot_debt) };
 
     // escrow: the position's own token balances
     let mut bal = vec![];
-    for t in &cfg.tokens {
+    for t in tokens {
         let v = pv.read(&t.address, &[map_slot(user, U256::from(t.balances_slot as u128))])?.values[0];
         bal.push((t.address.to_lowercase(), v.to_string()));
     }
@@ -430,12 +517,23 @@ impl Rpc for Tape {
 pub fn sepolia_config() -> Config {
     Config {
         chain_id: 11155111,
+        // voters and proof sources re-tested 2026-11-07 (headers and eth_getProof at head − 3)
         header_rpcs: vec![
             "https://ethereum-sepolia-rpc.publicnode.com".into(),
             "https://1rpc.io/sepolia".into(),
             "https://sepolia.gateway.tenderly.co".into(),
+            "https://rpc.sepolia.ethpandaops.io".into(),
+            "https://0xrpc.io/sep".into(),
+            "https://eth-sepolia.api.onfinality.io/public".into(),
         ],
-        proof_rpcs: vec!["https://1rpc.io/sepolia".into(), "https://sepolia.gateway.tenderly.co".into()],
+        // fastest first; 1rpc and publicnode refuse eth_getProof near the head (votes only)
+        proof_rpcs: vec![
+            "https://sepolia.gateway.tenderly.co".into(),
+            "https://rpc.sepolia.ethpandaops.io".into(),
+            "https://0xrpc.io/sep".into(),
+            "https://eth-sepolia.api.onfinality.io/public".into(),
+            "https://sepolia.rpc.thirdweb.com".into(),
+        ],
         min_agree: 3,
         depth: 3,
         pool: "0x6ae43d3271ff6888e7fc43fd7321a503ff738951".into(),
@@ -444,6 +542,7 @@ pub fn sepolia_config() -> Config {
             TokenSlot { address: "0xf8fb3713d459d7c1018bd0a49d19b4c44290ebe5".into(), balances_slot: 0 },
             TokenSlot { address: "0xff34b3d4aee8ddcd6f9afffb6fe49bd371b8a357".into(), balances_slot: 0 },
         ],
+        keyed: None,
     }
 }
 

@@ -13,14 +13,14 @@ use near_sdk::{env, ext_contract, near, AccountId, Gas, NearToken, PanicOnDefaul
 use omni_transaction::evm::types::Signature;
 use stead_core::{
     Action, Books, Claim, ClaimStatus, EvmAddr, GasArgs, HealthReport, Market, Params, PendingTx, Position, Rescue,
-    SignPlan, Stead, SteadV3, Transfer, VerifiedOutput, VerifyConfig,
+    SignPlan, Stead, SteadV4, Transfer, VerifiedOutput, VerifyConfig, Watch,
 };
 
-/// The stored contract before steward self-registration, for `migrate`.
+/// The stored contract before the collateral watch, for `migrate`.
 #[derive(near_sdk::borsh::BorshDeserialize)]
 #[borsh(crate = "near_sdk::borsh")]
-struct ContractV3 {
-    core: SteadV3,
+struct ContractV4 {
+    core: SteadV4,
     mpc: AccountId,
 }
 
@@ -175,12 +175,12 @@ impl Contract {
         c
     }
 
-    /// One-off state migration to the self-registration layout (adds the removed-steward set).
+    /// One-off state migration to the collateral-watch layout (adds the per-position watch).
     /// Only the contract account itself can call it, with the deploy.
     #[private]
     #[init(ignore_state)]
     pub fn migrate() -> Self {
-        let old: ContractV3 = env::state_read().unwrap_or_else(|| env::panic_str("no state to migrate"));
+        let old: ContractV4 = env::state_read().unwrap_or_else(|| env::panic_str("no state to migrate"));
         Self { core: old.core.into(), mpc: old.mpc }
     }
 
@@ -196,19 +196,10 @@ impl Contract {
     pub fn request_verified(&mut self, position_id: u64) -> Promise {
         let cfg = self.core.verify_cfg.clone().unwrap_or_else(|| env::panic_str("verified reads not configured"));
         ok(self.core.is_verified(position_id).and_then(|v| if v { Ok(()) } else { Err("not a verified market".into()) }));
-        let addr = self.core.position(position_id).ok().and_then(|p| p.evm_address).unwrap_or_else(|| env::panic_str("no position address"));
-        // built as text (no generic JSON values: keeps the wasm, and its storage cost, small)
-        let secrets = match &cfg.secrets {
-            Some((owner, profile)) => format!("{{\"profile\":\"{profile}\",\"account_id\":\"{owner}\"}}"),
-            None => "null".into(),
-        };
-        let args = format!(
-            "{{\"source\":{{\"WasmUrl\":{{\"url\":\"{}\",\"hash\":\"{}\",\"build_target\":\"wasm32-wasip2\"}}}},\
-\"resource_limits\":{{\"max_instructions\":20000000000,\"max_memory_mb\":128,\"max_execution_seconds\":120}},\
-\"input_data\":\"{{\\\"position\\\":\\\"{}\\\",\\\"block\\\":null}}\",\
-\"secrets_ref\":{},\"response_format\":\"Json\",\"payer_account_id\":\"{}\",\"params\":null}}",
-            cfg.wasm_url, cfg.wasm_hash, addr.to_hex(), secrets, env::predecessor_account_id()
-        );
+        let p = self.core.position(position_id).unwrap_or_else(|e| env::panic_str(&e));
+        let addr = p.evm_address.unwrap_or_else(|| env::panic_str("no position address"));
+        let m = self.core.markets.get(&p.market_id).unwrap_or_else(|| env::panic_str("no market"));
+        let args = stead_core::outlayer_args(&cfg, &addr.to_hex(), &m.collateral.to_hex(), &m.debt.to_hex(), env::predecessor_account_id().as_str());
         let outlayer: AccountId = cfg.outlayer.parse().unwrap_or_else(|_| env::panic_str("bad outlayer account"));
         Promise::new(outlayer)
             .function_call("request_execution", args.into_bytes(), env::attached_deposit(), VERIFY_GAS)
@@ -325,6 +316,12 @@ impl Contract {
     pub fn get_steward_deposit(&self) -> U128 {
         U128(stead_core::STEWARD_DEPOSIT)
     }
+    /// The collateral watch (liquidation evidence while claims are open) and, on a verified
+    /// market, the settlement start: `settle.need` is the scaled debt drop that confirms the repay.
+    pub fn get_watch(&self, position_id: u64) -> Option<Watch> {
+        self.core.watch.get(&position_id).copied()
+    }
+
     pub fn get_removed_stewards(&self) -> Vec<String> {
         self.core.removed_stewards.iter().cloned().collect()
     }
@@ -541,3 +538,4 @@ fn json_token(c: &Claim) -> JsonToken {
         },
     }
 }
+

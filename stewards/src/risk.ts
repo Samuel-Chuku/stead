@@ -29,6 +29,8 @@ export const DEFAULTS: Record<StewardName, RiskSettings> = {
   patient: { spreadBps: 150, minMargin: 0, minTopupUsd: 0, shareFraction: 1, bidDelayS: 33 },
   deep: { spreadBps: 150, minMargin: 0.03, minTopupUsd: 500, shareFraction: 1, bidDelayS: 15 },
   pool: { spreadBps: 300, minMargin: 0.03, minTopupUsd: 0, shareFraction: 0.4, bidDelayS: 5 },
+  // deep's profile; its spread is the floor the hedge is priced from (strategy.ts)
+  hedged: { spreadBps: 150, minMargin: 0.03, minTopupUsd: 500, shareFraction: 1, bidDelayS: 15 },
 };
 
 /** Clamp any (possibly hostile) proposal into BOUNDS; missing or non-finite fields keep `base`. */
