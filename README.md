@@ -271,17 +271,31 @@ share, bid timing). It's off unless an API key is set. Any OpenAI-compatible cha
   see the others' premiums. Undercutting is what lowers the borrower's premium, but open bids also let
   a steward wait and undercut the best bid by a hair at the last moment, which discourages honest early
   bids.
-- **Next: sealed bids in a TEE.** Stead already uses OutLayer (Intel TDX, worker attestation checked on
-  chain) for verified readings. The plan: an OutLayer program generates an auction key inside the TEE
-  and publishes its public key; each steward posts its bid encrypted to that key, with its bond, in one
+
+## Roadmap
+
+Planned, not built.
+
+- **Sealed bids in a TEE.** Stead already uses OutLayer (Intel TDX, worker attestation checked on
+  chain) for verified readings. An OutLayer program would generate an auction key inside the TEE and
+  publish its public key; each steward posts its bid encrypted to that key, with its bond, in one
   transaction; when the window closes the contract hands the encrypted bids to the program, which
   decrypts them inside the TEE and returns only the winning bids. The contract still checks the cap
   and the borrower's guarantee on chain for those bids, so a faulty result can't make the borrower worse
   off, and losing bids are never revealed. If the TEE doesn't answer in time, stewards can reveal their
   own bids so a rescue never stalls.
-- **Next: stablecoin top-ups.** A top-up in a stablecoin doesn't fall with the collateral, which
-  lowers the steward's risk and the premium. The claim format (`{asset, amount, premium}`) already
-  supports it.
+- **Stablecoin top-ups.** A top-up in a stablecoin doesn't fall with the collateral, which lowers the
+  steward's risk and the premium. The claim format (`{asset, amount, premium}`) already supports it. A
+  steward could borrow USDC on RHEA Lending (NEAR) and supply it as Aave collateral on the position's
+  chain.
+- **Capital-efficient stewards via RHEA Lending.** Steward capital earns yield in RHEA Lending while
+  idle. The steward keeps a ready buffer for one rescue on the target chain and pays the top-up from it;
+  after a win it borrows against its RHEA deposit and routes the asset through NEAR Intents to refill the
+  buffer, the just-in-time pattern RHEA's lending-backed Intents solvers use. Lower idle cost means
+  lower premiums for borrowers. Capital parked in RHEA Lending carries that protocol's risk.
+- **Stead markets for RHEA Lending.** RHEA Lending lives on NEAR, so a Stead market there could read
+  the health factor directly by cross-contract view: no chain signatures, no proofs, and top-ups
+  attributable on chain.
 
 ## Repository
 
