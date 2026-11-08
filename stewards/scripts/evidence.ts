@@ -1,7 +1,7 @@
 // npx tsx scripts/evidence.ts [--no-live] [--no-sweep] : the evidence harness. Writes ../evidence/.
 //
-//  1. Borrower replay: real 2026 hourly prices (LINK, BTC, ETH), one position a day touching Stead's
-//     trigger, followed with and without Stead (model: src/evidence.ts). Aave's liquidation
+//  1. Borrower replay: real 2026 hourly prices (LINK, BTC, ETH), rescue events (every day at the
+//     trigger, and real falls through it, with and without the hedged steward), followed 7 days with and without Stead (model: src/evidence.ts). Aave's liquidation
 //     threshold and bonus are read from the Aave V3 Ethereum Pool (read-only).
 //  2. Steward replay: hedged vs unhedged steward PnL on the same paths (scripts/replay.ts).
 //  3. Stress sweep: the contract crate's random-path and latency sweeps, when its tests are present.
@@ -13,15 +13,13 @@ import { join } from "node:path";
 import { createPublicClient, http, parseAbi, type Address } from "viem";
 import { mainnet } from "viem/chains";
 import { REPO } from "../src/config.js";
-import { replayPath, summarize, STEAD_PARAMS, type PathResult, type Reserve } from "../src/evidence.js";
+import { fallThroughEvents, replayPath, summarize, STEAD_PARAMS, type PathResult, type Reserve } from "../src/evidence.js";
 
 const OUT = join(REPO, "evidence");
 const DATA = join(OUT, "data");
 const START = Date.UTC(2026, 0, 1);
 const END = Date.UTC(2026, 10, 6);
 const args = new Set(process.argv.slice(2));
-/** How long each position is followed: the buy-back window alone, and a week. */
-const HORIZONS = [24, 168];
 
 // Aave V3 Ethereum (bgd-labs address book); token addresses: the canonical mainnet tokens.
 const POOL: Address = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -54,49 +52,59 @@ async function reserves(): Promise<Record<string, Reserve & { from: string }>> {
   }
 }
 
-const usd = (x: number) => `$${x.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
-const pct = (n: number, d: number) => (d ? `${((100 * n) / d).toFixed(1)} %` : "-");
+const usd = (x: number) => `$${Math.round(x).toLocaleString("en-US")}`;
+const pc = (x: number) => `${(100 * x).toFixed(1)} %`;
+const VOL: Record<string, number> = { LINK: 0.045, BTC: 0.03, ETH: 0.04 }; // the hedged steward's σ₂₄ (src/hedge.ts)
 
-async function borrowerReplay(): Promise<string> {
+type Scenario = { id: string; label: string; events: (px: [number, number][]) => { i: number; p0?: number }[]; hedged: boolean };
+const SCENARIOS: Scenario[] = [
+  {
+    id: "every-day",
+    label: "Every day at the trigger",
+    hedged: false,
+    events: (px) => px.flatMap(([t], i) => (t >= START && t < END && new Date(t).getUTCHours() === 0 && i + STEAD_PARAMS.horizonH < px.length ? [{ i }] : [])),
+  },
+  { id: "falls-through", label: "Falls through the trigger", hedged: false, events: (px) => fallThroughEvents(px, START, END, STEAD_PARAMS.trigger).filter((e) => e.i + STEAD_PARAMS.horizonH < px.length) },
+  { id: "falls-through-hedged", label: "Falls through, hedged steward bidding (MODELLED)", hedged: true, events: (px) => fallThroughEvents(px, START, END, STEAD_PARAMS.trigger).filter((e) => e.i + STEAD_PARAMS.horizonH < px.length) },
+];
+
+async function borrowerReplay(): Promise<{ table: string; method: string }> {
   const res = await reserves();
   const lines = [
-    "| Asset | Followed for | LT / bonus | Days | Rescued | Liquidated without Stead | Liquidated with Stead | Early settlements | Mean premium | Mean cost without / with | Worst without / with | Stead saved a liquidation | Stead cost more | Rule violations |",
+    "| Asset | Scenario | Rescue events | Liquidated within 7 days: without → with Stead | Liquidation calls (repeats counted): without / with | Liquidation loss when it happens | Mean premium paid | Break-even premium | Mean loss per event: without / with | 95th-percentile loss: without / with | Worst loss: without / with | Biggest single loss avoided | Events Stead cost more / saved | Rule violations |",
     "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
   ];
+  const method: string[] = [];
   const all: Record<string, unknown> = {};
   let violations = 0;
   for (const a of ASSETS) {
     const f = join(DATA, `${a.pair}-1h.json`);
     if (!existsSync(f)) throw new Error(`missing ${f}: run scripts/replay.ts once to fetch the price data`);
     const px: [number, number][] = JSON.parse(readFileSync(f, "utf8"));
-    const r = res[a.sym];
-    for (const horizonH of HORIZONS) {
-    const rows: PathResult[] = [];
-    for (let i = 0; i < px.length; i++) {
-      const [t] = px[i];
-      if (t < START || t >= END || new Date(t).getUTCHours() !== 0) continue;
-      if (i + STEAD_PARAMS.windowH >= px.length) break;
-      rows.push(replayPath(px, i, r, { ...STEAD_PARAMS, horizonH }));
-    }
-    const s = summarize(rows);
-    violations += s.violations;
-    all[`${a.sym}-${horizonH}h`] = { reserve: r, horizonH, summary: s };
-    writeFileSync(
-      join(OUT, `borrower-${a.sym}-${horizonH}h.csv`),
-      "day,exit,exit_hours,later_liquidated,move,premium_bps,fills,cap_bps,baseline_usd,cost_without_usd,cost_with_usd,i1,i2\n" +
-        rows
-          .map((x) => [new Date(x.start).toISOString().slice(0, 10), x.exit, x.exitHours, x.laterLiquidated, x.move.toFixed(5), x.premiumBps.toFixed(1), x.fills.map((f) => `${f.steward}:${f.bps}@${(f.share * 100).toFixed(0)}%`).join(" "), x.capBps, x.baselineUsd.toFixed(2), x.costWithoutUsd.toFixed(2), x.costWithUsd.toFixed(2), x.i1, x.i2].join(","))
-          .join("\n") +
-        "\n",
-    );
-    lines.push(
-      `| ${a.sym} | ${horizonH === 24 ? "24 h" : `${horizonH / 24} days`} | ${(r.lt * 100).toFixed(1)} % / ${(r.bonus * 100).toFixed(1)} % | ${s.paths} | ${s.rescued} | ${s.liquidatedWithout} | ${s.liquidatedWith} | ${s.early} | ${s.meanPremiumBps.toFixed(0)} bps | ${usd(s.meanCostWithout)} / ${usd(s.meanCostWith)} | ${usd(s.worstWithout)} / ${usd(s.worstWith)} | ${s.saved} (saved ${usd(s.meanSavedWhenSaved)} each) | ${s.costMore} (${usd(s.meanExtraWhenMore)} each) | ${s.violations} |`,
-    );
+    const r: Reserve = { ...res[a.sym], vol: VOL[a.sym] };
+    const half = r.bonus * 0.5 * 10_000;
+    method.push(`  - **${a.sym}** (LT ${pc(r.lt)}, bonus ${pc(r.bonus)}): a 50 % liquidation repays $5,000 of debt and seizes ${usd(5_000 * (1 + r.bonus))} of collateral, so the borrower loses **${usd(half)}**; a full liquidation (health below 0.95) loses **${usd(2 * half)}**.`);
+    for (const sc of SCENARIOS) {
+      const rows: PathResult[] = sc.events(px).map((e) => replayPath(px, e.i, r, { p0: e.p0, hedged: sc.hedged }));
+      const s = summarize(rows);
+      violations += s.violations;
+      all[`${a.sym}/${sc.id}`] = { reserve: r, summary: s };
+      writeFileSync(
+        join(OUT, `borrower-${a.sym}-${sc.id}.csv`),
+        "trigger_hour,exit,exit_hours,move,premium_bps,fills,cap_bps,premium_usd,liq_calls_without,loss_without_usd,liq_calls_with,loss_with_usd,i1,i2\n" +
+          rows
+            .map((x) => [new Date(x.start).toISOString().slice(0, 13), x.exit, x.exitHours, x.move.toFixed(5), x.premiumBps.toFixed(1), x.fills.map((f) => `${f.steward}:${f.bps}@${(f.share * 100).toFixed(0)}%`).join(" "), x.capBps, x.premiumUsd.toFixed(2), x.liqWithout.count, x.lossWithoutUsd.toFixed(2), x.liqWith.count, x.lossWithUsd.toFixed(2), x.i1, x.i2].join(","))
+            .join("\n") +
+          "\n",
+      );
+      lines.push(
+        `| ${a.sym} | ${sc.label} | ${s.events} | ${pc(s.pLiqWithout)} → ${pc(s.pLiqWith)} | ${s.liquidationsWithout} / ${s.liquidationsWith} | ${usd(s.meanLiqLossWhenLiquidated)} | ${s.meanPremiumBps.toFixed(0)} bps (${usd(s.meanPremiumUsd)}) | ${s.breakEvenBps.toFixed(0)} bps | ${usd(s.meanLossWithout)} / ${usd(s.meanLossWith)} | ${usd(s.p95Without)} / ${usd(s.p95With)} | ${usd(s.worstWithout)} / ${usd(s.worstWith)} | ${usd(s.worstAvoided)} | ${s.costMore} / ${s.saved} | ${s.violations} |`,
+      );
     }
   }
-  writeFileSync(join(OUT, "borrower.json"), JSON.stringify({ at: new Date().toISOString(), replay: true, params: STEAD_PARAMS, debtUsd: 10_000, assets: all }, null, 1));
+  writeFileSync(join(OUT, "borrower.json"), JSON.stringify({ at: new Date().toISOString(), replay: true, params: STEAD_PARAMS, debtUsd: 10_000, results: all }, null, 1));
   if (violations) process.exitCode = 1;
-  return lines.join("\n");
+  return { table: lines.join("\n"), method: method.join("\n") };
 }
 
 function stewardReplay(): string {
@@ -130,7 +138,9 @@ async function liveRuns(): Promise<string> {
       if (x.chain === "sepolia") {
         link = `https://sepolia.etherscan.io/tx/${x.tx}`;
         let r: any = {};
-        for (const u of [process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com", "https://1rpc.io/sepolia"]) {
+        // public RPCs sometimes answer null for a known tx: try three, twice
+        const urls = [process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com", "https://1rpc.io/sepolia", "https://sepolia.gateway.tenderly.co"];
+        for (const u of [...urls, ...urls]) {
           r = await rpc(u, "eth_getTransactionReceipt", [x.tx]).catch(() => ({}));
           if (r.result) break;
         }
@@ -160,7 +170,7 @@ async function main() {
   mkdirSync(DATA, { recursive: true });
   console.log("EVIDENCE: replays of real 2026 prices and re-reads of recorded runs. Read-only.\n");
   const borrower = await borrowerReplay();
-  console.log(borrower + "\n");
+  console.log(borrower.table + "\n");
   const steward = stewardReplay();
   const sweep = args.has("--no-sweep") ? "_skipped (--no-sweep)_" : stressSweep();
   const live = args.has("--no-live") ? "_skipped (--no-live)_" : await liveRuns();
@@ -171,17 +181,24 @@ Generated by \`stewards/scripts/evidence.ts\` on ${day}. Everything below is rep
 
 ## 1. Borrowers on real 2026 prices (REPLAY)
 
-One position a day (2026-01-01 to 2026-11-05) with $10,000 of stablecoin debt, sitting exactly at Stead's trigger (HF ${STEAD_PARAMS.trigger}) at 00:00 UTC, followed hour by hour on real prices (Binance hourly closes), for the ${STEAD_PARAMS.windowH} h buy-back window and for a week. After a claim ends, the rescued position is followed on: bought back, it keeps the top-up; settled, it sits at HF ${STEAD_PARAMS.target}; a later liquidation is charged on the full debt.
+Stead works like insurance: each rescue costs a premium, and in return the borrower avoids an Aave liquidation that would cost several times more. Whether that pays on average depends on how often a rescue is followed by a fall that would have liquidated the position. This section measures it on real 2026 prices (Binance hourly closes, 2026-01-01 to 2026-11-05), per rescue event, for a position with $10,000 of stablecoin debt, followed for 7 days.
 
-- **Without Stead:** Aave liquidates the first hour its health is below 1; the borrower loses bonus × 50 % × debt.
-- **With Stead:** the stewards' real strategies bid; the lowest premiums top the position up to HF ${STEAD_PARAMS.target}. The claim then ends in a buy-back at 24 h, an early settlement at the oracle price (own HF net of the claim below ${STEAD_PARAMS.early}), or an Aave liquidation (premiums forfeited). The cost is the premium, in units of the collateral, at the exit price.
-- **"Stead cost more"** counts the days the price recovered: the borrower paid a premium for a rescue that, in hindsight, wasn't needed. It is the price of the insurance and is shown, not hidden.
-- **Rule violations** checks every path: the premium at the trigger price is at most Aave's liquidation cost, and the claim is owed exactly the supplied units plus the premium units.
-- Liquidation threshold and bonus: read from the Aave V3 Ethereum Pool (\`data/aave-reserves.json\`). Not modelled: interest over the day, the price impact of an Aave liquidation, a borrower who adds collateral on their own.
+**Three scenarios, all shown:**
+- **Every day at the trigger:** a position sits exactly at HF ${STEAD_PARAMS.trigger} at 00:00 UTC every day, calm days included. This overstates rescues that turn out not to be needed: real positions reach the trigger because the price is falling.
+- **Falls through the trigger:** positions opened each day at HF 1.25, 1.35 and 1.50; a rescue event is the hour the real price pushes one down through ${STEAD_PARAMS.trigger} (one event per hour). This is the realistic case.
+- **Falls through, hedged steward bidding (MODELLED):** the same events with the hedged steward in the auction. Its quote is modelled (venue depth assumed available, funding 0 at bid time); live on Sepolia it won at 100 bps.
 
-${borrower}
+**How a loss is counted:**
+- **Without Stead:** every hour the health is below 1, Aave liquidates: 50 % of the debt, or all of it when the health is below 0.95 (Aave V3.3); the borrower loses the bonus on what is repaid. Repeat liquidations within the 7 days are counted.
+${borrower.method}
+- **With Stead:** the stewards' real strategies bid at the trigger; the lowest premiums top the position up to HF ${STEAD_PARAMS.target}. The claim ends in a buy-back at 24 h, an early settlement at the oracle price (the borrower's own HF net of the claim below ${STEAD_PARAMS.early}), or an Aave liquidation (premiums forfeited). The loss is the premium paid plus any Aave liquidation later in the 7 days.
+- **Break-even premium:** the premium at which the mean loss with Stead equals the mean loss without. Analysis only: rescue pricing is unchanged.
+- **Rule violations:** every event is checked: the premium at the trigger price is at most Aave's liquidation cost, and the claim is owed exactly the supplied units plus the premium units.
+- Liquidation threshold and bonus: read from the Aave V3 Ethereum Pool (\`data/aave-reserves.json\`). Not modelled: interest, the price impact of a liquidation, prices between hourly closes, a borrower who adds collateral on their own.
 
-Per-day rows: \`borrower-<asset>-<hours>h.csv\`; machine-readable: \`borrower.json\`.
+${borrower.table}
+
+Per-event rows: \`borrower-<asset>-<scenario>.csv\`; machine-readable: \`borrower.json\`.
 
 ## 2. Stewards on the same prices (REPLAY)
 
