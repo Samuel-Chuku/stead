@@ -49,6 +49,41 @@ Each step: do this, see that. Steps 1–3 need only Node 22 and this repository:
 5. **Stage a price fall.** The local fork (`fork/scripts/start.sh`, anvil) has a settable LINK price;
    the steward README shows the full rescue, buy-back and settlement on it.
 
+## Reproduce
+
+Every default test runs on a fresh clone with no `.env`, no keys and no network (checked with networking
+switched off). Anything that needs an RPC, OutLayer or keys is opt-in and skips cleanly.
+
+| Command | Expected |
+|---|---|
+| `cd contract && cargo test -p stead-core` | **114 passed**, 0 failed: rules 65, settlement and liquidation watch 24, owner limits 10, stewards 10, invariant sweeps 3, OutLayer output parsing 1, migration dry-run 1 (prints `skipped` unless `STEAD_STATE_FILE` points at a downloaded contract state) |
+| `cd verifier && cargo test` | **13 passed, 1 ignored**: the proof program against recorded Sepolia RPC answers (`tests/fixtures/`); `record` is the live recorder, opt-in: `cargo test -- --ignored record` |
+| `cd stewards && npm ci && npm test` | **88 passed** in 13 files: strategies, hedging, polling, settlement repay, NEAR Intents quotes, AI tuning, the replay model |
+| `cd contract && cargo near build non-reproducible-wasm --no-abi` | `target/near/stead.wasm`; SHA-256 `9035456a230787ac45cfaed411d552397cdad864d753bf2a5ba00e9970b17585`, the code deployed on `steadfi.testnet` and `sepolia-demo.steadfi.testnet` (compare with `view_code`) |
+
+Run from the workspace root, `cargo test` would also try to build the NEAR contract crate for the host,
+which near-sdk refuses; the rules live in `stead-core`, hence `-p stead-core`.
+
+### Each signing rule and the test that fails if it breaks
+
+The contract signs an EVM transaction only from a fixed allow-list. Tests are in `contract/core/tests/`.
+
+| Rule | Test(s) |
+|---|---|
+| Only Aave Pool `supply` / `borrow` / `repay` / `withdraw` and token `approve` to the Pool, with pinned arguments | `rules.rs`: `allow_list_targets_and_pinned_arguments` |
+| A debt transfer goes only to the borrower's payout, and only of the debt asset, never an aToken | `rules.rs`: `transfer_is_only_ever_the_debt_asset_never_an_atoken` |
+| Gas limit and fee caps per market | `rules.rs`: `gas_caps_enforced` |
+| One transaction in flight per position; a stuck one is replaced only by a zero-value nonce burn or one capped replacement | `rules.rs`: `pre_sign_attack_one_tx_in_flight`, `nonce_burn_after_timeout_even_during_a_claim`, `one_capped_replacement_per_tx`, `signed_tx_is_public_and_failed_mpc_rolls_back` |
+| While a claim is open the borrower may only repay or supply | `rules.rs`: `claim_lock_from_auction_open_to_close` |
+| …and not even those while a buy-back balance is held in the position | `rules.rs`: `held_balance_blocks_borrower_repay_and_supply_while_claim_open` |
+| Borrower actions wait for queued payouts | `rules.rs`: `borrower_actions_wait_for_queued_payouts` |
+| Settlement withdrawals only from a settling rescue, each after a fresh reading, principal first, premiums last | `rules.rs`: `settlement_b_full_flow_and_buyback_closes_on_commit`, `settlement_withdraw_cannot_be_burned_and_failed_leg_can_be_resigned`, `settlement_needs_a_reading_taken_after_the_topup`; `watch.rs` (premium legs last, abort and reduce rules) |
+| Payouts are queued by the contract only: exactly the owed amount to the claim owner, refunds to the borrower, at-par reimbursements to a repaying steward | `rules.rs`: `every_payout_goes_only_to_a_registered_payout`, `settlement_pays_steward_exactly_owed_units`, `stray_repay_is_reimbursed_at_par_and_borrower_is_no_worse_off`, `buyback_commits_first_then_settlement_is_refused` |
+| Every recipient is a registered payout; a payout change is delayed and blocked during a claim | `rules.rs`: `every_payout_goes_only_to_a_registered_payout`, `payout_change_delayed_and_blocked_during_claim` |
+| No borrower supply above the size cap (when set) | `limits.rs`: `no_supply_above_the_cap` |
+| MPC signatures encode r and s without leading zeros | `rules.rs`: `signed_raw_encodes_r_and_s_without_leading_zeros` |
+| **The invariant:** the borrower is never worse off than after an Aave liquidation | `rules.rs`: `premium_cap_exact_boundary`, `stacked_rescues_cumulative_cap_and_oldest_first`, `claim_is_fixed_in_supplied_units`; `invariant.rs`: `invariant_property_sweep` (random price paths, every path checked) |
+
 ## How a rescue works
 
 1. **Watch.** The keeper asks OutLayer for a verified reading of each position. When the verified

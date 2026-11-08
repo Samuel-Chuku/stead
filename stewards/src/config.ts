@@ -18,7 +18,9 @@ function parseEnv(text: string): Record<string, string> {
 }
 
 const fileEnv = existsSync(ENV_FILE) ? parseEnv(readFileSync(ENV_FILE, "utf8")) : {};
-const book = parseEnv(readFileSync(join(REPO, "fork", "addresses.sh"), "utf8"));
+/** Which Aave deployment the EVM side talks to: Sepolia (default) or Ethereum (STEAD_AAVE=ethereum). */
+export const AAVE_BOOK = process.env.STEAD_AAVE === "ethereum" ? "ethereum" : "sepolia";
+const book = parseEnv(readFileSync(join(REPO, "fork", AAVE_BOOK === "ethereum" ? "addresses-ethereum.sh" : "addresses.sh"), "utf8"));
 
 export function env(name: string, fallback?: string): string {
   const v = [process.env[name], fileEnv[name], fallback].find((x) => x !== undefined && x !== "");
@@ -56,7 +58,8 @@ export const cfg = {
   aave: {
     pool: book.AAVE_POOL as `0x${string}`,
     oracle: book.AAVE_ORACLE as `0x${string}`,
-    faucet: book.AAVE_FAUCET as `0x${string}`,
+    /** Sepolia only: Aave's test-token faucet (undefined on Ethereum). */
+    faucet: book.AAVE_FAUCET as `0x${string}` | undefined,
     link: book.LINK as `0x${string}`,
     aLink: book.A_LINK as `0x${string}`,
     dai: book.DAI as `0x${string}`,

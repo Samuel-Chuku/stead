@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  createPublicClient, createWalletClient, createTestClient, http, parseAbi, defineChain,
+  createPublicClient, createWalletClient, createTestClient, http, parseAbi, defineChain, keccak256, encodeAbiParameters, toHex,
   type Hex, type Address, type PublicClient, type WalletClient,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -81,12 +81,37 @@ export async function fundEth(who: Address, eth = 10n) {
   await test.setBalance({ address: who, value: eth * E18 });
 }
 
-/** Mint test tokens from the forked Aave Sepolia faucet (permissionless). */
+/** Sepolia: mint test tokens from Aave's faucet (permissionless). A local copy of Ethereum: write
+ *  the token balance directly (fork only). A real chain without a faucet: funded by hand. */
 export async function faucet(w: WalletClient, token: Address, to: Address, units: bigint): Promise<void> {
+  if (!cfg.aave.faucet) {
+    if (cfg.evm !== "fork") throw new Error("no test-token faucet on this chain: fund the wallet by hand");
+    return deal(token, to, (await balance(token, to)) + units);
+  }
   const max = 10_000n * E18; // faucet per-call limit
   for (let left = units; left > 0n; left -= left > max ? max : left) {
     await write(w, cfg.aave.faucet, faucetAbi, "mint", [token, to, left > max ? max : left]);
   }
+}
+
+const balanceSlot = new Map<string, bigint>();
+/** Fork only: set `to`'s balance of `token` by writing its storage. The balances mapping's slot is
+ *  found once per token by probing (WETH 3, USDC 9, most ERC-20s 0–10). */
+export async function deal(token: Address, to: Address, amount: bigint): Promise<void> {
+  if (cfg.evm !== "fork") throw new Error("deal: fork only");
+  const keyAt = (slot: bigint) => keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [to, slot]));
+  const known = balanceSlot.get(token.toLowerCase());
+  for (const slot of known !== undefined ? [known] : Array.from({ length: 21 }, (_, i) => BigInt(i))) {
+    const key = keyAt(slot);
+    const before = await pub.getStorageAt({ address: token, slot: key });
+    await test.setStorageAt({ address: token, index: key, value: toHex(amount, { size: 32 }) });
+    if ((await balance(token, to)) === amount) {
+      balanceSlot.set(token.toLowerCase(), slot);
+      return;
+    }
+    await test.setStorageAt({ address: token, index: key, value: before ?? toHex(0n, { size: 32 }) });
+  }
+  throw new Error(`deal: no balance slot found for ${token}`);
 }
 
 /** Ensure `who` holds at least `units` of `token` (mints the shortfall). */
