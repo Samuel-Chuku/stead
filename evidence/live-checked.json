@@ -1,0 +1,100 @@
+{
+ "generated": "2026-11-08T20:12:34.966Z",
+ "mainnet": [],
+ "testnet": [
+  {
+   "run": "Verified buy-back, steadfi.testnet",
+   "step": "Borrower supplies 200 LINK, borrows to HF 1.17 (MPC-signed)",
+   "chain": "near-testnet",
+   "tx": "4afr4oEQ1gCAU9A4bhYQ9qQiQvYFw67ptSSsp2rtaK7j",
+   "signer": "steadfi.testnet",
+   "link": "https://testnet.nearblocks.io/txns/4afr4oEQ1gCAU9A4bhYQ9qQiQvYFw67ptSSsp2rtaK7j",
+   "confirmed": true,
+   "status": "✓"
+  },
+  {
+   "run": "Verified buy-back, steadfi.testnet",
+   "step": "Borrower supplies 200 LINK, borrows to HF 1.17 (MPC-signed)",
+   "chain": "near-testnet",
+   "tx": "Co8UwtwjVpVxod5aqEeSALXyCHgbfTmQTei74YR2yVYw",
+   "signer": "steadfi.testnet",
+   "link": "https://testnet.nearblocks.io/txns/Co8UwtwjVpVxod5aqEeSALXyCHgbfTmQTei74YR2yVYw",
+   "confirmed": true,
+   "status": "✓"
+  },
+  {
+   "run": "Verified buy-back, steadfi.testnet",
+   "step": "Borrows to HF 1.14",
+   "chain": "near-testnet",
+   "tx": "ExPb3abuakVqud2hVjK6X4WLsCn6koDybr37ztmLcQFp",
+   "signer": "steadfi.testnet",
+   "link": "https://testnet.nearblocks.io/txns/ExPb3abuakVqud2hVjK6X4WLsCn6koDybr37ztmLcQFp",
+   "confirmed": true,
+   "status": "✓"
+  },
+  {
+   "run": "Verified buy-back, steadfi.testnet",
+   "step": "Borrower pays 1,924.1433 DAI into the position",
+   "chain": "sepolia",
+   "tx": "0x9218365e5e7010dc50b41d85aab0382f6bf691f1c11264bb0844dacc52d188e6",
+   "link": "https://sepolia.etherscan.io/tx/0x9218365e5e7010dc50b41d85aab0382f6bf691f1c11264bb0844dacc52d188e6",
+   "confirmed": true,
+   "status": "✓ block 12070568"
+  },
+  {
+   "run": "Expiry settlement, sepolia-demo",
+   "step": "deep supplies 63.1571 LINK after winning at 150 bps",
+   "chain": "sepolia",
+   "tx": "0xe4915addb98fa9b9bb7dd32c3069e93f509862e7abe787bd488c225e01c7ce86",
+   "link": "https://sepolia.etherscan.io/tx/0xe4915addb98fa9b9bb7dd32c3069e93f509862e7abe787bd488c225e01c7ce86",
+   "confirmed": true,
+   "status": "✓ block 12075872"
+  },
+  {
+   "run": "Expiry settlement, sepolia-demo",
+   "step": "Window ends, deep settles and repays 1,922.92 DAI",
+   "chain": "sepolia",
+   "tx": "0x9698a75be00a9fe089c2ee286d41c53513063e667fd96238c0e7ef22fba51dac",
+   "link": "https://sepolia.etherscan.io/tx/0x9698a75be00a9fe089c2ee286d41c53513063e667fd96238c0e7ef22fba51dac",
+   "confirmed": true,
+   "status": "✓ block 12075917"
+  },
+  {
+   "run": "Buy-back, sepolia-demo",
+   "step": "Borrower pays 1,298.8990 DAI into the position",
+   "chain": "sepolia",
+   "tx": "0x9959cd2956dca59f9feb6ba49eb3b905adad389751587d5968d620dc183ea883",
+   "link": "https://sepolia.etherscan.io/tx/0x9959cd2956dca59f9feb6ba49eb3b905adad389751587d5968d620dc183ea883",
+   "confirmed": true,
+   "status": "✓ block 12075966"
+  },
+  {
+   "run": "Pooled verified rescue, sepolia-demo",
+   "step": "Borrower sends 200 LINK to the position address",
+   "chain": "sepolia",
+   "tx": "0xa41a1f05803198a98adff49edce39ab1808cc26737a3920a785de78125a5829b",
+   "link": "https://sepolia.etherscan.io/tx/0xa41a1f05803198a98adff49edce39ab1808cc26737a3920a785de78125a5829b",
+   "confirmed": true,
+   "status": "✓ block 12088738"
+  },
+  {
+   "run": "Pooled verified rescue, sepolia-demo",
+   "step": "Borrows to HF 1.14 (MPC-signed)",
+   "chain": "near-testnet",
+   "tx": "E5mF9TkXSHHeXJ66rq1fHSKutejgfsMrB2mRKJJQoBhS",
+   "signer": "borrower.steadfi.testnet",
+   "link": "https://testnet.nearblocks.io/txns/E5mF9TkXSHHeXJ66rq1fHSKutejgfsMrB2mRKJJQoBhS",
+   "confirmed": true,
+   "status": "✓"
+  },
+  {
+   "run": "Pooled verified rescue, sepolia-demo",
+   "step": "One payment of 1,928.8073 DAI buys back three claims (deep, hedged, patient)",
+   "chain": "sepolia",
+   "tx": "0x59a0d5ea0a3096d979fdc58f3e692e55f8ed74917b875ddfa073b37fec9861a1",
+   "link": "https://sepolia.etherscan.io/tx/0x59a0d5ea0a3096d979fdc58f3e692e55f8ed74917b875ddfa073b37fec9861a1",
+   "confirmed": true,
+   "status": "✓ block 12088774"
+  }
+ ]
+}

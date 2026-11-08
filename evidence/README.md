@@ -80,7 +80,13 @@ Rising   BuyBack             0      0       0        0      0      0    0.0000  
 Rising   SettleAtExpiry      0      0       0        0      0      0    0.0000        0
 ```
 
-## 4. Live runs, re-read on chain
+## 4. Live on mainnet (real funds), re-checked on chain
+
+Each run's script records every transaction as it happens: every NEAR call by every actor (the borrower, the stewards, the keeper) and every Ethereum transaction sent from the run's own addresses (the borrower, the stewards, each position's MPC-derived address), with the contract's state at the end. The trails are in `mainnet/`. Here every transaction is re-checked on chain (it exists; its sender, target or method match the record; it succeeded, or was refused when the record says so) and the contract's positions, rescues and claims are read again and compared with the snapshot. Machine-readable: `live-checked.json`.
+
+_No mainnet run recorded yet._
+
+## 5. Testnet runs, re-read on chain
 
 | Run | Step | Transaction | On chain |
 |---|---|---|---|

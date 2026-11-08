@@ -31,8 +31,8 @@ Flat     SettleAtExpiry    120     62       0        0      0      0    0.9340  
 Rising   BuyBack             0      0       0        0      0      0    0.0000        0
 Rising   SettleAtExpiry      0      0       0        0      0      0    0.0000        0
 ok
-test spec_example_at_26_dollars ... Worked example: T = 30.4349 LINK, premium = 0.9130 LINK ($26.60 at trigger ≤ $95.00); at $26 the borrower loses 0.9130 LINK
+test worked_example_at_26_dollars ... Worked example: T = 30.4349 LINK, premium = 0.9130 LINK ($26.60 at trigger ≤ $95.00); at $26 the borrower loses 0.9130 LINK
 ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.33s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.30s
 

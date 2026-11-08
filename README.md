@@ -58,7 +58,7 @@ switched off). Anything that needs an RPC, OutLayer or keys is opt-in and skips 
 |---|---|
 | `cd contract && cargo test -p stead-core` | **114 passed**, 0 failed: rules 65, settlement and liquidation watch 24, owner limits 10, stewards 10, invariant sweeps 3, OutLayer output parsing 1, migration dry-run 1 (prints `skipped` unless `STEAD_STATE_FILE` points at a downloaded contract state) |
 | `cd verifier && cargo test` | **13 passed, 1 ignored**: the proof program against recorded Sepolia RPC answers (`tests/fixtures/`); `record` is the live recorder, opt-in: `cargo test -- --ignored record` |
-| `cd stewards && npm ci && npm test` | **88 passed** in 13 files: strategies, hedging, polling, settlement repay, NEAR Intents quotes, AI tuning, the replay model |
+| `cd stewards && npm ci && npm test` | **96 passed** in 14 files: strategies, hedging, polling, settlement repay, NEAR Intents quotes, AI tuning, the replay model, the run evidence trail and its on-chain checker |
 | `cd contract && cargo near build non-reproducible-wasm --no-abi` | `target/near/stead.wasm`; SHA-256 `9035456a230787ac45cfaed411d552397cdad864d753bf2a5ba00e9970b17585`, the code deployed on `steadfi.testnet` and `sepolia-demo.steadfi.testnet` (compare with `view_code`) |
 
 Run from the workspace root, `cargo test` would also try to build the NEAR contract crate for the host,
@@ -114,6 +114,14 @@ The contract signs an EVM transaction only from a fixed allow-list. Tests are in
    confirmed yet goes back to open; after the repay, the unsent premium legs are dropped.
 
 ## Recorded runs
+
+Every transaction below is re-read on chain by the evidence harness (`cd stewards && npx tsx
+scripts/evidence.ts`, results in [evidence/README.md](evidence/README.md)). A run with real funds
+records its own trail as it goes, in `evidence/mainnet/`: every NEAR call by every actor (borrower,
+stewards, keeper) and every Ethereum transaction sent from the run's own addresses, plus the
+contract's final state. The harness checks each transaction's sender, target or method and outcome
+against the trail, re-reads the contract's positions, rescues and claims, and writes
+`evidence/live-checked.json` for the front end.
 
 **Verified rescue on Sepolia** (2026-11-05, position 9, rescue 12, legacy market 1). Every Aave reading that drove a
 decision came from the proof program.

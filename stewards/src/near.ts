@@ -82,6 +82,29 @@ export interface CallResult<T = unknown> {
   logs: string[];
 }
 
+/** One contract call as sent: who signed it, the method, the arguments, and how it ended. */
+export interface CallRecord {
+  signer: string;
+  contract: string;
+  method: string;
+  args: Record<string, unknown>;
+  hash?: string; // missing only when the transaction never reached a node
+  sentAt: string; // ISO time the call was sent (it lands a second or two later)
+  ok: boolean;
+  error?: string;
+}
+/** Listeners told about every contract call (an evidence trail records them all, by every actor). */
+export const callListeners: ((c: CallRecord) => void)[] = [];
+function tell(c: CallRecord) {
+  for (const l of callListeners) {
+    try {
+      l(c);
+    } catch {
+      /* a listener never breaks a call */
+    }
+  }
+}
+
 export const TGAS = 1_000_000_000_000n;
 export const NEAR = 10n ** 24n;
 
@@ -89,14 +112,25 @@ export const NEAR = 10n ** 24n;
  *  with the contract's panic message on failure. */
 export async function call<T = unknown>(signer: string, method: string, args: Record<string, unknown>, opts: { gas?: bigint; deposit?: bigint } = {}): Promise<CallResult<T>> {
   viewCache.clear();
-  const res: any = await withRetry(() => account(signer).callFunctionRaw({
-    contractId: cfg.contract,
-    methodName: method,
-    args,
-    gas: opts.gas ?? 100n * TGAS,
-    deposit: opts.deposit ?? 0n,
-    waitUntil: "FINAL",
-  }));
+  const sent = { signer, contract: cfg.contract, method, args, sentAt: new Date().toISOString() };
+  let res: any;
+  try {
+    res = await withRetry(() => account(signer).callFunctionRaw({
+      contractId: cfg.contract,
+      methodName: method,
+      args,
+      gas: opts.gas ?? 100n * TGAS,
+      deposit: opts.deposit ?? 0n,
+      waitUntil: "FINAL",
+    }));
+  } catch (e) {
+    // a refused transaction still has a hash (it's on chain): near-api-js keeps it on the error
+    const x = e as { txHash?: string; transactionResult?: { transaction?: { hash?: string }; transaction_outcome?: { id?: string } } };
+    const hash = x.txHash || x.transactionResult?.transaction?.hash || x.transactionResult?.transaction_outcome?.id || undefined;
+    tell({ ...sent, ...(hash ? { hash } : {}), ok: false, error: (e as Error).message.slice(0, 200) });
+    if (hash && !(e as { hash?: string }).hash) Object.assign(e as object, { hash });
+    throw e;
+  }
   viewCache.clear();
   const outcomes = [res.transaction_outcome, ...(res.receipts_outcome ?? [])];
   const logs: string[] = outcomes.flatMap((o: any) => o.outcome.logs ?? []);
@@ -105,6 +139,7 @@ export async function call<T = unknown>(signer: string, method: string, args: Re
     const msg = JSON.stringify(failure).match(/Smart contract panicked: ([^"\\]+)/)?.[1] ?? JSON.stringify(failure);
     const e = new Error(msg) as Error & { hash?: string };
     e.hash = res.transaction.hash;
+    tell({ ...sent, hash: res.transaction.hash, ok: false, error: msg.slice(0, 200) });
     throw e;
   }
   const events = logs
@@ -120,6 +155,7 @@ export async function call<T = unknown>(signer: string, method: string, args: Re
       value = undefined;
     }
   }
+  tell({ ...sent, hash: res.transaction.hash, ok: true });
   return { hash: res.transaction.hash, value, events, logs };
 }
 

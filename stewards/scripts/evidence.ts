@@ -5,14 +5,21 @@
 //     threshold and bonus are read from the Aave V3 Ethereum Pool (read-only).
 //  2. Steward replay: hedged vs unhedged steward PnL on the same paths (scripts/replay.ts).
 //  3. Stress sweep: the contract crate's random-path and latency sweeps, when its tests are present.
-//  4. Live runs: every recorded transaction in evidence/live-runs.json, re-read on chain.
+//  4. Live on mainnet: every run trail in evidence/mainnet/ (written by the run script as it runs),
+//     each transaction re-checked on chain (sender, target, method, outcome) and the contract's state
+//     re-read and compared with the trail's snapshot.
+//  5. Testnet runs: every recorded transaction in evidence/live-runs.json, re-read on chain.
+//  Also writes evidence/live-checked.json: every checked transaction, for the front end.
+//  `--trail <file>` checks one trail only and prints it (writes nothing): for a rehearsal.
 // Read-only throughout: public market data and RPC reads, no account, no transaction.
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createPublicClient, http, parseAbi, type Address } from "viem";
 import { mainnet } from "viem/chains";
-import { REPO } from "../src/config.js";
+import { REPO, env, hasEnv } from "../src/config.js";
+import { checkTrail, renderTrail, rpcAny, explorerLink, type Rpcs, type CheckedTrail } from "../src/trailcheck.js";
+import type { TrailFile, TrailChain } from "../src/record.js";
 import { fallThroughEvents, replayPath, summarize, STEAD_PARAMS, type PathResult, type Reserve } from "../src/evidence.js";
 
 const OUT = join(REPO, "evidence");
@@ -20,6 +27,37 @@ const DATA = join(OUT, "data");
 const START = Date.UTC(2026, 0, 1);
 const END = Date.UTC(2026, 10, 6);
 const args = new Set(process.argv.slice(2));
+const argAfter = (flag: string) => {
+  const i = process.argv.indexOf(flag);
+  return i > 0 ? process.argv[i + 1] : undefined;
+};
+
+/** RPCs per chain: the ones in .env first (never printed: some carry a key), then public ones. */
+function rpcs(): Rpcs {
+  const list = (...names: string[]) => names.flatMap((n) => (hasEnv(n) ? env(n).split(",") : [])).map((u) => u.trim()).filter(Boolean);
+  const uniq = (xs: string[]) => [...new Set(xs)];
+  return {
+    ethereum: uniq([...list("MAINNET_RPC_URL", "MAINNET_RPC_FALLBACK"), "https://ethereum-rpc.publicnode.com", "https://eth.drpc.org"]),
+    sepolia: uniq([...list("SEPOLIA_RPC_URL", "SEPOLIA_RPC_FALLBACK"), "https://ethereum-sepolia-rpc.publicnode.com", "https://1rpc.io/sepolia", "https://sepolia.gateway.tenderly.co"]),
+    "ethereum-copy": [argAfter("--copy-rpc") ?? "http://127.0.0.1:8546"],
+    // archival first: a regular node forgets transactions after a few days
+    "near-mainnet": uniq(["https://archival-rpc.mainnet.fastnear.com", ...list("MAINNET_NEAR_RPC_URL", "MAINNET_NEAR_RPC_FALLBACK"), "https://rpc.mainnet.near.org"]),
+    "near-testnet": ["https://archival-rpc.testnet.fastnear.com", "https://rpc.testnet.fastnear.com", "https://archival-rpc.testnet.near.org"],
+  };
+}
+
+async function mainnetRuns(): Promise<{ md: string; checked: CheckedTrail[] }> {
+  const dir = join(OUT, "mainnet");
+  const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".json")).sort() : [];
+  if (!files.length) return { md: "_No mainnet run recorded yet._", checked: [] };
+  const checked: CheckedTrail[] = [];
+  for (const f of files) {
+    const c = await checkTrail(`evidence/mainnet/${f}`, JSON.parse(readFileSync(join(dir, f), "utf8")) as TrailFile, rpcs());
+    console.log(`${c.title}: ${c.confirmed}/${c.total} confirmed · state ${c.state.checked ? (c.state.matches ? "matches" : "DIFFERS") : "not checked"}`);
+    checked.push(c);
+  }
+  return { md: checked.map(renderTrail).join("\n"), checked };
+}
 
 // Aave V3 Ethereum (bgd-labs address book); token addresses: the canonical mainnet tokens.
 const POOL: Address = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2";
@@ -123,57 +161,55 @@ function stressSweep(): string {
   return "```\n" + clean.split("\n").filter((l) => !/^(running|test |\s*Finished|\s*Running|ok|$)/.test(l)).join("\n").trim() + "\n```";
 }
 
-async function rpc(url: string, method: string, params: unknown): Promise<any> {
-  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
-  return r.json();
-}
+interface TestnetRow { run: string; step: string; chain: TrailChain; tx: string; signer?: string; link: string; confirmed: boolean; status: string }
 
-async function liveRuns(): Promise<string> {
-  const list: { run: string; step: string; chain: string; tx: string; signer?: string }[] = JSON.parse(readFileSync(join(OUT, "live-runs.json"), "utf8"));
+async function liveRuns(): Promise<{ md: string; rows: TestnetRow[] }> {
+  const list: { run: string; step: string; chain: TrailChain; tx: string; signer?: string }[] = JSON.parse(readFileSync(join(OUT, "live-runs.json"), "utf8"));
+  const urls = rpcs();
   const lines = ["| Run | Step | Transaction | On chain |", "|---|---|---|---|"];
+  const rows: TestnetRow[] = [];
   for (const x of list) {
     let ok = "not found";
-    let link = "";
-    try {
-      if (x.chain === "sepolia") {
-        link = `https://sepolia.etherscan.io/tx/${x.tx}`;
-        let r: any = {};
-        // public RPCs sometimes answer null for a known tx: try three, twice
-        const urls = [process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com", "https://1rpc.io/sepolia", "https://sepolia.gateway.tenderly.co"];
-        for (const u of [...urls, ...urls]) {
-          r = await rpc(u, "eth_getTransactionReceipt", [x.tx]).catch(() => ({}));
-          if (r.result) break;
-        }
-        if (r.result) ok = r.result.status === "0x1" ? `✓ block ${parseInt(r.result.blockNumber, 16)}` : "✗ reverted";
-      } else if (x.chain === "ethereum") {
-        link = `https://etherscan.io/tx/${x.tx}`;
-        const r = await rpc(process.env.MAINNET_RPC_URL || "https://ethereum-rpc.publicnode.com", "eth_getTransactionReceipt", [x.tx]);
-        if (r.result) ok = r.result.status === "0x1" ? `✓ block ${parseInt(r.result.blockNumber, 16)}` : "✗ reverted";
-      } else {
-        const testnet = x.chain === "near-testnet";
-        link = `https://${testnet ? "testnet." : ""}nearblocks.io/txns/${x.tx}`;
-        const r = await rpc(testnet ? "https://archival-rpc.testnet.fastnear.com" : "https://archival-rpc.mainnet.fastnear.com", "tx", { tx_hash: x.tx, sender_account_id: x.signer, wait_until: "NONE" });
-        const st = r.result?.status;
-        if (st) ok = "SuccessValue" in st || "SuccessReceiptId" in st ? "✓" : "✗ failed";
-        else if (r.error) ok = `not found (${r.error.cause?.name ?? r.error.message})`;
-      }
-    } catch (e) {
-      ok = `unreachable (${(e as Error).message})`;
+    if (x.chain.startsWith("near")) {
+      const r = await rpcAny(urls[x.chain], "tx", { tx_hash: x.tx, sender_account_id: x.signer, wait_until: "NONE" }, (v) => v?.result?.status != null);
+      const st = r?.result?.status;
+      if (st) ok = "SuccessValue" in st || "SuccessReceiptId" in st ? "✓" : "✗ failed";
+      else if (r?.error) ok = `not found${r.error.cause?.name ? ` (${r.error.cause.name})` : ""}`;
+    } else {
+      // public RPCs sometimes answer null for a known tx: every RPC is tried, twice
+      const r = await rpcAny(urls[x.chain] ?? [], "eth_getTransactionReceipt", [x.tx]);
+      if (r?.result) ok = r.result.status === "0x1" ? `✓ block ${parseInt(r.result.blockNumber, 16)}` : "✗ reverted";
     }
+    const link = explorerLink(x.chain, x.tx);
+    rows.push({ ...x, link, confirmed: ok.startsWith("✓"), status: ok });
     lines.push(`| ${x.run} | ${x.step} | [\`${x.tx.slice(0, 10)}…\`](${link}) | ${ok} |`);
     console.log(`${ok.padEnd(16)} ${x.chain} ${x.tx.slice(0, 12)}… ${x.step}`);
   }
-  return lines.join("\n");
+  return { md: lines.join("\n"), rows };
 }
 
 async function main() {
+  const one = argAfter("--trail");
+  if (one) {
+    // a single trail (e.g. a rehearsal's): check it, print it, write nothing
+    const c = await checkTrail(one, JSON.parse(readFileSync(one, "utf8")) as TrailFile, rpcs());
+    console.log(renderTrail(c));
+    for (const e of c.entries.filter((x) => !x.confirmed)) console.log(`NOT CONFIRMED: ${e.chain} ${e.tx} ${e.what}: ${e.status}`);
+    console.log(`\n${c.confirmed}/${c.total} confirmed · state: ${c.state.note}${c.state.differences.length ? ` (${c.state.differences.join(", ")})` : ""}`);
+    if (c.confirmed !== c.total || (c.state.checked && !c.state.matches)) process.exitCode = 1;
+    return;
+  }
   mkdirSync(DATA, { recursive: true });
   console.log("EVIDENCE: replays of real 2026 prices and re-reads of recorded runs. Read-only.\n");
   const borrower = await borrowerReplay();
   console.log(borrower.table + "\n");
   const steward = stewardReplay();
   const sweep = args.has("--no-sweep") ? "_skipped (--no-sweep)_" : stressSweep();
-  const live = args.has("--no-live") ? "_skipped (--no-live)_" : await liveRuns();
+  const skip = args.has("--no-live");
+  const main_ = skip ? { md: "_skipped (--no-live)_", checked: [] } : await mainnetRuns();
+  const test_ = skip ? { md: "_skipped (--no-live)_", rows: [] } : await liveRuns();
+  const live = test_.md;
+  if (!skip) writeFileSync(join(OUT, "live-checked.json"), JSON.stringify({ generated: new Date().toISOString(), mainnet: main_.checked, testnet: test_.rows }, null, 1) + "\n");
   const day = new Date().toISOString().slice(0, 10);
   const md = `# Stead: evidence
 
@@ -212,7 +248,13 @@ The contract crate's random-path sweep (the invariant on every path, stacked cla
 
 ${sweep}
 
-## 4. Live runs, re-read on chain
+## 4. Live on mainnet (real funds), re-checked on chain
+
+Each run's script records every transaction as it happens: every NEAR call by every actor (the borrower, the stewards, the keeper) and every Ethereum transaction sent from the run's own addresses (the borrower, the stewards, each position's MPC-derived address), with the contract's state at the end. The trails are in \`mainnet/\`. Here every transaction is re-checked on chain (it exists; its sender, target or method match the record; it succeeded, or was refused when the record says so) and the contract's positions, rescues and claims are read again and compared with the snapshot. Machine-readable: \`live-checked.json\`.
+
+${main_.md}
+
+## 5. Testnet runs, re-read on chain
 
 ${live}
 `;
