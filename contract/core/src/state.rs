@@ -11,6 +11,13 @@ use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const SEC: u64 = 1_000_000_000;
+/// Hard limits on the owner's settings, written into the code: the owner can tune within them,
+/// never beyond (a stolen owner key can't, say, make the buy-back window one second).
+pub const BUYBACK_WINDOW_RANGE_NS: (u64, u64) = (180 * SEC, 7 * 24 * 3600 * SEC);
+pub const AUCTION_WINDOW_RANGE_NS: (u64, u64) = (15 * SEC, 600 * SEC);
+pub const TOPUP_DEADLINE_RANGE_NS: (u64, u64) = (60 * SEC, 3600 * SEC);
+/// The most a position's collateral may be worth when a size cap is set (USD, 8 dp): $1,000.
+pub const MAX_COLLATERAL_CEILING_BASE: u128 = 1_000 * 100_000_000;
 /// Plain ETH transfer gas; the floor for a nonce-burn.
 pub const TRANSFER_GAS: u128 = 21_000;
 /// If the settler hasn't supplied the deleverage repayment within this time, anyone may
@@ -85,11 +92,29 @@ impl Params {
         ensure!(self.early_settle_hf_bps > BPS as u32, "early_settle_hf must be > 1.0");
         ensure!(self.early_settle_hf_bps < self.trigger_hf_bps, "early_settle_hf must be < trigger_hf");
         ensure!(self.trigger_hf_bps < self.target_hf_bps, "trigger_hf must be < target_hf");
-        ensure!(self.auction_window_ns > 0 && self.topup_deadline_ns > 0, "windows must be > 0");
+        in_range(self.auction_window_ns, AUCTION_WINDOW_RANGE_NS, "auction_window")?;
+        in_range(self.topup_deadline_ns, TOPUP_DEADLINE_RANGE_NS, "topup_deadline")?;
+        in_range(self.buyback_window_ns, BUYBACK_WINDOW_RANGE_NS, "buyback_window")?;
         ensure!(self.max_price_age_ns > 0, "max_price_age must be > 0");
-        ensure!(self.buyback_window_ns > 0, "buyback_window must be > 0");
         Ok(())
     }
+}
+
+fn in_range(v: u64, (lo, hi): (u64, u64), name: &str) -> R<()> {
+    ensure!(v >= lo && v <= hi, "{name} out of range [{} s, {} s]", lo / SEC, hi / SEC);
+    Ok(())
+}
+
+/// Owner-set limits for a deployment that holds real funds. Defaults (0, empty) = no limit.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub struct Limits {
+    /// No auction opens, and no borrower `supply` is signed, that would take the position's
+    /// collateral above this (USD, 8 dp). 0 = no cap. At most `MAX_COLLATERAL_CEILING_BASE`.
+    #[serde(with = "crate::as_str")]
+    pub max_collateral_base: u128,
+    /// Non-empty: only these accounts may register a position. Removing one later doesn't touch
+    /// positions it already has.
+    pub borrowers: BTreeSet<String>,
 }
 
 /// One Aave market pair (collateral, debt) on one chain. Values read from the reserve config.
@@ -624,6 +649,8 @@ pub struct Stead {
     pub removed_stewards: BTreeSet<String>,
     /// Collateral watch and verified settlement start, per position.
     pub watch: BTreeMap<u64, Watch>,
+    /// Size cap and borrower allow-list (owner-set, bounded).
+    pub limits: Limits,
     /// NEP-297 events produced by the last call; the wrapper drains and logs them.
     #[borsh(skip)]
     pub events: Vec<String>,
@@ -633,9 +660,9 @@ pub struct Stead {
     pub payouts: Vec<Transfer>,
 }
 
-/// The stored layout before the collateral watch (for `migrate`). Field order must match it.
+/// The stored layout before the owner-set limits (for `migrate`). Field order must match it.
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct SteadV4 {
+pub struct SteadV5 {
     pub owner: String,
     pub reporters: BTreeSet<String>,
     pub stewards: BTreeSet<String>,
@@ -655,10 +682,11 @@ pub struct SteadV4 {
     pub verify_cfg: Option<VerifyConfig>,
     pub verified: BTreeMap<u64, VerifiedState>,
     pub removed_stewards: BTreeSet<String>,
+    pub watch: BTreeMap<u64, Watch>,
 }
 
-impl From<SteadV4> for Stead {
-    fn from(o: SteadV4) -> Self {
+impl From<SteadV5> for Stead {
+    fn from(o: SteadV5) -> Self {
         Stead {
             owner: o.owner,
             reporters: o.reporters,
@@ -679,7 +707,8 @@ impl From<SteadV4> for Stead {
             verify_cfg: o.verify_cfg,
             verified: o.verified,
             removed_stewards: o.removed_stewards,
-            watch: BTreeMap::new(),
+            watch: o.watch,
+            limits: Limits::default(),
             events: vec![],
             payouts: vec![],
         }
@@ -709,6 +738,7 @@ impl Stead {
             verified: BTreeMap::new(),
             removed_stewards: BTreeSet::new(),
             watch: BTreeMap::new(),
+            limits: Limits::default(),
             events: vec![],
             payouts: vec![],
         }
@@ -716,7 +746,7 @@ impl Stead {
 
     /// Init only: a contract deployed for a demo sets a shorter buy-back window here.
     pub fn init_buyback_window(&mut self, window_ns: u64) -> R<()> {
-        ensure!(window_ns > 0, "buyback_window must be > 0");
+        in_range(window_ns, BUYBACK_WINDOW_RANGE_NS, "buyback_window")?;
         self.params.buyback_window_ns = window_ns;
         self.emit("buyback_window_set", json!({"buyback_window_s": window_ns / SEC, "demo_setting": window_ns < 24 * 3600 * SEC}));
         Ok(())
@@ -782,7 +812,17 @@ impl Stead {
         for m in self.markets.values() {
             ensure!(m.lt_bps < p.target_hf_bps, "lt must be < target_hf");
         }
-        self.params = p;
+        // Claims keep the buy-back deadline they opened with (`Claim.expires_at`); auctions keep
+        // their close time and cap. A change applies to rescues that start after it.
+        let old = std::mem::replace(&mut self.params, p);
+        self.emit("params_set", json!({"old": old, "new": self.params}));
+        Ok(())
+    }
+    pub fn set_limits(&mut self, c: &str, l: Limits) -> R<()> {
+        self.only_owner(c)?;
+        ensure!(l.max_collateral_base <= MAX_COLLATERAL_CEILING_BASE, "max_collateral_base above the ceiling ({} USD)", MAX_COLLATERAL_CEILING_BASE / 100_000_000);
+        let old = std::mem::replace(&mut self.limits, l);
+        self.emit("limits_set", json!({"old": old, "new": self.limits}));
         Ok(())
     }
     pub fn set_role(&mut self, c: &str, role: &str, account: &str, on: bool) -> R<()> {
@@ -843,6 +883,7 @@ impl Stead {
         self.not_paused()?;
         ensure!(self.markets.contains_key(&market_id), "no market {market_id}");
         ensure!(payout != EvmAddr::default(), "zero payout address");
+        ensure!(self.limits.borrowers.is_empty() || self.limits.borrowers.contains(c), "not on the borrower allow-list");
         let id = self.next_position_id;
         self.next_position_id += 1;
         self.positions.insert(
@@ -917,6 +958,12 @@ impl Stead {
             }
             Action::Supply { amount } => {
                 ensure!(amount > 0, "zero amount");
+                let cap = self.limits.max_collateral_base;
+                if cap > 0 {
+                    let h = p.health.as_ref().ok_or("size cap set: a price reading is needed before a supply")?;
+                    let adds = math::units_to_base_ceil(amount, h.r.collateral_price_base, m.collateral_decimals);
+                    ensure!(h.r.collateral_base.saturating_add(adds) <= cap, "supply would take the collateral above the size cap");
+                }
                 (m.pool, evm::supply(&m.collateral, amount, &addr))
             }
             Action::Borrow { amount } => {
@@ -1130,6 +1177,11 @@ impl Stead {
         let remaining = p.premium_cap_base.saturating_sub(p.premium_used_base);
         let t_base = math::topup_base(r.collateral_base, r.debt_base, m.lt_bps as u128, params.target_hf_bps as u128);
         if t_base == 0 || remaining == 0 {
+            return Ok(None);
+        }
+        // A size cap: no auction whose top-up would take the collateral above it
+        let cap = self.limits.max_collateral_base;
+        if cap > 0 && r.collateral_base.saturating_add(t_base) > cap {
             return Ok(None);
         }
         let cap_bps = (remaining * BPS / t_base).min(u32::MAX as u128) as u32;
@@ -1907,7 +1959,8 @@ impl Stead {
         // A reading at least as new as the last event (a pre-top-up reading counts the claims'
         // owed units but not the top-up collateral, so net HF would look far too low)
         let h = self.decision_reading(r.position_id, now)?;
-        let expired = now >= r.claims_opened_at + pr.buyback_window_ns;
+        // Each claim's own deadline, fixed when it opened: a later window change can't shorten it
+        let expired = open.iter().all(|x| now >= x.expires_at);
         // Early settlement watches the borrower's own HF (net of every open claim), not
         // Aave's, which the stewards' top-ups hold up.
         let early = math::hf_below(self.net_hf_wad(r.position_id, &h.r)?, pr.early_settle_hf_bps as u128);

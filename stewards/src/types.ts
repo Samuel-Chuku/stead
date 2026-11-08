@@ -100,6 +100,8 @@ export interface Claim {
   owed_units: string;
   trigger_price_base: string;
   status: "open" | "bought_back" | "settled";
+  /** Buy-back deadline (ns), fixed when the claim opened. */
+  expires_at: string;
 }
 
 export interface Params {

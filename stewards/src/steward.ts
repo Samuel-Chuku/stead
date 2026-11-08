@@ -315,7 +315,8 @@ export class Steward {
     // The contract only decides on a reading at least as new as the position's last event
     const books = await view<{ last_event_block: number }>("get_books", { position_id: r.position_id });
     if (!pos.health || pos.health.block < books.last_event_block) return;
-    const expired = nowNs() >= BigInt(r.claims_opened_at) + BigInt(params.buyback_window_ns);
+    // the claim's own deadline, fixed when it opened (a later window change doesn't move it)
+    const expired = nowNs() >= BigInt(claim.expires_at);
     const nh = await view<[string, string, string] | null>("get_net_health", { position_id: r.position_id });
     const early = nh != null && BigInt(nh[1]) < BigInt(params.early_settle_hf_bps) * 10n ** 14n;
     if (!expired && !early) return;

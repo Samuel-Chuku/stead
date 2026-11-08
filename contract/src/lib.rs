@@ -13,14 +13,14 @@ use near_sdk::{env, ext_contract, near, AccountId, Gas, NearToken, PanicOnDefaul
 use omni_transaction::evm::types::Signature;
 use stead_core::{
     Action, Books, Claim, ClaimStatus, EvmAddr, GasArgs, HealthReport, Market, Params, PendingTx, Position, Rescue,
-    SignPlan, Stead, SteadV4, Transfer, VerifiedOutput, VerifyConfig, Watch,
+    SignPlan, Stead, SteadV5, Transfer, Limits, VerifiedOutput, VerifyConfig, Watch,
 };
 
-/// The stored contract before the collateral watch, for `migrate`.
+/// The stored contract before the owner-set limits, for `migrate`.
 #[derive(near_sdk::borsh::BorshDeserialize)]
 #[borsh(crate = "near_sdk::borsh")]
-struct ContractV4 {
-    core: SteadV4,
+struct ContractV5 {
+    core: SteadV5,
     mpc: AccountId,
 }
 
@@ -175,12 +175,12 @@ impl Contract {
         c
     }
 
-    /// One-off state migration to the collateral-watch layout (adds the per-position watch).
+    /// One-off state migration to the limits layout (adds the size cap and borrower allow-list, both off).
     /// Only the contract account itself can call it, with the deploy.
     #[private]
     #[init(ignore_state)]
     pub fn migrate() -> Self {
-        let old: ContractV4 = env::state_read().unwrap_or_else(|| env::panic_str("no state to migrate"));
+        let old: ContractV5 = env::state_read().unwrap_or_else(|| env::panic_str("no state to migrate"));
         Self { core: old.core.into(), mpc: old.mpc }
     }
 
@@ -289,6 +289,15 @@ impl Contract {
     }
     pub fn set_params(&mut self, params: Params) {
         ok(self.core.set_params(&caller(), params));
+        self.flush();
+    }
+    /// Owner: the size cap (USD, 8 dp; 0 = none; at most $1,000) and the borrower allow-list (empty = open).
+    pub fn set_limits(&mut self, limits: Limits) {
+        ok(self.core.set_limits(&caller(), limits));
+        self.flush();
+    }
+    pub fn get_limits(&self) -> Limits {
+        self.core.limits.clone()
     }
     pub fn set_role(&mut self, role: String, account_id: AccountId, enabled: bool) {
         ok(self.core.set_role(&caller(), &role, account_id.as_str(), enabled));
