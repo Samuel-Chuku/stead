@@ -16,10 +16,20 @@ const BORROW = parseAbiItem("event Borrow(address indexed reserve, address user,
 const poolAbi = parseAbi([
   "function getUserAccountData(address) view returns (uint256 totalCollateralBase, uint256 totalDebtBase, uint256 availableBorrowsBase, uint256 currentLiquidationThreshold, uint256 ltv, uint256 healthFactor)",
   "function getUserEMode(address) view returns (uint256)",
+  "function getReservesList() view returns (address[])",
+  "function getConfiguration(address) view returns ((uint256 data))",
+  "function getUserConfiguration(address) view returns ((uint256 data))",
+  "function getReserveData(address) view returns ((uint256 configuration, uint128 liquidityIndex, uint128 currentLiquidityRate, uint128 variableBorrowIndex, uint128 currentVariableBorrowRate, uint128 currentStableBorrowRate, uint40 lastUpdateTimestamp, uint16 id, address aTokenAddress, address stableDebtTokenAddress, address variableDebtTokenAddress, address interestRateStrategyAddress, uint128 accruedToTreasury, uint128 unbacked, uint128 isolationModeTotalDebt))",
+  "function ADDRESSES_PROVIDER() view returns (address)",
 ]);
+const providerAbi = parseAbi(["function getPriceOracle() view returns (address)"]);
+const oracleAbi = parseAbi(["function getAssetPrice(address) view returns (uint256)"]);
+const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)"]);
 
 /** Stead's parameters (as deployed): trigger 1.15, target 1.50, early settlement 1.10. */
-export const STEAD = { trigger: 1.15, target: 1.5, early: 1.1, liqBonusBps: 500 };
+export const STEAD = { trigger: 1.15, target: 1.5, early: 1.1 };
+/** Used only if a position's collateral mix can't be read. */
+const FALLBACK_BONUS_BPS = 500;
 
 export interface MainnetPosition {
   address: Address;
@@ -29,6 +39,10 @@ export interface MainnetPosition {
   collateralUsd: number;
   debtUsd: number;
   ltBps: number;
+  /** Liquidation bonus, weighted by the position's collateral reserves (bps above 100 %). */
+  bonusBps: number;
+  /** Collateral reserves by value, largest first (symbol-free: token addresses). */
+  collateral: { asset: Address; usd: number; bonusBps: number }[];
   /** At Stead's trigger (prices scaled down uniformly until HF = 1.15, if it's above now). */
   atTrigger: {
     topupUsd: number;
@@ -59,11 +73,11 @@ export async function recentBorrowers(blocks = 9_000): Promise<Address[]> {
 }
 
 /** What Stead would do for a position at its trigger, with the contract's formulas. */
-export function steadView(hf: number, collateralUsd: number, debtUsd: number, ltBps: number): MainnetPosition["atTrigger"] {
+export function steadView(hf: number, collateralUsd: number, debtUsd: number, ltBps: number, bonusBps = FALLBACK_BONUS_BPS): MainnetPosition["atTrigger"] {
   const lt = ltBps / 10_000;
   const c = hf > STEAD.trigger ? (STEAD.trigger * debtUsd) / lt : collateralUsd; // collateral value at the trigger
   const topupUsd = Math.max(0, (STEAD.target * debtUsd) / lt - c);
-  const capUsd = (debtUsd * STEAD.liqBonusBps) / 10_000 / 2;
+  const capUsd = (debtUsd * bonusBps) / 10_000 / 2;
   const capBps = topupUsd > 0 ? Math.floor((capUsd * 10_000) / topupUsd) : 0;
   const a: AuctionView = {
     capBps,
@@ -119,8 +133,71 @@ export async function scan(opts: { blocks?: number; maxHf?: number; minDebtUsd?:
       if (debtUsd < minDebtUsd || hf < 1 || hf >= maxHf) return;
       const collateralUsd = Number(cb) / 1e8;
       const ltBps = Number(ltRaw);
-      out.push({ address: batch[j], emode, hf, collateralUsd, debtUsd, ltBps, atTrigger: steadView(hf, collateralUsd, debtUsd, ltBps) });
+      out.push({ address: batch[j], emode, hf, collateralUsd, debtUsd, ltBps, bonusBps: FALLBACK_BONUS_BPS, collateral: [], atTrigger: steadView(hf, collateralUsd, debtUsd, ltBps) });
     });
   }
+  await addBonuses(out);
   return out.sort((a, b) => a.hf - b.hf);
+}
+
+interface ReserveInfo { asset: Address; bit: number; aToken: Address; decimals: number; bonusBps: number; price: bigint }
+
+/** Every reserve's bonus, decimals, aToken and oracle price (all found from the Pool itself). */
+async function reserveInfo(): Promise<ReserveInfo[]> {
+  const assets = await client.readContract({ address: AAVE_POOL, abi: poolAbi, functionName: "getReservesList" });
+  const provider = await client.readContract({ address: AAVE_POOL, abi: poolAbi, functionName: "ADDRESSES_PROVIDER" });
+  const oracle = await client.readContract({ address: provider, abi: providerAbi, functionName: "getPriceOracle" });
+  const res = await client.multicall({
+    multicallAddress: MULTICALL3,
+    allowFailure: false,
+    contracts: assets.flatMap((a) => [
+      { address: AAVE_POOL, abi: poolAbi, functionName: "getReserveData", args: [a] } as const,
+      { address: oracle, abi: oracleAbi, functionName: "getAssetPrice", args: [a] } as const,
+    ]),
+  });
+  return assets.map((asset, k) => {
+    const rd = res[2 * k] as { configuration: bigint; id: number; aTokenAddress: Address };
+    const cfg = rd.configuration;
+    return {
+      asset,
+      bit: rd.id,
+      aToken: rd.aTokenAddress,
+      decimals: Number((cfg >> 48n) & 0xffn),
+      bonusBps: Math.max(0, Number((cfg >> 32n) & 0xffffn) - 10_000),
+      price: res[2 * k + 1] as bigint,
+    };
+  });
+}
+
+/** Each position's liquidation bonus, weighted by the value of the reserves it uses as collateral. */
+async function addBonuses(rows: MainnetPosition[]): Promise<void> {
+  if (!rows.length) return;
+  const reserves = await reserveInfo();
+  const confs = await client.multicall({
+    multicallAddress: MULTICALL3,
+    allowFailure: true,
+    contracts: rows.map((r) => ({ address: AAVE_POOL, abi: poolAbi, functionName: "getUserConfiguration", args: [r.address] }) as const),
+  });
+  for (let k = 0; k < rows.length; k++) {
+    const c = confs[k];
+    if (c.status !== "success") continue;
+    const bits = (c.result as { data: bigint }).data;
+    const used = reserves.filter((x) => ((bits >> BigInt(2 * x.bit + 1)) & 1n) === 1n);
+    if (!used.length) continue;
+    const bal = await client.multicall({
+      multicallAddress: MULTICALL3,
+      allowFailure: true,
+      contracts: used.map((x) => ({ address: x.aToken, abi: erc20, functionName: "balanceOf", args: [rows[k].address] }) as const),
+    });
+    const parts = used
+      .map((x, j) => ({ asset: x.asset, bonusBps: x.bonusBps, usd: bal[j].status === "success" ? (Number(bal[j].result as bigint) / 10 ** x.decimals) * (Number(x.price) / 1e8) : 0 }))
+      .filter((x) => x.usd > 0)
+      .sort((a, b) => b.usd - a.usd);
+    const total = parts.reduce((s, x) => s + x.usd, 0);
+    if (total <= 0) continue;
+    const r = rows[k];
+    r.collateral = parts;
+    r.bonusBps = Math.round(parts.reduce((s, x) => s + x.bonusBps * x.usd, 0) / total);
+    r.atTrigger = steadView(r.hf, r.collateralUsd, r.debtUsd, r.ltBps, r.bonusBps);
+  }
 }

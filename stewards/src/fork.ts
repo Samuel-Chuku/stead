@@ -92,7 +92,11 @@ export async function faucet(w: WalletClient, token: Address, to: Address, units
 /** Ensure `who` holds at least `units` of `token` (mints the shortfall). */
 export async function ensureTokens(w: WalletClient & { address: Address }, token: Address, units: bigint) {
   const have = await balance(token, w.address);
-  if (have < units) await faucet(w, token, w.address, units - have);
+  if (have >= units) return;
+  await faucet(w, token, w.address, units - have);
+  // a load-balanced public RPC can answer from a node that hasn't seen the mint yet: wait until the
+  // balance shows it, so the next transfer isn't simulated against the old balance
+  for (let i = 0; i < 20 && (await balance(token, w.address)) < units; i++) await new Promise((r) => setTimeout(r, 1500));
 }
 
 const mockAddr = () => readFileSync(join(REPO, "fork", "state", "mock.addr"), "utf8").trim() as Address;

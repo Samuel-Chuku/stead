@@ -1,5 +1,5 @@
 {
- "at": "2026-11-08T05:12:05.725Z",
+ "at": "2026-11-08T06:16:36.855Z",
  "replay": true,
  "params": {
   "trigger": 1.15,
@@ -14,7 +14,7 @@
    "reserve": {
     "lt": 0.71,
     "bonus": 0.07000000000000006,
-    "from": "Aave V3 Ethereum Pool, block 26367978",
+    "from": "Aave V3 Ethereum Pool, block 26368299",
     "vol": 0.045
    },
    "summary": {
@@ -45,7 +45,7 @@
    "reserve": {
     "lt": 0.71,
     "bonus": 0.07000000000000006,
-    "from": "Aave V3 Ethereum Pool, block 26367978",
+    "from": "Aave V3 Ethereum Pool, block 26368299",
     "vol": 0.045
    },
    "summary": {
@@ -76,7 +76,7 @@
    "reserve": {
     "lt": 0.71,
     "bonus": 0.07000000000000006,
-    "from": "Aave V3 Ethereum Pool, block 26367978",
+    "from": "Aave V3 Ethereum Pool, block 26368299",
     "vol": 0.045
    },
    "summary": {
@@ -107,7 +107,7 @@
    "reserve": {
     "lt": 0.85,
     "bonus": 0.050000000000000044,
-    "from": "Aave V3 Ethereum Pool, block 26367978",
+    "from": "Aave V3 Ethereum Pool, block 26368299",
     "vol": 0.03
    },
    "summary": {
@@ -138,7 +138,7 @@
    "reserve": {
     "lt": 0.85,
     "bonus": 0.050000000000000044,
-    "from": "Aave V3 Ethereum Pool, block 26367978",
+    "from": "Aave V3 Ethereum Pool, block 26368299",
     "vol": 0.03
    },
    "summary": {
@@ -169,7 +169,7 @@
    "reserve": {
     "lt": 0.85,
     "bonus": 0.050000000000000044,
-    "from": "Aave V3 Ethereum Pool, block 26367978",
+    "from": "Aave V3 Ethereum Pool, block 26368299",
     "vol": 0.03
    },
    "summary": {
@@ -200,7 +200,7 @@
    "reserve": {
     "lt": 0.84,
     "bonus": 0.050000000000000044,
-    "from": "Aave V3 Ethereum Pool, block 26367978",
+    "from": "Aave V3 Ethereum Pool, block 26368299",
     "vol": 0.04
    },
    "summary": {
@@ -231,7 +231,7 @@
    "reserve": {
     "lt": 0.84,
     "bonus": 0.050000000000000044,
-    "from": "Aave V3 Ethereum Pool, block 26367978",
+    "from": "Aave V3 Ethereum Pool, block 26368299",
     "vol": 0.04
    },
    "summary": {
@@ -262,7 +262,7 @@
    "reserve": {
     "lt": 0.84,
     "bonus": 0.050000000000000044,
-    "from": "Aave V3 Ethereum Pool, block 26367978",
+    "from": "Aave V3 Ethereum Pool, block 26368299",
     "vol": 0.04
    },
    "summary": {

@@ -17,19 +17,37 @@ back within 24 hours.
 - Claims are owed in the units the steward supplied (LINK, WBTC), not USD, so a rescue costs the borrower
   only its premium.
 
-Built for the NEAR HACKATHON (deadline 2026-11-14). **Testnets only** (NEAR testnet, Ethereum Sepolia).
+Built for the NEAR HACKATHON (deadline 2026-11-14). Rescues run on **testnets** (NEAR testnet, Ethereum
+Sepolia); a **read-only** view applies Stead's formulas to real Aave positions on Ethereum mainnet.
 
 | | |
 |---|---|
 | Contract | [`steadfi.testnet`](https://testnet.nearblocks.io/address/steadfi.testnet) (NEAR testnet) |
 | Market | **2**: Sepolia Aave V3, LINK collateral, DAI debt, gas cap 670k per signed tx. Market 1 is legacy (its 500k cap is too low for a new account's first borrow); it holds only position 9's recorded run |
-| Stewards and keeper | running 24/7 against market 2: `patient`, `swift`, `deep`, `pool` `.steadfi.testnet` |
-| Proof program | OutLayer WASM, SHA-256 `5da1e8b95764fa98208aeb0f71611a3681c1024204d2bdbb5eb5e214f4ec75bc` ([source](verifier/)) |
+| Demo contract | [`sepolia-demo.steadfi.testnet`](https://testnet.nearblocks.io/address/sepolia-demo.steadfi.testnet): the same code with a 3-minute buy-back window, so both endings can be shown in one sitting; LINK and WBTC markets |
+| Stewards and keeper | running 24/7 on both contracts: `patient`, `swift`, `deep`, `pool` `.steadfi.testnet`; on the demo contract also `hedged` |
+| Proof program | OutLayer WASM, SHA-256 `a680957fecee3ad5f8c08dcdf8d44f1736c4d748c4eeb0a9833b6da4545e464e` ([source](verifier/)) |
 | A verified rescue | position [`0x98deab0b…5b34`](https://sepolia.etherscan.io/address/0x98deab0b3751f5421aa3c32ac6b8dca0010e5b34) on Sepolia ([the run](#recorded-runs)) |
+| Evidence | [`evidence/README.md`](evidence/README.md): replays on real 2026 prices, stress tests, every recorded run re-read on chain |
 
 ## How to test
 
-<!-- To be written before submission: the end-to-end path a reviewer can run themselves. -->
+Each step: do this, see that. Steps 1–3 need only Node 22 and this repository: no keys, no accounts.
+
+1. **Replay borrowers and stewards on real 2026 prices.** `cd stewards && npm ci && npx tsx scripts/evidence.ts --no-sweep`.
+   See `evidence/README.md` rewritten: for LINK, BTC and ETH, how often a position that falls through
+   the trigger would have been liquidated within 7 days without Stead, the loss with and without Stead
+   per rescue, and every recorded live transaction re-read on chain (✓ per row).
+2. **See what Stead would do for real positions today.** `npx tsx scripts/mainnet-watch.ts`. See a table of
+   real Aave V3 Ethereum positions near the trigger: the top-up Stead would need, the premium cap, the
+   stewards' bids and the saving against an Aave liquidation. Public reads only.
+3. **Read the live contracts.** No CLI needed; any NEAR RPC works:
+   `curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"steadfi.testnet","method_name":"get_rescues","args_base64":"eyJmcm9tIjowLCJsaW1pdCI6NTB9"}}'`.
+   See every rescue so far (the result bytes are JSON): state, bids, winners, claims, settlement legs.
+4. **Run a steward.** Any NEAR testnet account can join with `register_steward` (0.005 NEAR) and bid
+   with the same bots we run: [stewards/README.md](stewards/README.md).
+5. **Stage a price fall.** The local fork (`fork/scripts/start.sh`, anvil) has a settable LINK price;
+   the steward README shows the full rescue, buy-back and settlement on it.
 
 ## How a rescue works
 
@@ -92,6 +110,15 @@ both endings can be shown in one sitting. Readings verified as above; the stewar
 Early settlement (the borrower's own HF falling below 1.10 while a claim is open) needs a price fall,
 and Sepolia's Aave prices are fixed, so it is shown on the fork below.
 
+**Pooled verified rescue on Sepolia** (2026-11-08, demo contract, position 4, rescue 9). Each steward
+was limited to 25 LINK per rescue, so the 63.16 LINK top-up needed a coalition. A verified HF 1.1400
+opened the auction; `deep` 150 bps, `hedged` 150 and `patient` 268 won (25 + 25 + 13.16 LINK), `swift`
+at 400 lost. One verified reading proved all three top-ups and minted claims `4-0-0`, `4-0-1`, `4-0-2`.
+The borrower paid 1,928.8073 DAI into the position once
+([`0x59a0d5ea…1a1`](https://sepolia.etherscan.io/tx/0x59a0d5ea0a3096d979fdc58f3e692e55f8ed74917b875ddfa073b37fec9861a1));
+the owners received exactly 761.25, 761.25 and 405.3073 DAI, and 1 DAI was refunded. A second pooled
+rescue on the same position (rescue 10) had four members.
+
 **Pooled rescue** (local Sepolia fork, position 10, rescue 14). `deep` could supply 20 LINK and
 `patient` 15, so the 31.58 LINK top-up went to both: `deep` 20.00 at 150 bps and `patient` 11.58 at
 268 bps. Two claim NFTs. One buy-back payment of 881.69 DAI; the owners received exactly 555.4080 and
@@ -103,6 +130,40 @@ bought back; LINK then falls to $20.79, a second rescue is not bought back, and 
 trigger), against $90 for an Aave liquidation.
 
 The fork runs use a reporter instead of verified reads (see limits).
+
+## Evidence: does a rescue pay for the borrower?
+
+A rescue costs a premium; an Aave liquidation costs the bonus on half the debt (LINK 7 %, WBTC and
+WETH 5 % on Aave V3 Ethereum). On real 2026 prices, for a $10,000 loan that a falling price pushes
+through the trigger, followed for 7 days ([details and every row](evidence/README.md); REPLAY, not live):
+
+| | Liquidated within 7 days: without → with Stead | Mean loss: without / with (150 bps) | With the hedged steward bidding (modelled) | Break-even premium | 95th-percentile loss: without / with |
+|---|---|---|---|---|---|
+| LINK | 24 % → 0 % | $84 / $74 | $31 | 172 bps | $350 / $79 |
+| BTC | 40 % → 0 % | $110 / $61 | $41 | 270 bps | $375 / $64 |
+| ETH | 33 % → 1 % | $105 / $64 | $34 | 247 bps | $438 / $65 |
+
+The same replay with a position at the trigger **every day, calm days included**, shows Stead costing
+more on average (LINK $35 without, $74 with): most of those rescues come on days the price would have
+recovered. Real positions reach the trigger because the price is falling, which is the case above.
+
+## Owner settings and their limits
+
+The contract's code is fixed once its full-access key is deleted. The owner account can still tune a few
+settings, only within limits written into the code, and every change is logged with the old and new
+values. A change applies to rescues that start after it: a claim keeps the buy-back deadline it opened
+with, and a running auction keeps its terms.
+
+| Setting | Limit in the code |
+|---|---|
+| Buy-back window | 3 minutes to 7 days |
+| Auction window | 15 s to 10 min |
+| Top-up deadline | 60 s to 1 h |
+| Position size cap (no auction, no borrower supply above it) | off, or at most $1,000 of collateral |
+| Borrower allow-list (who may open a position) | off, or a list; never touches existing positions |
+
+On the testnet contracts the cap and the allow-list are off. Each steward's own limits (how much it puts
+into one rescue, the smallest rescue it takes, its spread) are set by whoever runs it, in its own bot.
 
 ## Running it
 
@@ -158,15 +219,17 @@ share, bid timing). It's off unless an API key is set. Any OpenAI-compatible cha
 - **Who can be a steward.** Anyone, by calling `register_steward` with a 0.005 NEAR storage deposit.
   The contract owner can remove a steward: that stops its new bids only, never its open claims, bonds
   or payouts.
-- **Scope.** One market pair: LINK collateral, DAI debt.
+- **Scope.** Collateral LINK or WBTC, debt DAI (Sepolia). Aave eMode positions are not taken.
 - **A falling price is the steward's risk.** Claims are owed in LINK. In a timed model of the verified
   path (simulated, not measured on-chain; one fresh reading before each settlement withdrawal), every
   steward whose top-up lands is repaid in full at constant falls up to **10 % per minute**. Faster than
   about 12 %/min the rescue can't land before Aave liquidates: no steward money is at risk then, but
   there is no rescue either. If a settling steward goes silent and another takes over after 3 minutes,
   up to **5 %/min**; if nobody takes over, the fallback only protects in slow markets (≤ 0.5 %/min).
-- **NEAR Intents is simulated.** No testnet exists. When a steward lacks the asset, a faucet mint
-  stands in for an Intents swap, and the log says so.
+- **NEAR Intents delivery is simulated; the quote is real.** NEAR Intents has no testnet. When a steward
+  lacks the asset, it asks the real 1Click API for a **dry** quote (nothing deposited) for the same asset
+  on Ethereum mainnet, paid in USDC on NEAR, and logs it (e.g. 31.58 LINK for 344.49 USDC, about 134 bps
+  all-in, ~19 s). A faucet mint then delivers the test tokens, and the log says so.
 - **Sepolia prices are fixed.** Its Aave oracle is admin-only, so on Sepolia a borrow moves the health
   factor; price falls are staged on the fork.
 - **Next: stablecoin top-ups.** A top-up in a stablecoin doesn't fall with the collateral, which
@@ -182,7 +245,16 @@ share, bid timing). It's off unless an API key is set. Any OpenAI-compatible cha
 | `verifier/` | The OutLayer proof program: block-header agreement, storage proofs, Aave health factor from raw storage |
 | `stewards/` | Keeper and steward bots (TypeScript); `deploy/` holds the container and systemd setup |
 | `fork/` | Local Sepolia fork with a settable price feed (anvil, chain id 31337) |
+| `evidence/` | Replays on real 2026 prices, stress-test output, recorded runs re-read on chain (`stewards/scripts/evidence.ts`) |
 | `web/` | Front end (to come) |
+
+## Built with
+
+- **Contract:** near-sdk 5.30.0, omni-transaction 0.5.0 (EVM transaction building), borsh, serde.
+- **Proof program:** rlp, tiny-keccak, serde; runs on OutLayer.
+- **Bots and scripts:** viem 2.57.7, near-api-js 7.3.1; tests with vitest; Foundry's anvil for the local fork.
+- **NEAR services:** chain signatures (MPC `v1.signer-prod.testnet`), OutLayer (TEE-verified reads), NEAR Intents 1Click (dry quotes), NEAR AI Cloud (optional steward tuning).
+- **AI-assisted code:** the team designed the idea, the framework, the rescue economics and the front end; an AI coding assistant (Claude Code) helped write the code under the team's direction and review.
 
 ## Provenance: what came from the feasibility spike
 

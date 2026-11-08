@@ -103,6 +103,17 @@ export interface AiRecord {
   applied_unverified?: boolean;
   error?: string;
   verify_url?: string;
+  /** Settings the model returned changed without naming them in its reason: not applied. */
+  dropped?: string[];
+}
+
+/** Clamp only the settings that change: an unchanged setting keeps its value even if it sits
+ *  outside the tuning bounds (e.g. swift's minimum margin of 0). */
+function clampChanged(keep: Partial<Record<keyof RiskSettings, unknown>>, current: RiskSettings): RiskSettings {
+  const clamped = clamp(keep, current);
+  const out = { ...current };
+  for (const k of Object.keys(keep) as (keyof RiskSettings)[]) out[k] = clamped[k];
+  return out;
 }
 
 const SCHEMA = {
@@ -120,12 +131,40 @@ const SCHEMA = {
   },
 };
 
+/** Words that name each setting in the model's reason. */
+const NAMES: Record<keyof RiskSettings, RegExp> = {
+  spreadBps: /spread/i,
+  minMargin: /margin/i,
+  minTopupUsd: /top-?up|minimum size|min(imum)? ?topup/i,
+  shareFraction: /share|fraction/i,
+  bidDelayS: /delay|timing|bid ?time|wait/i,
+};
+
+/**
+ * Only the settings the model's reason names may change. A model asked for the full set sometimes
+ * returns a different value for a setting it says it keeps ("unchanged"); such a value is dropped,
+ * and so is any setting it returns without naming. Returns the named proposals and the dropped keys.
+ */
+export function intended(proposed: Partial<Record<keyof RiskSettings, unknown>>, current: RiskSettings, reason: string | undefined): { keep: Partial<Record<keyof RiskSettings, unknown>>; dropped: string[] } {
+  const keep: Partial<Record<keyof RiskSettings, unknown>> = {};
+  const dropped: string[] = [];
+  for (const k of Object.keys(NAMES) as (keyof RiskSettings)[]) {
+    const v = proposed[k];
+    if (typeof v !== "number" || v === current[k]) continue;
+    if (reason && (NAMES[k].test(reason) || reason.includes(k))) keep[k] = v;
+    else dropped.push(k);
+  }
+  return { keep, dropped };
+}
+
 function prompt(c: AiContext): { system: string; user: string } {
   return {
     system:
       "You tune the risk settings of one steward bot in a liquidation-rescue market. Stewards bid a premium to top up a borrower's " +
       "collateral when the health factor falls below 1.15; the lowest premium wins and the contract caps the premium. Keep the " +
-      'steward\'s role. Change little unless recent outcomes or price moves justify it. Answer only with a JSON object: {"settings": {' +
+      'steward\'s role. Change little unless recent outcomes or price moves justify it. Return every setting; repeat the current ' +
+      "value exactly for each one you keep. The reason must name each setting you change; a change it doesn't name is ignored. " +
+      'Answer only with a JSON object: {"settings": {' +
       Object.keys(BOUNDS).join(", ") +
       '}, "reason": "<one sentence>"}.',
     user: JSON.stringify({ steward: c.steward, role: c.role, current: c.current, bounds: BOUNDS, recent_auctions: c.recent, collateral_price_history: c.prices }),
@@ -224,10 +263,12 @@ async function ask(model: string, c: AiContext, conf: AiConfig): Promise<AiRecor
     rec.error = `no settings in the answer (finish_reason ${j.choices?.[0]?.finish_reason ?? "?"})`;
     return rec;
   }
+  const { keep, dropped } = intended(out.settings as Partial<Record<keyof RiskSettings, unknown>>, c.current, rec.reason);
+  if (dropped.length) rec.dropped = dropped;
   if (rec.verified) {
-    rec.applied = clamp(out.settings as Partial<RiskSettings>, c.current);
+    rec.applied = clampChanged(keep, c.current);
   } else if (!conf.requireSignature) {
-    rec.applied = clamp(out.settings as Partial<RiskSettings>, c.current);
+    rec.applied = clampChanged(keep, c.current);
     rec.applied_unverified = true;
   }
   return rec;

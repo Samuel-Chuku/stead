@@ -31,9 +31,12 @@ The numbers (spread, minimum margin, minimum top-up, share, bid delay) are data 
 (`src/risk.ts`). A steward's risk limit per rescue is `STEWARD_<NAME>_CAPACITY` (whole LINK); above
 it, the steward bids only part, so several stewards share the rescue.
 
-**Capital (simulated NEAR Intents).** When a winning steward holds less than it must supply, it sources
-the shortfall. No NEAR Intents testnet exists, so a test-token faucet mint stands in, labelled
-`SIMULATED NEAR Intents` in the log.
+**Capital (NEAR Intents: real quote, simulated delivery).** When a winning steward holds less than it
+must supply, it sources the shortfall. It asks the NEAR Intents 1Click API for a **dry** quote (nothing is
+deposited) for the same asset on Ethereum mainnet, paid in USDC on NEAR, and logs the price and time
+(about 130–165 bps all-in, ~19 s, without a partner key). No NEAR Intents testnet exists, so a test-token
+faucet mint then delivers the tokens, labelled `SIMULATED delivery` in the log. `STEWARD_INTENTS_ACCOUNT`
+sets the refund account named in the quote (default `stead-steward.near`; a dry quote moves nothing).
 
 **Optional AI tuning** (`src/ai.ts`). Off unless an API key is set. Every 5 minutes a steward asks a
 model for new settings, from any OpenAI-compatible endpoint:

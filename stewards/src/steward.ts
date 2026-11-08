@@ -128,7 +128,8 @@ export class Steward {
         const proof = r.verified
           ? `✔ signed by ${short(r.signing_address ?? "")} (${r.model}) ${r.verify_url}`
           : `UNVERIFIED: ${r.provider} signs nothing; applied because AI_REQUIRE_SIGNATURE is off (${r.model})`;
-        log(this.name, `[ai] ${diff || "no change"}: "${r.reason ?? ""}" ${proof}`);
+        const ignored = r.dropped?.length ? ` (ignored, changed without being named in the reason: ${r.dropped.join(", ")})` : "";
+        log(this.name, `[ai] ${diff || "no change"}${ignored}: "${r.reason ?? ""}" ${proof}`);
       })
       .finally(() => (this.aiBusy = false));
   }
