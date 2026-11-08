@@ -1,0 +1,38 @@
+
+running 3 tests
+test fastest_fall_first_steward_paid_in_full ... 
+Constant fall, settler repays (2–3 min verified path): % of first stewards paid in full, of those whose top-up landed (% too late: liquidated before the top-up landed)
+early HF     0.5%/m      1%/m      2%/m      3%/m      4%/m      5%/m      6%/m      7%/m      8%/m     10%/m     12%/m     15%/m     20%/m     30%/m   fastest at 100 %
+1.05        100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)  100 (12)   - (100)   - (100)   - (100)   - (100)   10%/min
+1.08        100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)  100 (12)   - (100)   - (100)   - (100)   - (100)   10%/min
+1.10        100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)  100 (12)   - (100)   - (100)   - (100)   - (100)   10%/min
+
+Constant fall, settler ABSENT → takeover after 3 min: % of first stewards paid in full, of those whose top-up landed (% too late: liquidated before the top-up landed)
+early HF     0.5%/m      1%/m      2%/m      3%/m      4%/m      5%/m      6%/m      7%/m      8%/m     10%/m     12%/m     15%/m     20%/m     30%/m   fastest at 100 %
+1.05        100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)    85 (0)     0 (0)     0 (0)    0 (12)   - (100)   - (100)   - (100)   - (100)   5%/min
+1.08        100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)    85 (0)     0 (0)     0 (0)    0 (12)   - (100)   - (100)   - (100)   - (100)   5%/min
+1.10        100 (0)   100 (0)   100 (0)   100 (0)   100 (0)   100 (0)    85 (0)     0 (0)     0 (0)    0 (12)   - (100)   - (100)   - (100)   - (100)   5%/min
+
+Constant fall, settler ABSENT, no taker → fallback after 15 min: % of first stewards paid in full, of those whose top-up landed (% too late: liquidated before the top-up landed)
+early HF     0.5%/m      1%/m      2%/m      3%/m      4%/m      5%/m      6%/m      7%/m      8%/m     10%/m     12%/m     15%/m     20%/m     30%/m   fastest at 100 %
+1.05          0 (0)     0 (0)     0 (0)     0 (0)     0 (0)     0 (0)     0 (0)     0 (0)     0 (0)    0 (12)   - (100)   - (100)   - (100)   - (100)   none
+1.08          0 (0)     0 (0)     0 (0)     0 (0)     0 (0)     0 (0)     0 (0)     0 (0)     0 (0)    0 (12)   - (100)   - (100)   - (100)   - (100)   none
+1.10        100 (0)     0 (0)     0 (0)     0 (0)     0 (0)     0 (0)     0 (0)     0 (0)     0 (0)    0 (12)   - (100)   - (100)   - (100)   - (100)   0.5%/min
+ok
+test invariant_property_sweep ... 
+Random paths, timed model (1 h of readings, then +24 h), early_settle_hf = 1.10 (default)
+drift    end             paths  early stacked   2+ eps  liq'd  short    max I1  I1/I2 ✗
+Falling  BuyBack           300    300       0       27      0      0    0.9951        0
+Falling  SettleAtExpiry    300    300       0       27      0      0    0.9951        0
+Crash    BuyBack           300    300       0      300      0      0    0.9985        0
+Crash    SettleAtExpiry    300    300       0      300      0      0    0.9985        0
+Flat     BuyBack           120     62       0        0      0      0    0.9340        0
+Flat     SettleAtExpiry    120     62       0        0      0      0    0.9340        0
+Rising   BuyBack             0      0       0        0      0      0    0.0000        0
+Rising   SettleAtExpiry      0      0       0        0      0      0    0.0000        0
+ok
+test spec_example_at_26_dollars ... Worked example: T = 30.4349 LINK, premium = 0.9130 LINK ($26.60 at trigger ≤ $95.00); at $26 the borrower loses 0.9130 LINK
+ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.98s
+

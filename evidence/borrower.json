@@ -1,0 +1,164 @@
+{
+ "at": "2026-11-07T15:59:59.991Z",
+ "replay": true,
+ "params": {
+  "trigger": 1.15,
+  "target": 1.5,
+  "early": 1.1,
+  "windowH": 24,
+  "horizonH": 24
+ },
+ "debtUsd": 10000,
+ "assets": {
+  "LINK-24h": {
+   "reserve": {
+    "lt": 0.71,
+    "bonus": 0.07000000000000006,
+    "from": "Aave V3 Ethereum Pool, block 26364030"
+   },
+   "horizonH": 24,
+   "summary": {
+    "paths": 309,
+    "rescued": 309,
+    "liquidatedWithout": 1,
+    "liquidatedWith": 0,
+    "early": 50,
+    "meanCostWithout": 1.1326860841423958,
+    "meanCostWith": 73.92712305431901,
+    "worstWith": 83.08616211902161,
+    "worstWithout": 350.0000000000003,
+    "costMore": 308,
+    "meanExtraWhenMore": 73.93694264585761,
+    "saved": 1,
+    "meanSavedWhenSaved": 279.0973111395649,
+    "meanPremiumBps": 150,
+    "violations": 0
+   }
+  },
+  "LINK-168h": {
+   "reserve": {
+    "lt": 0.71,
+    "bonus": 0.07000000000000006,
+    "from": "Aave V3 Ethereum Pool, block 26364030"
+   },
+   "horizonH": 168,
+   "summary": {
+    "paths": 309,
+    "rescued": 309,
+    "liquidatedWithout": 30,
+    "liquidatedWith": 0,
+    "early": 50,
+    "meanCostWithout": 33.98058252427186,
+    "meanCostWith": 73.92712305431901,
+    "worstWith": 83.08616211902161,
+    "worstWithout": 350.0000000000003,
+    "costMore": 279,
+    "meanExtraWhenMore": 74.1132761972104,
+    "saved": 30,
+    "meanSavedWhenSaved": 277.8041011745712,
+    "meanPremiumBps": 150,
+    "violations": 0
+   }
+  },
+  "BTC-24h": {
+   "reserve": {
+    "lt": 0.85,
+    "bonus": 0.050000000000000044,
+    "from": "Aave V3 Ethereum Pool, block 26364030"
+   },
+   "horizonH": 24,
+   "summary": {
+    "paths": 309,
+    "rescued": 309,
+    "liquidatedWithout": 1,
+    "liquidatedWith": 0,
+    "early": 19,
+    "meanCostWithout": 0.8090614886731399,
+    "meanCostWith": 61.748180780150214,
+    "worstWith": 68.03616432338032,
+    "worstWithout": 250.00000000000023,
+    "costMore": 308,
+    "meanExtraWhenMore": 61.757221062881115,
+    "saved": 1,
+    "meanSavedWhenSaved": 191.03622630096913,
+    "meanPremiumBps": 150,
+    "violations": 0
+   }
+  },
+  "BTC-168h": {
+   "reserve": {
+    "lt": 0.85,
+    "bonus": 0.050000000000000044,
+    "from": "Aave V3 Ethereum Pool, block 26364030"
+   },
+   "horizonH": 168,
+   "summary": {
+    "paths": 309,
+    "rescued": 309,
+    "liquidatedWithout": 16,
+    "liquidatedWith": 0,
+    "early": 19,
+    "meanCostWithout": 12.944983818770233,
+    "meanCostWith": 61.748180780150214,
+    "worstWith": 68.03616432338032,
+    "worstWithout": 250.00000000000023,
+    "costMore": 293,
+    "meanExtraWhenMore": 61.8133253900256,
+    "saved": 16,
+    "meanSavedWhenSaved": 189.44477988819332,
+    "meanPremiumBps": 150,
+    "violations": 0
+   }
+  },
+  "ETH-24h": {
+   "reserve": {
+    "lt": 0.84,
+    "bonus": 0.050000000000000044,
+    "from": "Aave V3 Ethereum Pool, block 26364030"
+   },
+   "horizonH": 24,
+   "summary": {
+    "paths": 309,
+    "rescued": 309,
+    "liquidatedWithout": 1,
+    "liquidatedWith": 0,
+    "early": 39,
+    "meanCostWithout": 0.8090614886731399,
+    "meanCostWith": 62.46293382133925,
+    "worstWith": 73.88614249433013,
+    "worstWithout": 250.00000000000023,
+    "costMore": 308,
+    "meanExtraWhenMore": 62.470911368045684,
+    "saved": 1,
+    "meanSavedWhenSaved": 189.99415056424402,
+    "meanPremiumBps": 150,
+    "violations": 0
+   }
+  },
+  "ETH-168h": {
+   "reserve": {
+    "lt": 0.84,
+    "bonus": 0.050000000000000044,
+    "from": "Aave V3 Ethereum Pool, block 26364030"
+   },
+   "horizonH": 168,
+   "summary": {
+    "paths": 309,
+    "rescued": 309,
+    "liquidatedWithout": 22,
+    "liquidatedWith": 0,
+    "early": 39,
+    "meanCostWithout": 17.799352750809067,
+    "meanCostWith": 62.46293382133925,
+    "worstWith": 73.88614249433013,
+    "worstWithout": 250.00000000000023,
+    "costMore": 287,
+    "meanExtraWhenMore": 62.57655041414138,
+    "saved": 22,
+    "meanSavedWhenSaved": 189.0192462756705,
+    "meanPremiumBps": 150,
+    "violations": 0
+   }
+  }
+ }
+}
