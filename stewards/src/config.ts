@@ -18,8 +18,12 @@ function parseEnv(text: string): Record<string, string> {
 }
 
 const fileEnv = existsSync(ENV_FILE) ? parseEnv(readFileSync(ENV_FILE, "utf8")) : {};
-/** Which Aave deployment the EVM side talks to: Sepolia (default) or Ethereum (STEAD_AAVE=ethereum). */
-export const AAVE_BOOK = process.env.STEAD_AAVE === "ethereum" ? "ethereum" : "sepolia";
+/** EVM side: "fork" (a local anvil copy), "sepolia" (testnet) or "ethereum" (mainnet, real funds). */
+const EVM = process.env.STEAD_EVM === "sepolia" ? "sepolia" : process.env.STEAD_EVM === "ethereum" ? "ethereum" : "fork";
+/** Which Aave deployment the EVM side talks to: Sepolia (default) or Ethereum (STEAD_AAVE=ethereum,
+ *  always on Ethereum mainnet). */
+export const AAVE_BOOK = process.env.STEAD_AAVE === "ethereum" || EVM === "ethereum" ? "ethereum" : "sepolia";
+if (EVM === "sepolia" && AAVE_BOOK === "ethereum") throw new Error("STEAD_EVM=sepolia with the Ethereum address book: pick one chain");
 const book = parseEnv(readFileSync(join(REPO, "fork", AAVE_BOOK === "ethereum" ? "addresses-ethereum.sh" : "addresses.sh"), "utf8"));
 
 export function env(name: string, fallback?: string): string {
@@ -37,24 +41,40 @@ export function hasEnv(name: string) {
   return Boolean(process.env[name] || fileEnv[name]);
 }
 
+/** NEAR network: "testnet" (default) or "mainnet" (NEAR_NETWORK=mainnet). */
+export const NEAR_NETWORK = (process.env.NEAR_NETWORK ?? fileEnv.NEAR_NETWORK) === "mainnet" ? "mainnet" : "testnet";
+const NEAR_RPC_DEFAULT = NEAR_NETWORK === "mainnet" ? "https://rpc.mainnet.fastnear.com" : "https://test.rpc.fastnear.com";
+
 export const cfg = {
-  nearRpc: env("NEAR_RPC_URL", "https://test.rpc.fastnear.com"),
+  nearNetwork: NEAR_NETWORK,
+  nearRpc: env("NEAR_RPC_URL", NEAR_RPC_DEFAULT),
   /** Transactions can go through another RPC than views (views are the high-volume part). */
-  nearTxRpc: env("NEAR_TX_RPC_URL", env("NEAR_RPC_URL", "https://test.rpc.fastnear.com")),
+  nearTxRpc: env("NEAR_TX_RPC_URL", env("NEAR_RPC_URL", NEAR_RPC_DEFAULT)),
   contract: env("NEAR_CONTRACT_ID", "steadfi.testnet"),
   owner: env("NEAR_OWNER_ACCOUNT", "steadfi.testnet"),
   reporter: env("NEAR_REPORTER_ACCOUNT", "reporter.steadfi.testnet"),
   borrower: env("NEAR_BORROWER_ACCOUNT", "borrower.steadfi.testnet"),
-  credentialsDir: env("NEAR_CREDENTIALS_DIR", join(homedir(), ".near-credentials", "testnet")).replace(/^~/, homedir()),
-  /** EVM side: "fork" (local anvil fork, mock price, TEMPORARY reporter) or "sepolia" (real
-   *  testnet, readings verified on OutLayer). Set STEAD_EVM=sepolia. */
-  evm: (process.env.STEAD_EVM === "sepolia" ? "sepolia" : "fork") as "fork" | "sepolia",
-  forkRpc: process.env.STEAD_EVM === "sepolia"
+  credentialsDir: env("NEAR_CREDENTIALS_DIR", join(homedir(), ".near-credentials", NEAR_NETWORK)).replace(/^~/, homedir()),
+  /** EVM side: "fork" (local anvil copy, TEMPORARY reporter), "sepolia" (real testnet, readings
+   *  verified on OutLayer) or "ethereum" (mainnet, real funds). Set STEAD_EVM. */
+  evm: EVM as "fork" | "sepolia" | "ethereum",
+  /** A real public chain (blocks arrive on their own; RPC answers can lag), not the local copy. */
+  realChain: EVM !== "fork",
+  forkRpc: EVM === "sepolia"
     ? env("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
-    : env("FORK_RPC_URL", "http://127.0.0.1:8545"),
-  chainId: process.env.STEAD_EVM === "sepolia" ? 11155111 : Number(env("FORK_CHAIN_ID", "31337")),
+    : EVM === "ethereum"
+      ? env("MAINNET_RPC_URL", "https://ethereum-rpc.publicnode.com")
+      : env("FORK_RPC_URL", "http://127.0.0.1:8545"),
+  chainId: EVM === "sepolia" ? 11155111 : EVM === "ethereum" ? 1 : Number(env("FORK_CHAIN_ID", "31337")),
+  /** Real chains: more EVM RPCs tried in order when the first fails (EVM_RPC_FALLBACK, comma-separated).
+   *  Ethereum mainnet defaults to public RPCs tested 2026-11-08. Reads and broadcasting an
+   *  already-signed transaction are safe to retry elsewhere. */
+  evmFallback: (process.env.EVM_RPC_FALLBACK ?? fileEnv.EVM_RPC_FALLBACK ?? (EVM === "ethereum" ? "https://eth.drpc.org,https://1rpc.io/eth,https://eth-mainnet.public.blastapi.io,https://rpc.mevblocker.io" : ""))
+    .split(",")
+    .map((u) => u.trim())
+    .filter((u) => u && EVM !== "fork"),
   // Sepolia: market 2 (gas cap 670k, set from live measurements); market 1 is legacy (500k, too low for a first borrow)
-  marketId: Number(env("STEAD_MARKET_ID", process.env.STEAD_EVM === "sepolia" ? "2" : "0")),
+  marketId: Number(env("STEAD_MARKET_ID", EVM === "sepolia" ? "2" : "0")),
   aave: {
     pool: book.AAVE_POOL as `0x${string}`,
     oracle: book.AAVE_ORACLE as `0x${string}`,
@@ -67,9 +87,20 @@ export const cfg = {
   forkAdmin: book.FORK_ADMIN as `0x${string}`,
 };
 
+// never mix networks: a mainnet run with a testnet RPC, key folder or contract (or the reverse) stops here
+{
+  const otherRpc = NEAR_NETWORK === "mainnet" ? /test/i : /mainnet/i; // "test.rpc.fastnear.com" has no "testnet"
+  for (const [what, v] of [["NEAR RPC", cfg.nearRpc], ["NEAR tx RPC", cfg.nearTxRpc], ["NEAR key folder", cfg.credentialsDir]] as const) {
+    if (otherRpc.test(v)) throw new Error(`NEAR_NETWORK=${NEAR_NETWORK} but the ${what} points at another network: set it for ${NEAR_NETWORK}`);
+  }
+  // accounts are judged by their suffix, not by words in the name (a testnet contract may be called "…-mainnet-dry.testnet")
+  if ((NEAR_NETWORK === "mainnet") === cfg.contract.endsWith(".testnet")) throw new Error(`NEAR_NETWORK=${NEAR_NETWORK} but the contract is ${cfg.contract}`);
+}
+
 export const STEWARDS = ["patient", "swift", "deep", "pool", "hedged"] as const;
 export type StewardName = (typeof STEWARDS)[number];
-export const stewardAccount = (n: StewardName) => `${n}.steadfi.testnet`;
+/** Each steward's NEAR account: `<name>.<STEWARD_ACCOUNT_PARENT>` (default `steadfi.testnet`). */
+export const stewardAccount = (n: StewardName) => `${n}.${env("STEWARD_ACCOUNT_PARENT", "steadfi.testnet")}`;
 
 /** NEAR full-access key from the legacy keychain, as `ed25519:...`. Never printed. */
 export function nearKey(accountId: string): string {

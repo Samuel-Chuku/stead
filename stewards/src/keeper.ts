@@ -5,7 +5,7 @@
 //  - confirms steward top-ups, settlement repays and buy-backs by reading fork logs itself
 //  - closes auctions, expires missed top-ups, advances settlement legs (anyone may)
 import { type Address, type Hex, decodeEventLog } from "viem";
-import { cfg } from "./config.js";
+import { AAVE_BOOK, cfg } from "./config.js";
 import { call, view, NEAR, TGAS } from "./near.js";
 import { accountData, price, pub, poolAbi, balance } from "./fork.js";
 import { log, short, fmt } from "./log.js";
@@ -17,9 +17,13 @@ import { viewReport } from "./near.js";
 // Gas for the txs the keeper has signed (payouts, settlement legs, nonce burns). Measured on live
 // Sepolia from a fresh account, the costliest is a withdraw to a new payout (~415k): 600k leaves a
 // margin, lowered to the market's own cap where that is smaller.
+// Ethereum mainnet: a 1 gwei ceiling (about 25× the base fee when measured) keeps the ETH each
+// position must hold up front small (gas limit × max fee); the limit is lowered to the market's cap.
 const GAS_BASE = cfg.evm === "sepolia"
   ? { gas_limit: "600000", max_fee_per_gas: "2000000000", max_priority_fee_per_gas: "100000000" }
-  : { gas_limit: "400000", max_fee_per_gas: "20000000000", max_priority_fee_per_gas: "1000000000" };
+  : AAVE_BOOK === "ethereum" // real Ethereum, and the local copy that rehearses it (same profile, same upfront ETH)
+    ? { gas_limit: "400000", max_fee_per_gas: "1000000000", max_priority_fee_per_gas: "10000000" }
+    : { gas_limit: "400000", max_fee_per_gas: "20000000000", max_priority_fee_per_gas: "1000000000" };
 let GAS = GAS_BASE;
 async function loadGas() {
   const m = await view<{ gas_limit_cap: string } | null>("get_market", { market_id: cfg.marketId });
@@ -249,7 +253,7 @@ export class Keeper {
   /** Scan fork logs since the last cursor: steward top-ups and repays (in on-chain order). */
   async scanLogs() {
     // Sepolia: two blocks behind the head, since load-balanced public RPCs can sit a block behind each other
-    const head = (await pub.getBlockNumber()) - (cfg.evm === "sepolia" ? 2n : 0n); // anvil mines only on demand: no lag there
+    const head = (await pub.getBlockNumber()) - (cfg.realChain ? 2n : 0n); // anvil mines only on demand: no lag there
     if (this.logCursor === 0n) this.logCursor = head - 50n;
     if (head <= this.logCursor) return;
     const from = this.logCursor + 1n;

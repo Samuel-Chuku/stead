@@ -153,10 +153,14 @@ export class Steward {
   async fund() {
     await fundEth(this.evm.address);
     const a = await marketAssets();
-    // about $60,000 of collateral at the oracle price, and 20,000 of the debt asset
-    const px = await price(a.collateral);
-    await ensureTokens(this.evm, a.collateral, (60_000n * 10n ** 8n * 10n ** BigInt(a.cDec)) / px);
-    await ensureTokens(this.evm, a.debt, units(20_000, a.dDec));
+    // test tokens only where they exist (Sepolia's faucet, or a local copy); on mainnet the wallet is
+    // funded by hand and this only sets the Pool approvals
+    if (cfg.aave.faucet || !cfg.realChain) {
+      // about $60,000 of collateral at the oracle price, and 20,000 of the debt asset
+      const px = await price(a.collateral);
+      await ensureTokens(this.evm, a.collateral, (60_000n * 10n ** 8n * 10n ** BigInt(a.cDec)) / px);
+      await ensureTokens(this.evm, a.debt, units(20_000, a.dDec));
+    }
     await this.approveOnce(a.collateral);
     await this.approveOnce(a.debt);
   }

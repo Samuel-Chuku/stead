@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  createPublicClient, createWalletClient, createTestClient, http, parseAbi, defineChain, keccak256, encodeAbiParameters, toHex,
+  createPublicClient, createWalletClient, createTestClient, http, fallback, parseAbi, defineChain, keccak256, encodeAbiParameters, toHex,
   type Hex, type Address, type PublicClient, type WalletClient,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -12,12 +12,14 @@ import { cfg, REPO } from "./config.js";
 
 export const fork = defineChain({
   id: cfg.chainId,
-  name: cfg.evm === "sepolia" ? "sepolia" : "stead-fork",
+  name: cfg.evm === "fork" ? "stead-fork" : cfg.evm,
   nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
   rpcUrls: { default: { http: [cfg.forkRpc] } },
 });
 
-export const pub: PublicClient = createPublicClient({ chain: fork, transport: http(cfg.forkRpc) }) as PublicClient;
+/** The EVM RPC, then the fallbacks in order (real chains only). */
+const evmTransport = () => (cfg.evmFallback.length ? fallback([cfg.forkRpc, ...cfg.evmFallback.filter((u) => u !== cfg.forkRpc)].map((u) => http(u))) : http(cfg.forkRpc));
+export const pub: PublicClient = createPublicClient({ chain: fork, transport: evmTransport() }) as PublicClient;
 export const test = createTestClient({ chain: fork, mode: "anvil", transport: http(cfg.forkRpc) });
 
 export const poolAbi = parseAbi([
@@ -47,7 +49,7 @@ const U128_MAX = 2n ** 128n - 1n;
 
 export function wallet(key: Hex): WalletClient & { address: Address } {
   const account = privateKeyToAccount(key);
-  const w = createWalletClient({ account, chain: fork, transport: http(cfg.forkRpc) });
+  const w = createWalletClient({ account, chain: fork, transport: evmTransport() }); // local key signs; any RPC can broadcast
   return Object.assign(w, { address: account.address });
 }
 

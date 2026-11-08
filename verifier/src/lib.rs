@@ -50,6 +50,18 @@ pub struct Config {
     /// `keyed-rpc`.
     #[serde(default)]
     pub keyed: Option<String>,
+    /// More keyed RPCs from the secret (other providers); each votes on its own, none is printed.
+    #[serde(default)]
+    pub keyed_more: Vec<String>,
+    /// Read each price from the oracle with `eth_call` at the agreed block, accepted only when a
+    /// majority of at least `min_agree` header voters return the identical value (Ethereum
+    /// mainnet: Chainlink feeds and capped adapters keep part of the price outside plain storage).
+    /// Off: the price is a proven storage slot (Sepolia's simple feeds).
+    #[serde(default)]
+    pub price_by_call: bool,
+    /// Round each user's debt up (Aave 3.4+, as on Ethereum mainnet); off: to nearest (Aave 3.0, Sepolia).
+    #[serde(default)]
+    pub debt_round_up: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -180,6 +192,41 @@ pub fn agreed_header(rpc: &dyn Rpc, cfg: &Config, block: u64) -> Result<Header, 
     Ok(Header { number: block, hash: best.0, state_root: hex32(&best.1)?, receipts_root: hex32(&best.2)?, timestamp: best.3, agree })
 }
 
+/// `getAssetPrice(asset)` on the oracle at `block`, by `eth_call` on every header voter. The same
+/// rule as the header: the most common answer needs at least `min_agree` votes and a majority of
+/// the answers, so one RPC can't move a price.
+pub fn agreed_price(rpc: &dyn Rpc, cfg: &Config, asset: &str, block: u64) -> Result<U256, String> {
+    let data = format!("0xb3596f07{:0>64}", asset.trim_start_matches("0x").to_lowercase()); // getAssetPrice(address)
+    let mut seen: Vec<String> = vec![];
+    let mut failed: Vec<String> = vec![];
+    for url in &cfg.header_rpcs {
+        match call_twice(rpc, url, "eth_call", json!([{ "to": cfg.oracle, "data": data }, format!("0x{block:x}")])) {
+            Ok(v) if v.is_string() => seen.push(v.as_str().unwrap().to_lowercase()),
+            Ok(_) => failed.push(format!("{}: no result", label(cfg, url))),
+            Err(e) => failed.push(format!("{}: {}", label(cfg, url), short(&e))),
+        }
+    }
+    let mut tally: Vec<(String, usize)> = vec![];
+    for x in &seen {
+        match tally.iter_mut().find(|(k, _)| k == x) {
+            Some((_, n)) => *n += 1,
+            None => tally.push((x.clone(), 1)),
+        }
+    }
+    let (best, agree) = tally.iter().max_by_key(|(_, n)| *n).cloned().ok_or_else(|| format!("no RPC returned the price of {asset} ({})", failed.join("; ")))?;
+    if agree < cfg.min_agree {
+        return Err(format!("only {agree} RPCs agree on the price of {asset} at block {block} (need {})", cfg.min_agree));
+    }
+    if 2 * agree <= seen.len() {
+        return Err(format!("price disagreement for {asset} at block {block}: {} distinct answers", tally.len()));
+    }
+    let raw = hex::decode(best.trim_start_matches("0x")).map_err(|e| format!("price: {e}"))?;
+    if raw.len() != 32 {
+        return Err(format!("price of {asset}: {} bytes", raw.len()));
+    }
+    U256::from_be_slice(&raw).ok_or_else(|| format!("price of {asset}: not a uint256"))
+}
+
 /// One retry on any error (a rate limit or a dropped connection is often gone a moment later).
 fn call_twice(rpc: &dyn Rpc, url: &str, method: &str, params: Value) -> Result<Value, String> {
     rpc.call(url, method, params.clone()).or_else(|_| rpc.call(url, method, params))
@@ -189,6 +236,9 @@ fn call_twice(rpc: &dyn Rpc, url: &str, method: &str, params: Value) -> Result<V
 fn label(cfg: &Config, url: &str) -> String {
     if cfg.keyed.as_deref() == Some(url) {
         return "keyed-rpc".into();
+    }
+    if let Some(i) = cfg.keyed_more.iter().position(|k| k == url) {
+        return format!("keyed-rpc-{}", i + 2);
     }
     url.trim_start_matches("https://").split('/').next().unwrap_or(url).to_string()
 }
@@ -233,13 +283,14 @@ impl<'a> Prover<'a> {
     /// verifies; returns the account nonce and the proven slot values.
     pub fn read(&mut self, account: &str, slots: &[U256]) -> Result<ProvenAccount, String> {
         let keys: Vec<String> = slots.iter().map(|s| format!("0x{}", hex::encode(s.to_be_bytes()))).collect();
-        let mut last_err = String::from("no proof RPC configured");
+        // every source's reason, shortened, if none gives a proof that verifies
+        let mut why: Vec<String> = vec![];
         for url in self.cfg.proof_rpcs.clone() {
             self.calls += 1;
             let res = match call_twice(self.rpc, &url, "eth_getProof", json!([account, keys, format!("0x{:x}", self.header.number)])) {
                 Ok(r) => r,
                 Err(e) => {
-                    last_err = e;
+                    why.push(format!("{}: {}", label(self.cfg, &url), short(&e)));
                     continue;
                 }
             };
@@ -248,10 +299,10 @@ impl<'a> Prover<'a> {
                     self.slots_read += slots.len();
                     return Ok(p);
                 }
-                Err(e) => last_err = format!("{url}: {e}"),
+                Err(e) => why.push(format!("{}: {}", label(self.cfg, &url), short(&e))),
             }
         }
-        Err(last_err)
+        Err(if why.is_empty() { "no proof RPC configured".into() } else { format!("no proof of {account}: {}", why.join("; ")) })
     }
 
     fn check(&self, account: &str, slots: &[U256], res: &Value) -> Result<ProvenAccount, String> {
@@ -308,6 +359,12 @@ const SECONDS_PER_YEAR: u128 = 365 * 24 * 3600;
 pub fn ray_mul(a: U256, b: U256) -> U256 {
     (a * b + ray() / U256::from(2u128)) / ray()
 }
+/// `a × b / RAY`, rounded up (Aave 3.4+ rounds a user's debt up).
+pub fn ray_mul_up(a: U256, b: U256) -> U256 {
+    let p = a * b;
+    let q = p / ray();
+    if q * ray() == p { q } else { q + U256::from(1u128) }
+}
 pub fn percent_mul(v: U256, p: U256) -> U256 {
     (v * p + U256::from(5000u128)) / U256::from(10_000u128)
 }
@@ -340,9 +397,16 @@ const DEBT_USER_STATE: u128 = 56;
 /// Recompute the position's health exactly as `Pool.getUserAccountData`, from proven slots.
 /// Errors never contain the keyed RPC's URL.
 pub fn verify_position(rpc: &dyn Rpc, cfg: &Config, input: &Input) -> Result<Output, String> {
-    verify_inner(rpc, cfg, input).map_err(|e| match &cfg.keyed {
-        Some(k) if !k.is_empty() => e.replace(k.as_str(), "keyed-rpc").replace(k.trim_end_matches('/'), "keyed-rpc"),
-        _ => e,
+    verify_inner(rpc, cfg, input).map_err(|e| {
+        let mut e = match &cfg.keyed {
+            Some(k) if !k.is_empty() => e.replace(k.as_str(), "keyed-rpc").replace(k.trim_end_matches('/'), "keyed-rpc"),
+            _ => e,
+        };
+        for (i, k) in cfg.keyed_more.iter().enumerate().filter(|(_, k)| !k.is_empty()) {
+            let l = format!("keyed-rpc-{}", i + 2);
+            e = e.replace(k.as_str(), &l).replace(k.trim_end_matches('/'), &l);
+        }
+        e
     })
 }
 
@@ -409,8 +473,12 @@ fn verify_inner(rpc: &dyn Rpc, cfg: &Config, input: &Input) -> Result<Output, St
         let lt = rcfg.shr(16).mask(16);
         let dec = rcfg.shr(48).mask(8).low_u128() as u32;
         let unit = U256::pow10(dec);
-        let src = as_addr(pv.read(&cfg.oracle, &[map_slot(word_addr(&asset)?, U256::ZERO)])?.values[0]);
-        let price = pv.read(&src, &[U256::ZERO])?.values[0];
+        let price = if cfg.price_by_call {
+            agreed_price(rpc, cfg, &asset, block)?
+        } else {
+            let src = as_addr(pv.read(&cfg.oracle, &[map_slot(word_addr(&asset)?, U256::ZERO)])?.values[0]);
+            pv.read(&src, &[U256::ZERO])?.values[0]
+        };
         let (mut cs, mut ds) = (U256::ZERO, U256::ZERO);
         let (liq_rate, liq_index) = (s1.shr(128), s1.mask(128));
         let income = if now != last { ray_mul(linear_interest(liq_rate, last, now), liq_index) } else { liq_index };
@@ -428,12 +496,26 @@ fn verify_inner(rpc: &dyn Rpc, cfg: &Config, input: &Input) -> Result<Output, St
         if ucfg.bit(2 * rid) {
             let (v_tok, s_tok) = (as_addr(r[6]), as_addr(r[5]));
             ds = pv.read(&v_tok, &[map_slot(user, U256::from(DEBT_USER_STATE))])?.values[0].mask(128);
-            let stable = pv.read(&s_tok, &[map_slot(user, U256::from(DEBT_USER_STATE))])?.values[0].mask(128);
+            // Aave 3.2+ (Ethereum mainnet, revision 11) removed stable-rate debt: its token address is zero
+            let stable = if s_tok.trim_start_matches("0x").chars().all(|c| c == '0') {
+                U256::ZERO
+            } else {
+                pv.read(&s_tok, &[map_slot(user, U256::from(DEBT_USER_STATE))])?.values[0].mask(128)
+            };
             if !stable.is_zero() {
                 return Err("stable debt isn't supported".into());
             }
-            let debt = if ds.is_zero() { U256::ZERO } else { ray_mul(ds, debt_index) };
-            tot_debt = tot_debt + price * debt / unit;
+            let debt = if ds.is_zero() {
+                U256::ZERO
+            } else if cfg.debt_round_up {
+                ray_mul_up(ds, debt_index)
+            } else {
+                ray_mul(ds, debt_index)
+            };
+            // in dollars too, Aave 3.4+ rounds the debt up
+            let in_base = price * debt;
+            let q = in_base / unit;
+            tot_debt = tot_debt + if cfg.debt_round_up && q * unit != in_base { q + U256::from(1u128) } else { q };
         }
         if wanted(&asset) {
             res.push(ReserveOut { a: asset, p: price.to_string(), cs: cs.to_string(), ds: ds.to_string(), ci: income.to_string(), di: debt_index.to_string() });
@@ -445,7 +527,10 @@ fn verify_inner(rpc: &dyn Rpc, cfg: &Config, input: &Input) -> Result<Output, St
     // escrow: the position's own token balances
     let mut bal = vec![];
     for t in tokens {
-        let v = pv.read(&t.address, &[map_slot(user, U256::from(t.balances_slot as u128))])?.values[0];
+        // a token this config knows uses the config's balances slot (the caller may not know a
+        // mainnet token's layout: WETH keeps balances at slot 3, USDC at slot 9)
+        let slot = cfg.tokens.iter().find(|k| k.address.eq_ignore_ascii_case(&t.address)).map_or(t.balances_slot, |k| k.balances_slot);
+        let v = pv.read(&t.address, &[map_slot(user, U256::from(slot as u128))])?.values[0];
         bal.push((t.address.to_lowercase(), v.to_string()));
     }
     Ok(Output {
@@ -543,6 +628,61 @@ pub fn sepolia_config() -> Config {
             TokenSlot { address: "0xff34b3d4aee8ddcd6f9afffb6fe49bd371b8a357".into(), balances_slot: 0 },
         ],
         keyed: None,
+        keyed_more: vec![],
+        price_by_call: false,
+        debt_round_up: false,
+    }
+}
+
+/// Ethereum mainnet: Aave V3 Ethereum Pool and AaveOracle (the oracle read from the Pool's
+/// AddressesProvider on chain, 2026-11-08); header and price voters run by different operators and
+/// storage-proof sources, each tested 2026-11-08 at head − 3; escrow tokens WETH (balances slot 3)
+/// and USDC (slot 9).
+pub fn mainnet_config() -> Config {
+    Config {
+        chain_id: 1,
+        header_rpcs: vec![
+            "https://ethereum-rpc.publicnode.com".into(),
+            "https://1rpc.io/eth".into(),
+            "https://eth.drpc.org".into(),
+            "https://eth-mainnet.public.blastapi.io".into(),
+            "https://mainnet.gateway.tenderly.co".into(),
+            "https://rpc.mevblocker.io".into(),
+            "https://0xrpc.io/eth".into(),
+            "https://eth-pokt.nodies.app".into(),
+        ],
+        proof_rpcs: vec![
+            "https://eth.drpc.org".into(),
+            "https://1rpc.io/eth".into(),
+            "https://eth-mainnet.public.blastapi.io".into(),
+            "https://rpc.mevblocker.io".into(),
+            "https://0xrpc.io/eth".into(),
+            "https://ethereum.publicnode.com".into(),
+        ],
+        min_agree: 3,
+        depth: 3,
+        pool: "0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2".into(),
+        oracle: "0x54586be62e3c3580375ae3723c145253060ca0c2".into(),
+        tokens: vec![
+            TokenSlot { address: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2".into(), balances_slot: 3 },
+            TokenSlot { address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48".into(), balances_slot: 9 },
+        ],
+        keyed: None,
+        keyed_more: vec![],
+        price_by_call: true,
+        debt_round_up: true,
+    }
+}
+
+/// The config for a request: Ethereum mainnet when every reserve it names is a mainnet token this
+/// program knows (the contract names the market's collateral and debt), else Sepolia. The contract
+/// still refuses a result whose `chain` isn't its market's.
+pub fn config_for(input: &Input) -> Config {
+    let m = mainnet_config();
+    let known = |a: &String| m.tokens.iter().any(|t| t.address.eq_ignore_ascii_case(a));
+    match &input.reserves {
+        Some(r) if !r.is_empty() && r.iter().all(known) => m,
+        _ => sepolia_config(),
     }
 }
 

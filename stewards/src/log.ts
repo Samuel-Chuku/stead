@@ -1,7 +1,9 @@
 // One-line, timestamped, labelled output. Every line in the local fork demo carries the trust label.
 export const DEMO_LABEL = process.env.STEAD_EVM === "sepolia"
   ? "[Sepolia testnet: Aave readings verified on OutLayer (TEE); nonces and settlement repays still from the TEMPORARY reporter]"
-  : "[unverified demo mode: local fork, TEMPORARY reporter]";
+  : process.env.STEAD_EVM === "ethereum"
+    ? "[Ethereum MAINNET, real funds, capped: Aave readings verified on OutLayer (TEE); nonces and settlement repays still from the TEMPORARY reporter]"
+    : "[unverified demo mode: local fork, TEMPORARY reporter]";
 
 const t0 = Date.now();
 const stamp = () => `+${((Date.now() - t0) / 1000).toFixed(1).padStart(6)}s`;
