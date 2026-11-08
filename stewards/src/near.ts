@@ -6,9 +6,7 @@ export const provider = new JsonRpcProvider({ url: cfg.nearRpc });
 const txProvider = cfg.nearTxRpc === cfg.nearRpc ? provider : new JsonRpcProvider({ url: cfg.nearTxRpc });
 /** Views fail over to these, in order, when the main view RPC keeps failing (comma-separated
  *  NEAR_RPC_FALLBACK). A view is read-only, so asking another node is always safe. */
-// NEAR mainnet defaults to the public RPCs that answered on 2026-11-08 (FastNEAR, dRPC, near.org)
-const NEAR_FALLBACK_DEFAULT = cfg.nearNetwork === "mainnet" ? "https://rpc.mainnet.fastnear.com,https://near.drpc.org,https://rpc.mainnet.near.org" : "";
-const fallbacks = (process.env.NEAR_RPC_FALLBACK ?? NEAR_FALLBACK_DEFAULT).split(",").map((u) => u.trim()).filter((u) => u && u !== cfg.nearRpc).map((url) => new JsonRpcProvider({ url }));
+const fallbacks = cfg.nearFallback.split(",").map((u) => u.trim()).filter((u) => u && u !== cfg.nearRpc).map((url) => new JsonRpcProvider({ url }));
 const accounts = new Map<string, Account>();
 
 export function account(id: string): Account {

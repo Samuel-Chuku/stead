@@ -47,14 +47,21 @@ const NEAR_RPC_DEFAULT = NEAR_NETWORK === "mainnet" ? "https://rpc.mainnet.fastn
 
 export const cfg = {
   nearNetwork: NEAR_NETWORK,
-  nearRpc: env("NEAR_RPC_URL", NEAR_RPC_DEFAULT),
+  // mainnet reads its own .env names, so a testnet NEAR_RPC_URL in .env never applies to mainnet
+  nearRpc: NEAR_NETWORK === "mainnet" ? env("MAINNET_NEAR_RPC_URL", NEAR_RPC_DEFAULT) : env("NEAR_RPC_URL", NEAR_RPC_DEFAULT),
   /** Transactions can go through another RPC than views (views are the high-volume part). */
-  nearTxRpc: env("NEAR_TX_RPC_URL", env("NEAR_RPC_URL", NEAR_RPC_DEFAULT)),
+  nearTxRpc: NEAR_NETWORK === "mainnet"
+    ? env("MAINNET_NEAR_TX_RPC_URL", env("MAINNET_NEAR_RPC_URL", NEAR_RPC_DEFAULT))
+    : env("NEAR_TX_RPC_URL", env("NEAR_RPC_URL", NEAR_RPC_DEFAULT)),
   contract: env("NEAR_CONTRACT_ID", "steadfi.testnet"),
   owner: env("NEAR_OWNER_ACCOUNT", "steadfi.testnet"),
   reporter: env("NEAR_REPORTER_ACCOUNT", "reporter.steadfi.testnet"),
   borrower: env("NEAR_BORROWER_ACCOUNT", "borrower.steadfi.testnet"),
-  credentialsDir: env("NEAR_CREDENTIALS_DIR", join(homedir(), ".near-credentials", NEAR_NETWORK)).replace(/^~/, homedir()),
+  /** NEAR view RPCs tried in order after nearRpc (MAINNET_NEAR_RPC_FALLBACK / NEAR_RPC_FALLBACK). */
+  nearFallback: (NEAR_NETWORK === "mainnet"
+    ? process.env.MAINNET_NEAR_RPC_FALLBACK ?? fileEnv.MAINNET_NEAR_RPC_FALLBACK ?? "https://rpc.mainnet.fastnear.com,https://near.drpc.org,https://rpc.mainnet.near.org"
+    : process.env.NEAR_RPC_FALLBACK ?? fileEnv.NEAR_RPC_FALLBACK ?? ""),
+  credentialsDir: (NEAR_NETWORK === "mainnet" ? join(homedir(), ".near-credentials", "mainnet") : env("NEAR_CREDENTIALS_DIR", join(homedir(), ".near-credentials", "testnet"))).replace(/^~/, homedir()),
   /** EVM side: "fork" (local anvil copy, TEMPORARY reporter), "sepolia" (real testnet, readings
    *  verified on OutLayer) or "ethereum" (mainnet, real funds). Set STEAD_EVM. */
   evm: EVM as "fork" | "sepolia" | "ethereum",
@@ -66,10 +73,15 @@ export const cfg = {
       ? env("MAINNET_RPC_URL", "https://ethereum-rpc.publicnode.com")
       : env("FORK_RPC_URL", "http://127.0.0.1:8545"),
   chainId: EVM === "sepolia" ? 11155111 : EVM === "ethereum" ? 1 : Number(env("FORK_CHAIN_ID", "31337")),
-  /** Real chains: more EVM RPCs tried in order when the first fails (EVM_RPC_FALLBACK, comma-separated).
+  /** Real chains: more EVM RPCs tried in order when the first fails, one list per chain so a
+   *  mainnet URL can never serve Sepolia (MAINNET_RPC_FALLBACK / SEPOLIA_RPC_FALLBACK, comma-separated).
    *  Ethereum mainnet defaults to public RPCs tested 2026-11-08. Reads and broadcasting an
    *  already-signed transaction are safe to retry elsewhere. */
-  evmFallback: (process.env.EVM_RPC_FALLBACK ?? fileEnv.EVM_RPC_FALLBACK ?? (EVM === "ethereum" ? "https://eth.drpc.org,https://1rpc.io/eth,https://eth-mainnet.public.blastapi.io,https://rpc.mevblocker.io" : ""))
+  evmFallback: (EVM === "ethereum"
+    ? process.env.MAINNET_RPC_FALLBACK ?? fileEnv.MAINNET_RPC_FALLBACK ?? "https://eth.drpc.org,https://ethereum-rpc.publicnode.com,https://eth-mainnet.public.blastapi.io,https://rpc.mevblocker.io"
+    : EVM === "sepolia"
+      ? process.env.SEPOLIA_RPC_FALLBACK ?? fileEnv.SEPOLIA_RPC_FALLBACK ?? ""
+      : "")
     .split(",")
     .map((u) => u.trim())
     .filter((u) => u && EVM !== "fork"),
