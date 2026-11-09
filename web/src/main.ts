@@ -1,6 +1,10 @@
 // Stead front end: the app shell (sidebar, mobile drawer, theme switch) and hash routes.
 // Pages fill the content column; the shell holds no data of its own.
 import { icon, logo, type IconName } from "./icons";
+import { mountReplay } from "./board/player";
+
+/** The recorded rescue the live board replays: a real auction on Sepolia, rebuilt from the chains. */
+const REPLAY_URL = "/replays/sepolia-demo-rescue-8.json";
 
 type Route = "overview" | "live" | "rescues" | "positions" | "stewards" | "claims" | "proofs";
 
@@ -101,7 +105,7 @@ function shell(r: Route): string {
     </header>
     <div class="st-shell">
       <nav class="st-sidebar st-panel" aria-label="Main">${sidebarBody(r, false)}</nav>
-      <main class="st-content" id="content" tabindex="-1">${page(r)}</main>
+      <main class="st-content" id="content" tabindex="-1"></main>
     </div>
     <button type="button" class="st-scrim" data-close tabindex="-1" aria-label="Close menu"></button>
     <nav class="st-drawer" id="drawer" aria-label="Main" inert>
@@ -127,9 +131,23 @@ function setDrawer(open: boolean) {
   }
 }
 
+let unmount: () => void = () => {};
+function fill(r: Route) {
+  unmount();
+  unmount = () => {};
+  const content = document.querySelector<HTMLElement>("#content")!;
+  if (r === "live") {
+    let stop = () => {};
+    let gone = false;
+    unmount = () => { gone = true; stop(); };
+    void mountReplay(content, REPLAY_URL).then((s) => (gone ? s() : (stop = s)));
+  } else content.innerHTML = page(r);
+}
+
 function render() {
   const r = route();
   app.innerHTML = shell(r);
+  fill(r);
   document.title = `${PAGES[r].title} · Stead`;
 }
 
@@ -139,7 +157,7 @@ function onRoute() {
     if (a.dataset.route === r) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
-  document.querySelector("#content")!.innerHTML = page(r);
+  fill(r);
   document.title = `${PAGES[r].title} · Stead`;
   if (document.body.classList.contains("st-drawer-open")) setDrawer(false);
 }

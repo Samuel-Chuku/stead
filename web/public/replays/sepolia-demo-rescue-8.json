@@ -1,0 +1,376 @@
+{
+ "version": 1,
+ "title": "Rescue 8 · position 3",
+ "label": "Recorded on NEAR testnet and Sepolia, 2026-11-07",
+ "contract": "sepolia-demo.steadfi.testnet",
+ "nearNetwork": "testnet",
+ "evmChain": "sepolia",
+ "rescueId": 8,
+ "positionId": 3,
+ "borrower": "borrower.steadfi.testnet",
+ "market": {
+  "id": 2,
+  "collateral": "WBTC",
+  "debt": "DAI",
+  "collateralDecimals": 8,
+  "debtDecimals": 18,
+  "ltBps": 7500,
+  "liqBonusBps": 1000
+ },
+ "openedAtMs": 1794040675653,
+ "atOpen": {
+  "collateral": "0.02739828",
+  "collateralUsd": 1643.8968,
+  "debtUsd": 1081.5129500227195,
+  "priceUsd": 60000
+ },
+ "params": {
+  "triggerHf": 1.15,
+  "targetHf": 1.5,
+  "auctionS": 45,
+  "topupS": 120,
+  "buybackS": 180
+ },
+ "outcome": "bought back",
+ "events": [
+  {
+   "t": 0,
+   "kind": "TRIGGER",
+   "position": 3,
+   "hf": 1.139998,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "GjYyrqyq34HY4NVdHoxq9TDMFvBwue5zeMWhKGffhUJR",
+    "url": "https://testnet.nearblocks.io/txns/GjYyrqyq34HY4NVdHoxq9TDMFvBwue5zeMWhKGffhUJR",
+    "block": 12082525,
+    "rpcs": 4
+   }
+  },
+  {
+   "t": 0,
+   "kind": "AUCTION_OPEN",
+   "position": 3,
+   "durationS": 45,
+   "topUp": {
+    "asset": "WBTC",
+    "amount": "0.00865215",
+    "usd": 519.1287379
+   },
+   "capBps": 1041,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "GjYyrqyq34HY4NVdHoxq9TDMFvBwue5zeMWhKGffhUJR",
+    "url": "https://testnet.nearblocks.io/txns/GjYyrqyq34HY4NVdHoxq9TDMFvBwue5zeMWhKGffhUJR",
+    "block": 12082525,
+    "rpcs": 4
+   }
+  },
+  {
+   "t": 10.122,
+   "kind": "BIDDING",
+   "steward": "swift",
+   "derived": true
+  },
+  {
+   "t": 11.522,
+   "kind": "BID",
+   "steward": "swift",
+   "bps": 400,
+   "amount": "0.00865215",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "8uGrM9eM5TuFBJSeEtFznsRaPdkHscRNUe76ZMpPDnsX",
+    "url": "https://testnet.nearblocks.io/txns/8uGrM9eM5TuFBJSeEtFznsRaPdkHscRNUe76ZMpPDnsX"
+   }
+  },
+  {
+   "t": 16.173,
+   "kind": "BIDDING",
+   "steward": "hedged",
+   "derived": true
+  },
+  {
+   "t": 17.573,
+   "kind": "BID",
+   "steward": "hedged",
+   "bps": 100,
+   "amount": "0.00865215",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "5hWn6WLbZmJz1aHd6RnnCwv6CBWtrSobCqHvzY462hhY",
+    "url": "https://testnet.nearblocks.io/txns/5hWn6WLbZmJz1aHd6RnnCwv6CBWtrSobCqHvzY462hhY"
+   }
+  },
+  {
+   "t": 17.978,
+   "kind": "BIDDING",
+   "steward": "deep",
+   "derived": true
+  },
+  {
+   "t": 19.378,
+   "kind": "BID",
+   "steward": "deep",
+   "bps": 150,
+   "amount": "0.00865215",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "BhwRi9yLKa39eXMvcebnVALL3pwDG6Rw2rbUhNfwyUPT",
+    "url": "https://testnet.nearblocks.io/txns/BhwRi9yLKa39eXMvcebnVALL3pwDG6Rw2rbUhNfwyUPT"
+   }
+  },
+  {
+   "t": 32.074,
+   "kind": "READING",
+   "hf": 1.139997,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "4mU4nKRNme1R3FaLz4pDZKsru64df256J9iKYmSEUBBJ",
+    "url": "https://testnet.nearblocks.io/txns/4mU4nKRNme1R3FaLz4pDZKsru64df256J9iKYmSEUBBJ",
+    "block": 12082527,
+    "rpcs": 4
+   }
+  },
+  {
+   "t": 36.703,
+   "kind": "BIDDING",
+   "steward": "patient",
+   "derived": true
+  },
+  {
+   "t": 38.103,
+   "kind": "BID",
+   "steward": "patient",
+   "bps": 268,
+   "amount": "0.00865215",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "AHk76PJuU6Bst7wrrzDTLrkwsuqeEjPS4gkU9PPX8MTe",
+    "url": "https://testnet.nearblocks.io/txns/AHk76PJuU6Bst7wrrzDTLrkwsuqeEjPS4gkU9PPX8MTe"
+   }
+  },
+  {
+   "t": 49.017,
+   "kind": "AUCTION_CLOSE",
+   "winners": [
+    {
+     "steward": "hedged",
+     "bps": 100,
+     "amount": "0.00865215"
+    }
+   ],
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "66EgV88TYnKSmAnywNC94gxYrH3CTaBB6jGVooiLZmNV",
+    "url": "https://testnet.nearblocks.io/txns/66EgV88TYnKSmAnywNC94gxYrH3CTaBB6jGVooiLZmNV"
+   }
+  },
+  {
+   "t": 64.346,
+   "kind": "TOPUP_SENT",
+   "steward": "hedged",
+   "amount": "0.00865215",
+   "asset": "WBTC",
+   "evidence": {
+    "mark": "proven",
+    "chain": "sepolia",
+    "tx": "0x7e36f856217af140d322b8ecbaa4d96ef576853fa5c374bce2447f5bd6919ddf",
+    "url": "https://sepolia.etherscan.io/tx/0x7e36f856217af140d322b8ecbaa4d96ef576853fa5c374bce2447f5bd6919ddf",
+    "block": 12082534
+   }
+  },
+  {
+   "t": 102.873,
+   "kind": "READING",
+   "hf": 1.139996,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "Aj4eRwxMnYm3BgeaLyaUkUz1864zqcVBPY5nTsdRsWSV",
+    "url": "https://testnet.nearblocks.io/txns/Aj4eRwxMnYm3BgeaLyaUkUz1864zqcVBPY5nTsdRsWSV",
+    "block": 12082530,
+    "rpcs": 4
+   }
+  },
+  {
+   "t": 122.23,
+   "kind": "READING",
+   "hf": 1.499995,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "5r69MNFymdWjq4EuCop5TC6LTCzih2qqXgJt5gVM1N8s",
+    "url": "https://testnet.nearblocks.io/txns/5r69MNFymdWjq4EuCop5TC6LTCzih2qqXgJt5gVM1N8s",
+    "block": 12082535,
+    "rpcs": 4
+   }
+  },
+  {
+   "t": 122.23,
+   "kind": "TOPUP_CONFIRMED",
+   "steward": "hedged",
+   "collateral": "0.03605043",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "5r69MNFymdWjq4EuCop5TC6LTCzih2qqXgJt5gVM1N8s",
+    "url": "https://testnet.nearblocks.io/txns/5r69MNFymdWjq4EuCop5TC6LTCzih2qqXgJt5gVM1N8s",
+    "block": 12082535
+   }
+  },
+  {
+   "t": 122.23,
+   "kind": "CLAIM_MINTED",
+   "claim": "3-5-0",
+   "holder": "hedged",
+   "owed": "0.00865215",
+   "premium": "0.00008652",
+   "asset": "WBTC",
+   "windowEndsT": 302.23,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "5r69MNFymdWjq4EuCop5TC6LTCzih2qqXgJt5gVM1N8s",
+    "url": "https://testnet.nearblocks.io/txns/5r69MNFymdWjq4EuCop5TC6LTCzih2qqXgJt5gVM1N8s"
+   }
+  },
+  {
+   "t": 136.346,
+   "kind": "PAYMENT_IN",
+   "amount": "525.3202",
+   "asset": "DAI",
+   "evidence": {
+    "mark": "proven",
+    "chain": "sepolia",
+    "tx": "0x28029484663eb9d6a96c1e7fc14358c5be7b66c456899026d4a347cbda7e314c",
+    "url": "https://sepolia.etherscan.io/tx/0x28029484663eb9d6a96c1e7fc14358c5be7b66c456899026d4a347cbda7e314c",
+    "block": 12082540
+   }
+  },
+  {
+   "t": 154.946,
+   "kind": "READING",
+   "hf": 1.499994,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "G5zyaYYhdWkJPqvDVLo4dSzgcpVnZJhfXrW2DLsMsAQ2",
+    "url": "https://testnet.nearblocks.io/txns/G5zyaYYhdWkJPqvDVLo4dSzgcpVnZJhfXrW2DLsMsAQ2",
+    "block": 12082538,
+    "rpcs": 4
+   }
+  },
+  {
+   "t": 187.073,
+   "kind": "READING",
+   "hf": 1.499993,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "AFnguBhE1nfnCGnFUga62nKneMD3gLBnCGzvvamz8MEY",
+    "url": "https://testnet.nearblocks.io/txns/AFnguBhE1nfnCGnFUga62nKneMD3gLBnCGzvvamz8MEY",
+    "block": 12082540,
+    "rpcs": 4
+   }
+  },
+  {
+   "t": 187.073,
+   "kind": "ESCROW_PROVEN",
+   "debtUnits": "525.3202",
+   "asset": "DAI",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "AFnguBhE1nfnCGnFUga62nKneMD3gLBnCGzvvamz8MEY",
+    "url": "https://testnet.nearblocks.io/txns/AFnguBhE1nfnCGnFUga62nKneMD3gLBnCGzvvamz8MEY",
+    "block": 12082540
+   }
+  },
+  {
+   "t": 187.073,
+   "kind": "BUYBACK",
+   "claim": "3-5-0",
+   "amount": "524.3202",
+   "asset": "DAI",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "AFnguBhE1nfnCGnFUga62nKneMD3gLBnCGzvvamz8MEY",
+    "url": "https://testnet.nearblocks.io/txns/AFnguBhE1nfnCGnFUga62nKneMD3gLBnCGzvvamz8MEY"
+   }
+  },
+  {
+   "t": 187.073,
+   "kind": "BOUGHT_BACK",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "AFnguBhE1nfnCGnFUga62nKneMD3gLBnCGzvvamz8MEY",
+    "url": "https://testnet.nearblocks.io/txns/AFnguBhE1nfnCGnFUga62nKneMD3gLBnCGzvvamz8MEY"
+   }
+  },
+  {
+   "t": 224.664,
+   "kind": "PAYOUT",
+   "purpose": "buyback",
+   "amount": "524.3202",
+   "asset": "DAI",
+   "claim": "3-5-0",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "FGV8qhrsCsNPWNX3w6KZmhk6fdCjksxVQwh5td1wzyem",
+    "url": "https://testnet.nearblocks.io/txns/FGV8qhrsCsNPWNX3w6KZmhk6fdCjksxVQwh5td1wzyem"
+   },
+   "transfer": {
+    "mark": "proven",
+    "chain": "sepolia",
+    "tx": "0x06de00e9f38a817eeb526e021516e14ede7ee3b99c325b58d325977431db5552",
+    "url": "https://sepolia.etherscan.io/tx/0x06de00e9f38a817eeb526e021516e14ede7ee3b99c325b58d325977431db5552",
+    "block": 12082547
+   }
+  },
+  {
+   "t": 283.378,
+   "kind": "PAYOUT",
+   "purpose": "refund",
+   "amount": "1",
+   "asset": "DAI",
+   "claim": null,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "CXBsQ5XURegMj3q1xLrdwqNV8hCgMPD4fPE57Cz3tJ9",
+    "url": "https://testnet.nearblocks.io/txns/CXBsQ5XURegMj3q1xLrdwqNV8hCgMPD4fPE57Cz3tJ9"
+   },
+   "transfer": {
+    "mark": "proven",
+    "chain": "sepolia",
+    "tx": "0xd13703fb39be7c92829af7247b5f60410456969a4c994033e6b314723873cad4",
+    "url": "https://sepolia.etherscan.io/tx/0xd13703fb39be7c92829af7247b5f60410456969a4c994033e6b314723873cad4",
+    "block": 12082551
+   }
+  },
+  {
+   "t": 321.534,
+   "kind": "READING",
+   "hf": 1.499988,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-testnet",
+    "tx": "E22imW7zGcBFRPRugy6osGJDfQv5U6xhTGeN1Azvd2ph",
+    "url": "https://testnet.nearblocks.io/txns/E22imW7zGcBFRPRugy6osGJDfQv5U6xhTGeN1Azvd2ph",
+    "block": 12082551,
+    "rpcs": 4
+   }
+  }
+ ]
+}

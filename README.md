@@ -66,6 +66,9 @@ Each step: do this, see that. Steps 1–3 need only Node 22 and this repository:
 3. **Read the live contracts.** No CLI needed; any NEAR RPC works:
    `curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"steadfi.testnet","method_name":"get_rescues","args_base64":"eyJmcm9tIjowLCJsaW1pdCI6NTB9"}}'`.
    See every rescue so far (the result bytes are JSON): state, bids, winners, claims, settlement legs.
+   `cd stewards && npx tsx scripts/rescue-log.ts --rescue 8` rebuilds one rescue's full event log from
+   the chains (the contract's events on NEAR testnet, the transfers on Sepolia), each event with its
+   transaction; the front end's live board replays that file (`web/public/replays/`).
 4. **Run a steward.** Any NEAR testnet account can join with `register_steward` (0.005 NEAR) and bid
    with the same bots we run: [stewards/README.md](stewards/README.md).
 5. **Stage a price fall.** The local fork (`fork/scripts/start.sh`, anvil) has a settable LINK price;
@@ -80,7 +83,7 @@ switched off). Anything that needs an RPC, OutLayer or keys is opt-in and skips 
 |---|---|
 | `cd contract && cargo test -p stead-core` | **114 passed**, 0 failed: rules 65, settlement and liquidation watch 24, owner limits 10, stewards 10, invariant sweeps 3, OutLayer output parsing 1, migration dry-run 1 (prints `skipped` unless `STEAD_STATE_FILE` points at a downloaded contract state) |
 | `cd verifier && cargo test` | **13 passed, 1 ignored**: the proof program against recorded Sepolia RPC answers (`tests/fixtures/`); `record` is the live recorder, opt-in: `cargo test -- --ignored record` |
-| `cd stewards && npm ci && npm test` | **103 passed** in 15 files: strategies, hedging, polling, settlement repay, NEAR Intents quotes, AI tuning, the replay model, the run evidence trail and its on-chain checker, the read-only mainnet feed |
+| `cd stewards && npm ci && npm test` | **119 passed** in 17 files: strategies, hedging, polling, settlement repay, NEAR Intents quotes, AI tuning, the replay model, the run evidence trail and its on-chain checker, the read-only mainnet feed, the rescue event log rebuilt from the chains and the live board that replays it |
 | `cd contract && cargo near build non-reproducible-wasm --no-abi` | `target/near/stead.wasm`; SHA-256 `9035456a230787ac45cfaed411d552397cdad864d753bf2a5ba00e9970b17585`, the code deployed on `steadfi.testnet` and `sepolia-demo.steadfi.testnet` (compare with `view_code`) |
 
 Run from the workspace root, `cargo test` would also try to build the NEAR contract crate for the host,

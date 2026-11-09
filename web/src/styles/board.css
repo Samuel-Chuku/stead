@@ -1,0 +1,236 @@
+/* The live board (components.md §4–§14, §17, §20–§21, §27). Tokens only; px are spec geometry.
+   Type: Big Shoulders for numbers ≥ 20px, Chakra Petch for every word, Martian Mono for IDs. */
+
+.st-board { display: flex; flex-direction: column; gap: var(--st-space-16); min-width: 0; }
+.st-board-grid { display: flex; flex-wrap: wrap; gap: var(--st-space-16); align-items: stretch; }
+.st-board-panel { padding: 18px; display: flex; flex-direction: column; min-width: 0; }
+/* Position and auction share the first row; the rack sits beside them only when the auction
+   still gets ~560px, otherwise it takes its own row and lays the cards out side by side. */
+.st-pos { flex: 1 1 330px; gap: var(--st-space-16); }
+.st-auction { flex: 2 1 560px; gap: 14px; }
+.st-rack { flex: 1 1 280px; gap: var(--st-space-10); }
+.st-rack-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--st-space-10); }
+.st-mono { font-family: var(--st-font-mono); font-size: .92em; }
+.st-idline { font-family: var(--st-font-mono); font-size: var(--st-text-11); color: var(--st-quiet); }
+.st-panel-title { font-size: var(--st-text-22); line-height: 1.2; }
+.st-panel-sub { font-size: 14px; color: var(--st-quiet); min-height: 21px; }
+
+/* ---------- §4 Annunciator ---------- */
+.st-annunciator {
+  display: flex; flex-wrap: wrap; align-items: stretch; justify-content: space-between; gap: var(--st-space-12);
+  background: var(--st-brand); border: var(--st-border); padding: 10px 12px;
+}
+.st-lamps { display: flex; flex-wrap: wrap; gap: var(--st-space-8); }
+.st-lamp-cell {
+  display: flex; align-items: center; gap: var(--st-space-8); border: var(--st-border); padding: 6px 10px;
+  font-family: var(--st-font-head); font-weight: 600; font-size: 13px; letter-spacing: .02em;
+  background: var(--st-panel); color: var(--st-quiet);
+}
+.st-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--st-hair); flex: none; }
+.st-lamp-cell.is-lit { color: var(--st-on-exposure); }
+.st-lamp-cell.is-lit .st-dot { background: var(--st-on-exposure); }
+.st-lamp-cell.is-lit[data-tone="exposure"] { background: var(--st-exposure); }
+.st-lamp-cell.is-lit[data-tone="acting"] { background: var(--st-acting); }
+.st-lamp-cell.is-lit[data-tone="trip"] { background: var(--st-trip-lamp); }
+.st-annunciator-right { display: flex; flex-wrap: wrap; align-items: center; gap: var(--st-space-8); }
+.st-chip-market {
+  border: var(--st-border); background: var(--st-panel); padding: 6px 10px;
+  font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label);
+}
+.st-seg--mode button { min-height: 36px; }
+.st-seg button[aria-disabled="true"] { cursor: not-allowed; opacity: .45; }
+.st-annunciator .st-push--small { min-height: 40px; padding: 0 16px; font-size: 14px; }
+
+/* ---------- §6 Gauge ---------- */
+.st-gauge-wrap { display: grid; grid-template-columns: 60px 88px minmax(0, 1fr); gap: var(--st-space-10); align-items: stretch; }
+.st-gauge { position: relative; height: 260px; border: var(--st-border); background: var(--st-inset); overflow: hidden; }
+.st-gauge-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--st-level-safe); transition: height 300ms linear; }
+.st-gauge-fill.is-below { background: var(--st-exposure); }
+.st-gauge-mark { position: absolute; left: 0; right: 0; height: 0; }
+.st-gauge-mark--target { border-top: 1.5px dashed var(--st-ink); }
+.st-gauge-mark--trigger { border-top: 2px solid var(--st-exposure-ink); }
+.st-gauge-mark--trip { border-top: 2px solid var(--st-trip); }
+.st-gauge-labels { position: relative; height: 260px; }
+.st-gauge-labels span {
+  position: absolute; left: 0; transform: translateY(50%); white-space: nowrap;
+  font-family: var(--st-font-head); font-weight: 600; font-size: 10px; letter-spacing: .06em; color: var(--st-quiet);
+}
+.st-gauge-labels .st-gl-trigger { color: var(--st-exposure-ink); }
+.st-gauge-labels .st-gl-trip { color: var(--st-trip); }
+.st-hf-block { display: flex; flex-direction: column; gap: var(--st-space-8); justify-content: center; min-width: 0; }
+.st-hf { font-family: var(--st-font-display); font-weight: 600; font-size: var(--st-text-72); line-height: .9; }
+.st-hf.is-below { color: var(--st-exposure-ink); }
+.st-consequence { font-size: var(--st-text-15); line-height: 1.5; }
+.st-consequence strong { font-weight: 600; }
+
+/* ---------- §21 Evidence chip ---------- */
+.st-evidence {
+  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; border: var(--st-border); padding: 5px 8px;
+  font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: .06em; text-decoration: none;
+}
+.st-evidence:hover { text-decoration: underline; }
+.st-evidence-mark { width: 7px; height: 7px; flex: none; }
+.st-evidence--proven { background: var(--st-ink); color: var(--st-panel); }
+.st-evidence--proven .st-evidence-mark { background: var(--st-panel); }
+.st-evidence--reported { background: var(--st-inset); color: var(--st-ink); }
+.st-evidence--reported .st-evidence-mark { border: 1.5px solid var(--st-ink); transform: rotate(45deg); }
+.st-evidence--unverified { background: var(--st-panel) var(--st-hatch-unverified); color: var(--st-ink); }
+
+/* position facts */
+.st-pos-facts { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: var(--st-border); }
+.st-pos-facts > div { padding: 10px 12px; background: var(--st-inset); border-bottom: var(--st-hairline); }
+.st-pos-facts > div:nth-child(odd) { border-right: var(--st-hairline); }
+.st-pos-facts > div:nth-last-child(-n+2) { border-bottom: 0; }
+.st-pos-facts dt { font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); }
+.st-pos-facts dd { margin: 2px 0 0; font-weight: 600; font-size: 14px; }
+
+/* ---------- §17 Lockout tag ---------- */
+.st-claim-slot:empty { display: none; }
+.st-tag {
+  --fill: var(--st-exposure); --edge: var(--st-line);
+  color: var(--st-on-exposure); padding: 14px 16px; display: flex; flex-direction: column; gap: var(--st-space-8);
+  animation: st-drop var(--st-dur-drop) var(--st-ease-glide);
+}
+.st-tag-top { display: flex; align-items: center; gap: var(--st-space-8); }
+.st-tag-title { font-family: var(--st-font-head); font-weight: 700; font-size: 15px; }
+.st-tag-lines { font-size: 13px; font-weight: 500; line-height: 1.5; font-variant-numeric: normal; }
+.st-tag-window { display: flex; align-items: baseline; justify-content: space-between; gap: var(--st-space-8); border-top: 1.5px solid var(--st-on-exposure); padding-top: var(--st-space-8); }
+.st-tag-window > span:first-child { font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); }
+.st-tag-count { font-family: var(--st-font-display); font-weight: 700; font-size: 28px; line-height: 1; }
+.st-claim-closed { font-size: 14px; color: var(--st-ink); border-top: var(--st-hairline); padding-top: var(--st-space-10); }
+
+/* ---------- §8 Flip clock ---------- */
+.st-auction-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--st-space-16); flex-wrap: wrap; }
+.st-flip { display: flex; gap: 4px; perspective: 300px; }
+.st-flap {
+  position: relative; width: 44px; height: 64px; display: flex; align-items: center; justify-content: center;
+  background: var(--st-ink); color: var(--st-panel); border: var(--st-border);
+  font-family: var(--st-font-display); font-weight: 600; font-size: var(--st-text-46); line-height: 1;
+}
+[data-theme="dark"] .st-flap { background: var(--st-inset); color: var(--st-ink); }
+.st-flap::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--st-quiet); opacity: .6; }
+.st-flap--colon { width: 18px; }
+.st-flap--colon::after { display: none; }
+.st-flip-a, .st-flip-b { animation: st-flip var(--st-dur-flip) ease-out; }
+
+/* ---------- §9 Bid ladder ---------- */
+.st-ladder-head, .st-row { display: grid; grid-template-columns: 34px 170px minmax(0, 1fr) 76px 72px; gap: var(--st-space-10); align-items: center; padding: 0 10px; }
+.st-ladder-head { font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); }
+.st-axis { display: flex; justify-content: space-between; }
+.st-ladder { position: relative; height: 300px; }
+.st-placeholder {
+  position: absolute; left: 0; right: 0; height: 52px; border: 1.5px dashed var(--st-hair);
+  display: flex; align-items: center; padding: 0 14px;
+  font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); text-transform: uppercase;
+  transition: opacity 400ms;
+}
+.st-ladder.has-bids .st-placeholder { opacity: 0; }
+.st-row {
+  position: absolute; left: 0; right: 0; height: 52px; border: 1.5px solid var(--st-hair); background: var(--st-panel);
+  opacity: 0; transition: top var(--st-dur-glide) var(--st-ease-glide), opacity 400ms, background-color 400ms;
+}
+.st-row.is-in { opacity: 1; }
+.st-row.is-first { border-color: var(--st-line); }
+.st-row.is-won { background: var(--st-acting-tint); }
+.st-row.is-fresh { --st-flash: var(--flash-c); animation: st-flash var(--st-dur-flash) ease-out; }
+.st-row.is-late { --st-flash: var(--flash-c); animation: st-flash var(--st-dur-flash) ease-out, st-shake 450ms 2; }
+.st-rank { font-family: var(--st-font-display); font-weight: 700; font-size: 22px; line-height: 1; }
+.st-row-steward { display: flex; align-items: center; gap: var(--st-space-8); min-width: 0; }
+.st-row-name { font-family: var(--st-font-head); font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-badge { font-family: var(--st-font-head); font-weight: 700; font-size: 12px; letter-spacing: .02em; padding: 2px 5px; white-space: nowrap; }
+.st-badge:empty { display: none; }
+.st-badge[data-kind="leading"], .st-badge[data-kind="won"] { background: var(--st-ink); color: var(--st-panel); }
+.st-badge[data-kind="late"] { background: var(--st-exposure); color: var(--st-on-exposure); }
+.st-bar { position: relative; height: 14px; background: var(--st-inset); border: 1px solid var(--st-hair); }
+.st-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--sc); transition: width var(--st-dur-glide) var(--st-ease-glide); }
+.st-bar-prev { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--sc); opacity: .45; transition: left var(--st-dur-glide) var(--st-ease-glide); }
+.st-premium, .st-cost { font-family: var(--st-font-display); font-weight: 700; font-size: 20px; line-height: 1; white-space: nowrap; }
+.st-cost { font-weight: 600; color: var(--st-quiet); }
+
+/* ---------- §12 Steward tile ---------- */
+.st-tile {
+  display: inline-flex; align-items: center; justify-content: center; flex: none; background: var(--sc); color: var(--st-tile-ink);
+  font-family: var(--st-font-head); font-weight: 700; letter-spacing: .02em;
+}
+.st-tile--22 { width: 22px; height: 22px; font-size: 9px; }
+.st-tile--26 { width: 26px; height: 26px; font-size: 10px; }
+.st-tile--32 { width: 32px; height: 32px; font-size: 11px; }
+
+/* ---------- §14 Feed pipe ---------- */
+.st-pipe-row { display: flex; align-items: center; gap: var(--st-space-10); padding-top: var(--st-space-4); flex-wrap: wrap; }
+.st-pipe-row[hidden] { display: none; }
+.st-pipe-who { display: flex; align-items: center; gap: var(--st-space-6); font-family: var(--st-font-head); font-weight: 700; font-size: 14px; }
+.st-pipe { flex: 1 1 80px; height: 10px; border: var(--st-border); background: var(--st-inset); }
+.st-pipe.is-flowing, .st-pipe.is-done {
+  background: repeating-linear-gradient(90deg, var(--sc) 0 14px, transparent 14px 20px, var(--sc) 20px 34px, transparent 34px 40px), var(--st-inset);
+}
+.st-pipe.is-flowing { animation: st-flow-x var(--st-flow-cycle) linear infinite; }
+.st-pipe-to { font-family: var(--st-font-mono); font-size: var(--st-text-11); color: var(--st-quiet); }
+.st-pipe-label { font-family: var(--st-font-head); font-weight: 600; font-size: 13px; letter-spacing: .04em; }
+
+/* ---------- §10 / §13 Steward rack ---------- */
+.st-rack-head { display: flex; justify-content: space-between; }
+.st-card { display: flex; gap: var(--st-space-12); align-items: flex-start; border: 1.5px solid var(--st-hair); padding: 10px 12px; transition: background-color 400ms, border-color 400ms; }
+.st-card.is-bidding, .st-card.is-won { border-color: var(--sc); }
+.st-card.is-won { background: var(--st-acting-tint); }
+.st-card-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.st-card-top { display: flex; justify-content: space-between; align-items: center; gap: var(--st-space-8); }
+.st-card-name { font-family: var(--st-font-head); font-weight: 700; font-size: 16px; }
+.st-risk { display: inline-flex; gap: 3px; }
+.st-pip { width: 8px; height: 8px; background: var(--st-hair); }
+[data-theme="dark"] .st-pip { background: var(--st-inset); }
+.st-card .st-pip--on { background: var(--sc); }
+.st-card-rule { font-size: 13px; color: var(--st-quiet); line-height: 1.4; }
+.st-card-status { font-family: var(--st-font-head); font-weight: 600; font-size: 12px; letter-spacing: .02em; }
+.st-card-status.is-blink { animation: st-blink 1.2s steps(2) infinite; }
+.st-rack-note { font-size: 13px; color: var(--st-quiet); line-height: 1.5; }
+
+/* ---------- §27 Journal (always dark) ---------- */
+.st-journal {
+  background: var(--st-journal-bg); color: var(--st-journal-ink); border: var(--st-border); padding: 14px 18px;
+  font-family: var(--st-font-mono); font-size: 12px; line-height: 1.9; min-width: 0;
+}
+.st-journal-head { font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-journal-quiet); margin-bottom: var(--st-space-4); }
+.st-journal-lines { max-height: calc(12px * 1.9 * 6); overflow-y: auto; }
+.st-jline { display: flex; gap: var(--st-space-12); white-space: nowrap; min-width: 0; }
+.st-jline--quiet { color: var(--st-journal-quiet); white-space: normal; font-family: var(--st-font-body); font-size: 13px; }
+.st-jtime { color: var(--st-journal-quiet); flex: none; }
+.st-jkind { min-width: 86px; flex: none; font-weight: 500; }
+/* the lines sit in a data-theme="dark" scope, so these tokens take their dark values in both themes */
+.st-jkind[data-tone="exposure"] { color: var(--st-exposure-ink); }
+.st-jkind[data-tone="acting"] { color: var(--st-acting); }
+.st-jkind[data-tone="safe"], .st-jkind[data-tone="plain"] { color: var(--st-journal-ink); }
+.st-jtext { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.st-jtext a { color: inherit; text-decoration: none; }
+.st-jtext a:hover { text-decoration: underline; }
+
+/* ---------- §30 Error ---------- */
+.st-error { border: 1.5px solid var(--st-trip); background: var(--st-panel); padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+.st-error h2 { font-size: 16px; }
+.st-error p { font-size: 14px; }
+
+/* ---------- small screens: panels stack in reading order; the ladder folds ---------- */
+@media (max-width: 899.98px) {
+  .st-board, .st-board-grid { gap: var(--st-space-12); }
+  .st-board-panel { padding: var(--st-space-16); }
+  .st-annunciator { gap: var(--st-space-8); }
+  .st-annunciator-right { width: 100%; }
+}
+@media (max-width: 620px) {
+  .st-journal-lines { max-height: none; }
+  .st-jline { flex-wrap: wrap; column-gap: var(--st-space-12); row-gap: 0; white-space: normal; padding: 4px 0; border-bottom: 1px solid var(--st-hair); }
+  .st-jline:nth-child(n+7) { display: none; }
+  .st-jkind { min-width: 0; }
+  .st-jtext { flex: 1 1 100%; line-height: 1.6; overflow-wrap: anywhere; }
+  .st-ladder-head, .st-row { grid-template-columns: 22px minmax(0, 1fr) 48px 62px; gap: var(--st-space-8); padding: 0 8px; }
+  .st-ladder-head > span:last-child, .st-cost { display: none; }
+  .st-axis span:not(:first-child):not(:last-child) { display: none; }
+  .st-axis span:last-child { font-size: 0; }
+  .st-axis span:last-child::after { content: "300"; font-size: var(--st-text-11); }
+  .st-gauge-wrap { grid-template-columns: 52px 70px minmax(0, 1fr); gap: var(--st-space-8); }
+  .st-hf { font-size: var(--st-text-64); }
+  .st-flap { width: 36px; height: 52px; font-size: 38px; }
+  .st-flap--colon { width: 14px; }
+  .st-lamp-cell { padding: 5px 8px; font-size: 12px; }
+}
