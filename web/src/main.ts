@@ -2,6 +2,7 @@
 // Pages fill the content column; the shell holds no data of its own.
 import { icon, logo, type IconName } from "./icons";
 import { mountReplay } from "./board/player";
+import { mountRescue } from "./rescue/page";
 
 /** The recorded rescue the live board replays: a real auction on Sepolia, rebuilt from the chains. */
 const REPLAY_URL = "/replays/sepolia-demo-rescue-8.json";
@@ -141,6 +142,8 @@ function fill(r: Route) {
     let gone = false;
     unmount = () => { gone = true; stop(); };
     void mountReplay(content, REPLAY_URL).then((s) => (gone ? s() : (stop = s)));
+  } else if (r === "rescues") {
+    void mountRescue(content, REPLAY_URL);
   } else content.innerHTML = page(r);
 }
 
