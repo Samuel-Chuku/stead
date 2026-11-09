@@ -1218,7 +1218,7 @@ impl Stead {
             "auction_opened",
             json!({"rescue_id": rid, "position_id": id, "hf_wad": r.hf_wad.to_string(),
                    "topup_units": t_units.to_string(), "topup_base": t_base.to_string(), "cap_bps": cap_bps,
-                   "trust": "TEMPORARY reporter"}),
+                   "trust": if c == "verified" { "verified" } else { "TEMPORARY reporter" }}),
         );
         Ok(Some(rid))
     }

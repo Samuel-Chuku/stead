@@ -1265,3 +1265,24 @@ fn after_the_grace_the_expiry_works_without_a_reading() {
     assert_eq!(slashed, vec![Transfer { to: BORROWER.into(), amount: BOND }]);
     assert_eq!(f.s.rescue(rid).unwrap().state, RescueState::Failed);
 }
+
+/// The opening event names where its reading came from: a proof says "verified", a report says
+/// "TEMPORARY reporter" (it used to say the latter for both).
+#[test]
+fn auction_opened_event_names_its_reading_source() {
+    let opened = |f: &mut F| -> String {
+        std::mem::take(&mut f.s.events).into_iter().find(|e| e.contains("auction_opened")).expect("auction_opened emitted")
+    };
+    let mut f = F::new();
+    verified_market(&mut f);
+    verify(&mut f, 2_850_000_000).unwrap().expect("verified HF < trigger opens the auction");
+    let e = opened(&mut f);
+    assert!(e.contains("\"trust\":\"verified\""), "{e}");
+
+    let mut g = F::new();
+    g.block += 1;
+    let r = reading(g.link, g.dai, 2_850_000_000, g.block);
+    g.s.report_health(REPORTER, g.pid, r, g.now).unwrap().expect("reported HF < trigger opens the auction");
+    let e = opened(&mut g);
+    assert!(e.contains("\"trust\":\"TEMPORARY reporter\""), "{e}");
+}
