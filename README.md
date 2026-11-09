@@ -30,6 +30,25 @@ Sepolia); a **read-only** view applies Stead's formulas to real Aave positions o
 | A verified rescue | position [`0x98deab0b…5b34`](https://sepolia.etherscan.io/address/0x98deab0b3751f5421aa3c32ac6b8dca0010e5b34) on Sepolia ([the run](#recorded-runs)) |
 | Evidence | [`evidence/README.md`](evidence/README.md): replays on real 2026 prices, stress tests, every recorded run re-read on chain |
 
+### Which contract is which
+
+All four run the same source. The size cap and the borrower allow-list are owner settings,
+off by default (0 and empty), so the testnet contracts are unaffected by them.
+
+| Account | Chains | What it's for | Money |
+|---|---|---|---|
+| [`steadfi.testnet`](https://testnet.nearblocks.io/address/steadfi.testnet) | NEAR testnet, Ethereum Sepolia | The main deployment: market 2 (LINK/DAI), the 24-hour buy-back, verified reads; the bots run on it 24/7 | testnet tokens only |
+| [`sepolia-demo.steadfi.testnet`](https://testnet.nearblocks.io/address/sepolia-demo.steadfi.testnet) | NEAR testnet, Ethereum Sepolia | The same code with a 3-minute buy-back window, so a demo shows both endings in one sitting | testnet tokens only |
+| `stead-mainnet-dry.testnet` | NEAR testnet, a local copy of Ethereum mainnet | Rehearsals of the mainnet runs with the exact market, caps, gas profile and balances | none (local copy) |
+| `app.usestead.near` | NEAR mainnet, Ethereum mainnet | Two small real rescues on Aave V3 Ethereum (WETH collateral, USDC debt), both pooled between two stewards: one bought back, one settled | real and capped: at most $150 of collateral per position, a borrower allow-list, a fresh position per run, closed to $0 afterwards |
+
+Why a separate mainnet contract instead of a mainnet market on `steadfi.testnet`: real funds should only
+answer to mainnet keys and the mainnet MPC network (`v1.signer`). A testnet signer can be reset, and
+testnet accounts aren't meant to hold value. Like the testnet contracts, `app.usestead.near` loses its
+full-access key once every position is closed. The DeleteKey transactions are linked under
+[Recorded runs](#recorded-runs). Until the mainnet runs are recorded, `evidence/mainnet/` is empty and
+the evidence page says so.
+
 ## How to test
 
 Each step: do this, see that. Steps 1–3 need only Node 22 and this repository: no keys, no accounts.
@@ -41,6 +60,9 @@ Each step: do this, see that. Steps 1–3 need only Node 22 and this repository:
 2. **See what Stead would do for real positions today.** `npx tsx scripts/mainnet-watch.ts`. See a table of
    real Aave V3 Ethereum positions near the trigger: the top-up Stead would need, the premium cap, the
    stewards' bids and the saving against an Aave liquidation. Public reads only.
+   `npx tsx scripts/mainnet-panel.ts --once` writes the same as JSON for the front end, plus
+   the last 24 hours of real Aave liquidations beside what a Stead rescue of each position would have
+   charged (`--serve 8787` keeps it running and serves `/mainnet.json`).
 3. **Read the live contracts.** No CLI needed; any NEAR RPC works:
    `curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"steadfi.testnet","method_name":"get_rescues","args_base64":"eyJmcm9tIjowLCJsaW1pdCI6NTB9"}}'`.
    See every rescue so far (the result bytes are JSON): state, bids, winners, claims, settlement legs.
@@ -58,7 +80,7 @@ switched off). Anything that needs an RPC, OutLayer or keys is opt-in and skips 
 |---|---|
 | `cd contract && cargo test -p stead-core` | **114 passed**, 0 failed: rules 65, settlement and liquidation watch 24, owner limits 10, stewards 10, invariant sweeps 3, OutLayer output parsing 1, migration dry-run 1 (prints `skipped` unless `STEAD_STATE_FILE` points at a downloaded contract state) |
 | `cd verifier && cargo test` | **13 passed, 1 ignored**: the proof program against recorded Sepolia RPC answers (`tests/fixtures/`); `record` is the live recorder, opt-in: `cargo test -- --ignored record` |
-| `cd stewards && npm ci && npm test` | **96 passed** in 14 files: strategies, hedging, polling, settlement repay, NEAR Intents quotes, AI tuning, the replay model, the run evidence trail and its on-chain checker |
+| `cd stewards && npm ci && npm test` | **103 passed** in 15 files: strategies, hedging, polling, settlement repay, NEAR Intents quotes, AI tuning, the replay model, the run evidence trail and its on-chain checker, the read-only mainnet feed |
 | `cd contract && cargo near build non-reproducible-wasm --no-abi` | `target/near/stead.wasm`; SHA-256 `9035456a230787ac45cfaed411d552397cdad864d753bf2a5ba00e9970b17585`, the code deployed on `steadfi.testnet` and `sepolia-demo.steadfi.testnet` (compare with `view_code`) |
 
 Run from the workspace root, `cargo test` would also try to build the NEAR contract crate for the host,

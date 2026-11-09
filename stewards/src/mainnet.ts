@@ -5,7 +5,7 @@
 // multicall, keeps those near Stead's trigger, and applies the contract's own formulas: the top-up
 // to the target HF and the premium cap (liquidation bonus × 50 % close × debt). The stewards' bids
 // come from their real strategies on that hypothetical auction.
-import { createPublicClient, http, parseAbi, parseAbiItem, type Address } from "viem";
+import { createPublicClient, http, parseAbi, parseAbiItem, type Address, type PublicClient } from "viem";
 import { mainnet } from "viem/chains";
 import { strategies, type AuctionView } from "./strategy.js";
 
@@ -53,7 +53,7 @@ export interface MainnetPosition {
   };
 }
 
-export const client = createPublicClient({ chain: mainnet, transport: http(MAINNET_RPC) });
+export const client = createPublicClient({ chain: mainnet, transport: http(MAINNET_RPC) }) as PublicClient;
 
 /** Borrowers seen in the last `blocks` blocks (chunks of 9,000: public RPCs cap log ranges). */
 export async function recentBorrowers(blocks = 9_000): Promise<Address[]> {
@@ -107,13 +107,14 @@ export function steadView(hf: number, collateralUsd: number, debtUsd: number, lt
 }
 
 /** Real positions with debt ≥ `minDebtUsd` and HF in [1, maxHf), most at risk first. */
-export async function scan(opts: { blocks?: number; maxHf?: number; minDebtUsd?: number; includeEmode?: boolean } = {}): Promise<MainnetPosition[]> {
-  const { blocks = 9_000, maxHf = 1.3, minDebtUsd = 1_000, includeEmode = false } = opts;
-  const users = await recentBorrowers(blocks);
+/** `users` replaces the recent-borrower search (the panel feed keeps its own growing list); `rpc` replaces the default client. */
+export async function scan(opts: { blocks?: number; maxHf?: number; minDebtUsd?: number; includeEmode?: boolean; users?: Address[]; rpc?: PublicClient; reserves?: ReserveInfo[] } = {}): Promise<MainnetPosition[]> {
+  const { blocks = 9_000, maxHf = 1.3, minDebtUsd = 1_000, includeEmode = false, rpc = client } = opts;
+  const users = opts.users ?? (await recentBorrowers(blocks));
   const out: MainnetPosition[] = [];
   for (let i = 0; i < users.length; i += 200) {
     const batch = users.slice(i, i + 200);
-    const res = await client.multicall({
+    const res = await rpc.multicall({
       multicallAddress: MULTICALL3,
       contracts: batch.flatMap((u) => [
         { address: AAVE_POOL, abi: poolAbi, functionName: "getUserAccountData", args: [u] } as const,
@@ -136,14 +137,15 @@ export async function scan(opts: { blocks?: number; maxHf?: number; minDebtUsd?:
       out.push({ address: batch[j], emode, hf, collateralUsd, debtUsd, ltBps, bonusBps: FALLBACK_BONUS_BPS, collateral: [], atTrigger: steadView(hf, collateralUsd, debtUsd, ltBps) });
     });
   }
-  await addBonuses(out);
+  await addBonuses(out, rpc, opts.reserves);
   return out.sort((a, b) => a.hf - b.hf);
 }
 
-interface ReserveInfo { asset: Address; bit: number; aToken: Address; decimals: number; bonusBps: number; price: bigint }
+export interface ReserveInfo { asset: Address; bit: number; aToken: Address; decimals: number; bonusBps: number; price: bigint }
 
 /** Every reserve's bonus, decimals, aToken and oracle price (all found from the Pool itself). */
-async function reserveInfo(): Promise<ReserveInfo[]> {
+export async function reserveInfo(rpc: PublicClient = client): Promise<ReserveInfo[]> {
+  const client = rpc;
   const assets = await client.readContract({ address: AAVE_POOL, abi: poolAbi, functionName: "getReservesList" });
   const provider = await client.readContract({ address: AAVE_POOL, abi: poolAbi, functionName: "ADDRESSES_PROVIDER" });
   const oracle = await client.readContract({ address: provider, abi: providerAbi, functionName: "getPriceOracle" });
@@ -170,9 +172,9 @@ async function reserveInfo(): Promise<ReserveInfo[]> {
 }
 
 /** Each position's liquidation bonus, weighted by the value of the reserves it uses as collateral. */
-async function addBonuses(rows: MainnetPosition[]): Promise<void> {
+async function addBonuses(rows: MainnetPosition[], client: PublicClient, known?: ReserveInfo[]): Promise<void> {
   if (!rows.length) return;
-  const reserves = await reserveInfo();
+  const reserves = known ?? (await reserveInfo(client));
   const confs = await client.multicall({
     multicallAddress: MULTICALL3,
     allowFailure: true,
