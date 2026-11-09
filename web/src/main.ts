@@ -3,6 +3,7 @@
 import { icon, logo, type IconName } from "./icons";
 import { mountReplay } from "./board/player";
 import { mountRescue } from "./rescue/page";
+import { mountHome } from "./home/page";
 
 /** The recorded rescue the live board replays: a real auction on Sepolia, rebuilt from the chains. */
 const REPLAY_URL = "/replays/sepolia-demo-rescue-8.json";
@@ -46,6 +47,8 @@ function setTheme(t: Theme) {
 
 // ───────────────────────────── markup ─────────────────────────────
 
+/** The homepage is the empty route; every app route has a name. */
+const isHome = () => !NAV.some((n) => n.id === location.hash.replace(/^#\/?/, ""));
 const route = (): Route => {
   const r = location.hash.replace(/^#\/?/, "") as Route;
   return NAV.some((n) => n.id === r) ? r : "live";
@@ -65,7 +68,7 @@ function sidebarBody(active: Route, inDrawer: boolean): string {
   const t = currentTheme();
   return `
     <div class="st-brand-row">
-      <a class="st-brand" href="#/live" aria-label="Stead, live auctions">${logo(26)}</a>
+      <a class="st-brand" href="#/" aria-label="Stead, home">${logo(26)}</a>
       ${inDrawer ? `<button type="button" class="st-icon-btn st-icon-btn--drawer" data-close aria-label="Close menu">${icon("close", 18)}</button>` : ""}
     </div>
     <div class="st-micro">MENU</div>
@@ -101,7 +104,7 @@ function shell(r: Route): string {
     <a class="st-skip" href="#content">Skip to content</a>
     <header class="st-appbar">
       <button type="button" class="st-icon-btn st-icon-btn--drawer" data-open aria-label="Open menu" aria-expanded="false" aria-controls="drawer">${icon("menu", 20)}</button>
-      <a class="st-appbar-mark" href="#/live" aria-label="Stead, live auctions">${logo(22)}</a>
+      <a class="st-appbar-mark" href="#/" aria-label="Stead, home">${logo(22)}</a>
       <span class="st-appbar-right" data-live-chip></span>
     </header>
     <div class="st-shell">
@@ -119,8 +122,9 @@ function shell(r: Route): string {
 const app = document.getElementById("app")!;
 
 function setDrawer(open: boolean) {
-  const drawer = document.getElementById("drawer")!;
-  const opener = document.querySelector<HTMLButtonElement>("[data-open]")!;
+  const drawer = document.getElementById("drawer");
+  const opener = document.querySelector<HTMLButtonElement>("[data-open]");
+  if (!drawer || !opener) return; // the homepage has no drawer
   document.body.classList.toggle("st-drawer-open", open);
   opener.setAttribute("aria-expanded", String(open));
   if (open) {
@@ -147,7 +151,18 @@ function fill(r: Route) {
   } else content.innerHTML = page(r);
 }
 
+let layout: "home" | "app" | null = null;
 function render() {
+  unmount();
+  unmount = () => {};
+  if (isHome()) {
+    layout = "home";
+    document.title = "Stead · liquidation rescue market";
+    unmount = mountHome(app, REPLAY_URL);
+    window.scrollTo(0, 0);
+    return;
+  }
+  layout = "app";
   const r = route();
   app.innerHTML = shell(r);
   fill(r);
@@ -155,6 +170,8 @@ function render() {
 }
 
 function onRoute() {
+  if ((isHome() ? "home" : "app") !== layout) return render();
+  if (layout === "home") return;
   const r = route();
   for (const a of document.querySelectorAll<HTMLAnchorElement>(".st-nav-item")) {
     if (a.dataset.route === r) a.setAttribute("aria-current", "page");

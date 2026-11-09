@@ -10,7 +10,6 @@ const LAMPS: { id: LampId; cls: string }[] = [
   { id: "CLAIM OPEN", cls: "exposure" },
   { id: "TRIP", cls: "trip" },
 ];
-const ROW_PITCH = 60;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const usd = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const pct = (hf: number) => Math.max(0, Math.min(100, ((hf - 0.9) / 0.8) * 100));
@@ -39,7 +38,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
     <div class="st-board-grid">
       <section class="st-panel st-board-panel st-pos" aria-label="Position">
         <div class="st-panel-head">
-          <div class="st-label">POSITION ${log.positionId}</div>
+          <div class="st-label">POSITION ${log.positionId} · ${m.collateral}/${m.debt}</div>
           <div class="st-idline">${esc(log.borrower)}</div>
         </div>
         <div class="st-gauge-wrap">
@@ -88,7 +87,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
           <span>#</span><span>STEWARD</span><span class="st-axis"><span>0</span><span>100</span><span>200</span><span>300 bps</span></span><span>PREMIUM</span><span>COST</span>
         </div>
         <div class="st-ladder" role="list" aria-label="Bids, lowest premium first">
-          ${STEWARD_ORDER.map((s) => `<div class="st-placeholder" style="top:${STEWARD_ORDER.indexOf(s) * ROW_PITCH}px">watching</div>`).join("")}
+          ${STEWARD_ORDER.map((s) => `<div class="st-placeholder" style="--rank:${STEWARD_ORDER.indexOf(s)}">watching</div>`).join("")}
           ${STEWARD_ORDER.map(
             (s) => `<div class="st-row" role="listitem" data-row="${s}" style="--sc: var(--st-steward-${s}); --flash-c: var(--st-steward-${s})">
               <span class="st-rank" data-rank></span>
@@ -199,7 +198,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
       root.querySelector(".st-ladder")!.classList.toggle("has-bids", anyBid);
       for (const r of b.rows) {
         const el = q(`[data-row="${r.steward}"]`);
-        el.style.top = `${(r.rank ?? 4) * ROW_PITCH}px`;
+        el.style.setProperty("--rank", String(r.rank ?? 4)); // top = rank × the CSS row pitch
         el.classList.toggle("is-in", r.bps !== null);
         el.classList.toggle("is-first", r.rank === 0);
         el.classList.toggle("is-won", r.badge === "WON");

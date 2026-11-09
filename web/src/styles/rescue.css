@@ -47,7 +47,9 @@
 .st-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .st-leg-with { display: inline-block; width: 18px; height: 0; border-top: 3px solid var(--st-ink); }
 .st-leg-without { display: inline-block; width: 18px; height: 0; border-top: 3px dashed var(--st-trip); }
-.st-chart-box { position: relative; }
+.st-chart-box { position: relative; overflow-x: auto; }
+/* below ~640px the drawing keeps a readable size and scrolls sideways */
+.st-chart { min-width: 600px; }
 .st-chart { width: 100%; height: auto; display: block; overflow: visible; }
 .st-grid { stroke: var(--st-hair); stroke-width: 1.5; }
 .st-grid--dash { stroke-dasharray: 5 4; stroke: var(--st-quiet); stroke-width: 1; }
@@ -158,10 +160,56 @@
   .st-chart-summary { border-left: 0; padding-left: 0; border-top: 1.5px solid var(--st-hair); padding-top: 16px; }
 }
 @media (max-width: 620px) {
+  /* compact phone layout */
+  .st-rescue { gap: 10px; }
+  .st-sect, .st-chart-panel { padding: 14px; gap: 12px; }
+  .st-rescue-sub { font-size: 13px; }
+  .st-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .st-kpis > div { padding: 10px 12px; }
+  .st-kpis > div:first-child { grid-column: 1 / -1; }
+  .st-kpis dd .st-num { font-size: 26px; }
+  .st-kpis .st-kpi-sub { font-size: 11px; }
+  .st-timeline { grid-template-columns: minmax(0, 1fr); row-gap: 10px; padding-left: 26px; position: relative; }
+  .st-timeline::before { content: ""; position: absolute; left: 7px; top: 8px; bottom: 8px; border-left: 2px solid var(--st-ink); }
+  .st-step { padding: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: baseline; }
+  .st-step::before { display: none; }
+  .st-step-dot { left: -26px; top: 3px; width: 14px; height: 14px; }
+  .st-step-title { font-size: 15px; }
+  .st-step-time { font-size: 10px; text-align: right; }
+  .st-step-body { grid-column: 1 / -1; font-size: 12px; }
+  .st-chart-title { font-size: 18px; }
+  .st-saved .st-num { font-size: 48px; }
+  .st-result { padding: 8px; gap: 8px; }
+  .st-tag--xl { padding: 14px 16px; }
+  .st-tag-big { font-size: 30px; }
+  .st-tag-rows div { grid-template-columns: 64px minmax(0, 1fr); }
+  .st-buyback .st-push { width: 100%; font-size: 14px; padding: 0 12px; }
+  .st-filters { gap: 8px; }
+  .st-filter-group { gap: 4px; }
+  .st-filter { min-height: 32px; padding: 4px 8px; font-size: 10px; }
+  .st-filter-group--chains { margin-left: 0; justify-content: flex-start; }
+  /* proofs: one compact card per record instead of a five-column table */
+  .st-table-wrap:has(> .st-proofs:not(.st-values-table)) { overflow: visible; }
+  .st-proofs:not(.st-values-table) { min-width: 0; display: block; }
+  .st-proofs:not(.st-values-table) thead { display: none; }
+  .st-proofs:not(.st-values-table) tbody { display: flex; flex-direction: column; }
+  .st-proofs:not(.st-values-table) tr[data-kind]:not([hidden]) {
+    display: grid; grid-template-columns: 1fr auto; grid-template-areas: "time trust" "step step" "ev where";
+    gap: 4px 10px; padding: 10px 0; border-bottom: var(--st-hairline); align-items: center;
+  }
+  .st-proofs:not(.st-values-table) td { padding: 0; border: 0; }
+  .st-proofs:not(.st-values-table) td:nth-child(1) { grid-area: time; color: var(--st-quiet); font-size: 11px; }
+  .st-proofs:not(.st-values-table) td:nth-child(2) { grid-area: step; font-size: 14px; }
+  .st-proofs:not(.st-values-table) td:nth-child(3) { grid-area: ev; font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+  .st-proofs:not(.st-values-table) td:nth-child(4) { grid-area: where; justify-self: end; }
+  .st-proofs:not(.st-values-table) td:nth-child(5) { grid-area: trust; justify-self: end; }
+  .st-proofs:not(.st-values-table) .st-evidence { padding: 3px 6px; font-size: 10px; }
+  .st-proofs:not(.st-values-table) .st-textlink { font-size: 13px; }
+  .st-pager { justify-content: space-between; }
   .st-rescue-title { font-size: 34px; }
   .st-rescue-title .st-num { font-size: 46px; }
   .st-chart-title { font-size: 20px; }
   .st-result { grid-template-columns: 22px 28px minmax(0, 1fr) 70px; }
   .st-result-hist { display: none; }
-  .st-timeline { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 14px; }
 }
+.st-unit--mid { margin: 0 6px; }

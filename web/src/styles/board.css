@@ -118,16 +118,16 @@
 .st-ladder-head, .st-row { display: grid; grid-template-columns: 34px 170px minmax(0, 1fr) 76px 72px; gap: var(--st-space-10); align-items: center; padding: 0 10px; }
 .st-ladder-head { font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); }
 .st-axis { display: flex; justify-content: space-between; }
-.st-ladder { position: relative; height: 300px; }
+.st-ladder { --pitch: 60px; --row-h: 52px; position: relative; height: calc(var(--pitch) * 5); }
 .st-placeholder {
-  position: absolute; left: 0; right: 0; height: 52px; border: 1.5px dashed var(--st-hair);
+  position: absolute; left: 0; right: 0; top: calc(var(--rank) * var(--pitch)); height: var(--row-h); border: 1.5px dashed var(--st-hair);
   display: flex; align-items: center; padding: 0 14px;
   font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); text-transform: uppercase;
   transition: opacity 400ms;
 }
-.st-ladder.has-bids .st-placeholder { opacity: 0; }
+/* placeholders stay under empty slots; each row (opaque) covers its own as it arrives */
 .st-row {
-  position: absolute; left: 0; right: 0; height: 52px; border: 1.5px solid var(--st-hair); background: var(--st-panel);
+  position: absolute; left: 0; right: 0; top: calc(var(--rank, 4) * var(--pitch)); height: var(--row-h); border: 1.5px solid var(--st-hair); background: var(--st-panel);
   opacity: 0; transition: top var(--st-dur-glide) var(--st-ease-glide), opacity 400ms, background-color 400ms;
 }
 .st-row.is-in { opacity: 1; }
@@ -218,6 +218,42 @@
   .st-annunciator-right { width: 100%; }
 }
 @media (max-width: 620px) {
+  /* compact phone layout */
+  .st-board, .st-board-grid { gap: 10px; }
+  .st-board-panel { padding: 14px; }
+  .st-annunciator { padding: 8px; gap: 8px; flex-direction: column; align-items: stretch; }
+  .st-lamps { flex-wrap: nowrap; overflow-x: auto; gap: 5px; scrollbar-width: none; }
+  .st-lamp-cell { padding: 4px 7px; font-size: 11px; gap: 5px; white-space: nowrap; flex: none; }
+  .st-lamp-cell .st-dot { width: 7px; height: 7px; }
+  .st-chip-market { display: none; }
+  .st-annunciator-right { justify-content: space-between; }
+  .st-annunciator .st-push--small { min-height: 36px; padding: 0 12px; font-size: 13px; }
+  .st-seg--mode button { min-height: 36px; padding: 4px 8px; }
+  .st-pos { gap: 12px; }
+  .st-gauge, .st-gauge-labels { height: 180px; }
+  .st-gauge-wrap { grid-template-columns: 44px 64px minmax(0, 1fr); gap: 6px; }
+  .st-gauge-labels span { font-size: 9px; }
+  .st-hf { font-size: 56px; }
+  .st-consequence { font-size: 14px; }
+  .st-pos-facts > div { padding: 8px 10px; }
+  .st-pos-facts dd { font-size: 13px; }
+  .st-auction { gap: 10px; }
+  .st-panel-title { font-size: 18px; }
+  .st-auction-head { gap: 8px; }
+  .st-flap { width: 30px; height: 42px; font-size: 30px; }
+  .st-flap--colon { width: 12px; }
+  .st-ladder { --pitch: 48px; --row-h: 42px; }
+  .st-row-name { font-size: 14px; }
+  .st-premium { font-size: 18px; }
+  .st-rack-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .st-card { padding: 8px; gap: 8px; }
+  .st-card .st-tile--32 { width: 26px; height: 26px; font-size: 10px; }
+  .st-card-rule { display: none; }
+  .st-card-name { font-size: 14px; }
+  .st-card-top { flex-wrap: wrap; gap: 4px; }
+  .st-risk .st-pip { width: 6px; height: 6px; }
+  .st-rack-note { font-size: 12px; }
+  .st-journal { padding: 10px 12px; }
   .st-journal-lines { max-height: none; }
   .st-jline { flex-wrap: wrap; column-gap: var(--st-space-12); row-gap: 0; white-space: normal; padding: 4px 0; border-bottom: 1px solid var(--st-hair); }
   .st-jline:nth-child(n+7) { display: none; }

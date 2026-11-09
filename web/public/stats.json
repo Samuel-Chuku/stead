@@ -1,0 +1,17 @@
+{
+ "generatedAt": "2026-11-09T23:12:49.894Z",
+ "contracts": [
+  "steadfi.testnet",
+  "sepolia-demo.steadfi.testnet"
+ ],
+ "chains": [
+  11155111
+ ],
+ "rescues": 12,
+ "boughtBack": 6,
+ "settled": 6,
+ "worseOff": 0,
+ "medianPremiumBps": 150,
+ "medianTriggerToClaimS": 152.63150000000002,
+ "forkRescues": 17
+}

@@ -66,7 +66,7 @@ export function render(log: RescueLog, path: CostPath | null): string {
       <div><dt>WINNING PREMIUM</dt><dd>${num(String(win?.bps ?? "—"), "bps")}</dd><dd class="st-kpi-sub">${win ? `${win.steward}, ${usd(premiumUsd)}` : ""}</dd></div>
       <div><dt>PREMIUM CAP</dt><dd>${num(open.capBps.toLocaleString("en-US"), "bps")}</dd><dd class="st-kpi-sub">below Aave's liquidation penalty</dd></div>
       <div><dt>BACK ABOVE TRIGGER</dt><dd>${num(after ? fmtDur(after.t) : "—")}</dd><dd class="st-kpi-sub">trigger to proven top-up</dd></div>
-      <div><dt>HEALTH FACTOR</dt><dd>${num(trigger.hf.toFixed(2))}<span class="st-unit">to</span>${num(after ? after.hf.toFixed(2) : "—")}</dd><dd class="st-kpi-sub">proven readings</dd></div>
+      <div><dt>HEALTH FACTOR</dt><dd>${num(trigger.hf.toFixed(2))}<span class="st-unit st-unit--mid">to</span>${num(after ? after.hf.toFixed(2) : "—")}</dd><dd class="st-kpi-sub">proven readings</dd></div>
     </dl>`;
 
   // ---------- timeline ----------
@@ -339,7 +339,7 @@ function chart(log: RescueLog, p: CostPath, premiumUsd: number, claim: Ev<"CLAIM
   </section>`;
 }
 
-function wireChart(root: HTMLElement, p: CostPath) {
+export function wireChart(root: HTMLElement, p: CostPath) {
   const svg = root.querySelector<SVGSVGElement>(".st-chart");
   const tip = root.querySelector<HTMLElement>(".st-tip");
   const cross = root.querySelector<SVGLineElement>(".st-cross");
@@ -407,4 +407,12 @@ function wireProofs(root: HTMLElement) {
     draw();
   });
   draw();
+}
+
+/** The cost chart section for a rescue (the homepage shows the latest real one). */
+export function costChartSection(log: RescueLog, p: CostPath): string {
+  const claim = all(log, "CLAIM_MINTED")[0];
+  const open = all(log, "AUCTION_OPEN")[0];
+  const premiumUsd = claim ? Number(claim.premium) * (log.atOpen?.priceUsd ?? 0) : 0;
+  return chart(log, p, premiumUsd, claim, open.capBps);
 }
