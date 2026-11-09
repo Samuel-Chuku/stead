@@ -1,0 +1,11 @@
+{
+  "name": "stead-web",
+  "private": true,
+  "type": "module",
+  "description": "Stead front end. No runtime dependencies; Vite comes from the stewards package (cd ../stewards && npm ci).",
+  "scripts": {
+    "dev": "../stewards/node_modules/.bin/vite --port 5173 --strictPort",
+    "build": "../stewards/node_modules/.bin/vite build",
+    "preview": "../stewards/node_modules/.bin/vite preview --port 4173 --strictPort"
+  }
+}

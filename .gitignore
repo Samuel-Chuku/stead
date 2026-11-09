@@ -2,3 +2,6 @@
 .env
 .env.*
 !.env.example
+
+# Front-end build output
+web/dist/

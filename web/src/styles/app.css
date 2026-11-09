@@ -1,0 +1,156 @@
+/* Stead app styles. Every colour, font, border and duration comes from tokens.css;
+   px values are the geometry in the design system's components.md.
+   Corners are square everywhere (circles only on lamps and dots). */
+
+*, *::before, *::after { box-sizing: border-box; }
+a { color: inherit; }
+button { font: inherit; color: inherit; }
+h1, h2, h3, p { margin: 0; }
+/* Sentences: proportional figures. Tabular figures (set on body for data) also make
+   punctuation fixed-width, which opens gaps before commas. */
+p, .st-prose { font-variant-numeric: normal; }
+
+.st-skip {
+  position: absolute; left: -9999px; top: 8px; z-index: 30;
+  background: var(--st-panel); border: var(--st-border); padding: 10px 14px;
+  font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); text-transform: uppercase;
+}
+.st-skip:focus { left: 8px; }
+
+/* ---------- §31 The cut: one 45° corner, top-right ----------
+   Only on buttons, nav items (shows on the active one) and claim tags.
+   clip-path also cuts the border, so the diagonal stroke is a background band. */
+.st-cut {
+  --c: var(--st-cut-s); --b: 1.5px; --edge: var(--st-line); --fill: var(--st-panel);
+  border: var(--b) solid var(--edge);
+  background: linear-gradient(225deg, transparent calc(var(--c) * .7071), var(--edge) calc(var(--c) * .7071) calc(var(--c) * .7071 + var(--b) + .1px), var(--fill) 0);
+  background-origin: border-box;
+  clip-path: polygon(0 0, calc(100% - var(--c)) 0, 100% var(--c), 100% 100%, 0 100%);
+}
+/* outline is clipped on a cut element: thicken the edge instead */
+.st-cut:focus-visible { outline: none; --edge: var(--st-ink); --b: 2.5px; }
+.st-cut--l { --c: var(--st-cut-l); }
+.st-cut--xl { --c: var(--st-cut-xl); }
+
+/* ---------- §1 App shell ---------- */
+.st-shell { display: flex; flex-wrap: wrap; gap: var(--st-space-16); padding: var(--st-space-16); align-items: flex-start; min-height: 100vh; }
+.st-content { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: var(--st-space-16); }
+.st-content:focus { outline: none; }
+
+/* ---------- Panels and labels ---------- */
+.st-panel { background: var(--st-panel); border: var(--st-border); }
+.st-page { padding: var(--st-space-24); display: flex; flex-direction: column; gap: var(--st-space-16); }
+.st-panel-head { display: flex; flex-direction: column; gap: var(--st-space-2); }
+.st-label, .st-micro {
+  font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11);
+  letter-spacing: var(--st-tracking-label); text-transform: uppercase; color: var(--st-quiet);
+}
+.st-micro { padding: 0 var(--st-space-4); }
+.st-page-title { font-family: var(--st-font-head); font-weight: 700; font-size: var(--st-text-30); letter-spacing: var(--st-tracking-head); line-height: 1.1; }
+.st-empty { font-size: var(--st-text-15); color: var(--st-quiet); max-width: 62ch; line-height: 1.5; }
+
+/* ---------- §2 Sidebar ---------- */
+.st-sidebar {
+  flex: 0 0 248px; padding: var(--st-space-12); display: flex; flex-direction: column; gap: 14px;
+  position: sticky; top: var(--st-space-16); min-height: calc(100vh - 32px); max-height: calc(100vh - 32px); overflow-y: auto;
+}
+.st-brand-row { display: flex; align-items: center; gap: var(--st-space-8); }
+.st-brand {
+  flex: 1; display: flex; align-items: center; gap: var(--st-space-10); text-decoration: none;
+  background: var(--st-brand); border: var(--st-border); padding: 10px 12px; color: var(--st-ink);
+}
+.st-brand svg, .st-appbar-mark svg { flex: none; display: block; }
+.st-nav { display: flex; flex-direction: column; gap: var(--st-space-6); }
+/* Every item carries the cut so nothing moves when the active state does;
+   idle items have a transparent edge and fill, so the cut only shows on the active one. */
+.st-nav-item {
+  --edge: transparent; --fill: transparent;
+  display: flex; align-items: center; gap: var(--st-space-10); min-height: 44px; padding: 6px 10px 6px 12px;
+  text-decoration: none; color: var(--st-ink);
+  font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-15);
+}
+.st-nav-item svg { flex: none; }
+.st-nav-item:hover:not([aria-current]) { --fill: var(--st-inset); }
+.st-nav-item[aria-current="page"] { --edge: var(--st-line); --fill: var(--st-brand); }
+.st-nav-item.st-cut:focus-visible { --edge: var(--st-ink); }
+.st-nav-label { flex: 1; }
+/* counts are numbers: Big Shoulders */
+.st-nav-count { font-family: var(--st-font-display); font-weight: 700; font-size: 18px; line-height: 1; color: var(--st-quiet); }
+
+.st-sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--st-space-8); }
+.st-status {
+  margin: 0; border: var(--st-border); padding: var(--st-space-10); background: var(--st-inset);
+  font-family: var(--st-font-head); font-size: var(--st-text-11); line-height: 1.7;
+}
+.st-status div { display: flex; justify-content: space-between; gap: var(--st-space-8); }
+.st-status dt { color: var(--st-quiet); font-weight: 600; letter-spacing: var(--st-tracking-label); }
+.st-status dd { margin: 0; text-align: right; font-weight: 500; }
+
+/* ---------- §18 / §19 Segmented switch (mode, theme) ---------- */
+.st-seg { display: flex; border: var(--st-border); overflow: hidden; }
+.st-seg button {
+  flex: 1; min-height: 36px; padding: 6px 10px; border: 0; cursor: pointer;
+  font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label);
+  background: var(--st-panel); color: var(--st-quiet);
+}
+.st-seg button + button { border-left: var(--st-border); }
+.st-seg button[aria-pressed="true"] { background: var(--st-ink); color: var(--st-panel); }
+.st-seg button:focus-visible { outline-offset: -4px; }
+
+/* ---------- §16 Pushbutton (with .st-cut) ---------- */
+.st-push {
+  --fill: var(--st-ink);
+  display: flex; align-items: center; justify-content: center; gap: var(--st-space-10);
+  min-height: 52px; padding: 0 22px; cursor: pointer; color: var(--st-panel);
+  font-family: var(--st-font-head); font-weight: 700; font-size: 17px; letter-spacing: .04em; text-transform: uppercase;
+  transition: transform 80ms;
+}
+.st-push:active { transform: translateY(1px); }
+/* the edge is ink on an ink fill, so focus draws an inner ring in the panel colour */
+.st-push.st-cut:focus-visible { outline: 2px solid var(--st-panel); outline-offset: -5px; }
+.st-push--small { min-height: 44px; font-size: 15px; gap: var(--st-space-8); }
+.st-lamp { width: 10px; height: 10px; border-radius: 50%; background: var(--st-level-safe); flex: none; }
+.st-push--small .st-lamp { width: 8px; height: 8px; }
+
+/* ---------- §16 Icon button ---------- */
+.st-icon-btn {
+  width: 44px; height: 44px; flex: none; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  border: var(--st-border); background: var(--st-panel); color: var(--st-ink);
+}
+.st-icon-btn--drawer { width: 48px; height: 48px; }
+.st-drawer .st-icon-btn--drawer { background: var(--st-inset); }
+
+/* ---------- §3 Mobile app bar + drawer (< 900px) ---------- */
+.st-appbar { display: none; }
+.st-scrim, .st-drawer { display: none; }
+
+@media (max-width: 899.98px) {
+  .st-shell { padding: 0 var(--st-space-12) var(--st-space-12); gap: var(--st-space-12); }
+  .st-shell > .st-sidebar { display: none; }
+  .st-content { flex-basis: 100%; gap: var(--st-space-12); }
+  .st-page { padding: var(--st-space-16); }
+
+  .st-appbar {
+    display: grid; grid-template-columns: 48px 1fr 48px; align-items: center; gap: var(--st-space-8); padding: var(--st-space-12);
+  }
+  .st-appbar-mark { justify-self: center; display: flex; align-items: center; gap: var(--st-space-8); text-decoration: none; color: var(--st-ink); }
+  .st-appbar-right { justify-self: end; }
+
+  .st-scrim {
+    display: block; position: fixed; inset: 0; z-index: 20; width: 100%; height: 100%; border: 0; padding: 0; margin: 0;
+    background: rgba(0, 0, 0, .45); opacity: 0; pointer-events: none; transition: opacity 250ms;
+  }
+  .st-drawer {
+    display: block; position: fixed; top: 0; bottom: 0; left: 0; z-index: 21; width: 310px; max-width: calc(100vw - 24px); padding: var(--st-space-12);
+    transform: translateX(-320px); transition: transform 300ms var(--st-ease-glide);
+  }
+  .st-drawer-inner { height: 100%; padding: var(--st-space-12); display: flex; flex-direction: column; gap: var(--st-space-12); overflow-y: auto; }
+  .st-drawer .st-brand { gap: var(--st-space-8); padding: 8px 10px; }
+  .st-drawer .st-nav-item { min-height: 48px; font-size: var(--st-text-16); }
+  .st-drawer .st-seg button { min-height: 48px; }
+  .st-drawer .st-push--small { min-height: 48px; font-size: 16px; }
+
+  .st-drawer-open .st-scrim { opacity: 1; pointer-events: auto; }
+  .st-drawer-open .st-drawer { transform: translateX(0); }
+  .st-drawer-open { overflow: hidden; }
+}

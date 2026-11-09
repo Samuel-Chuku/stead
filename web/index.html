@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stead · liquidation rescue market</title>
+<meta name="description" content="Stewards bid to top up Aave positions near liquidation, for a premium capped below the liquidation penalty. A NEAR contract holds the positions through chain signatures.">
+<link rel="icon" href="/brand/logo/favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="Stead">
+<meta property="og:description" content="Stewards bid to top up Aave positions near liquidation, for a premium capped below the liquidation penalty.">
+<meta property="og:image" content="/brand/logo/app-icon.svg">
+<script>
+  // Theme before first paint: the saved choice, else the system preference.
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("stead-theme"); } catch (e) {}
+    if (t !== "light" && t !== "dark") t = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:wght@500;600;700;800&family=Chakra+Petch:wght@400;500;600;700&family=Martian+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/src/styles/tokens.css">
+<link rel="stylesheet" href="/src/styles/app.css">
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

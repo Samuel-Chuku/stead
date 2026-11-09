@@ -1,0 +1,199 @@
+/* ==========================================================================
+   STEAD · tokens.css
+   Copy this file into the project unchanged. It is the only place colours,
+   type, spacing, radii, borders, shadows, textures and motion are defined.
+
+   RULES
+   - Never hardcode a value that exists here. Use the variable.
+   - Never add a token in a component file. If something is missing, add it
+     HERE, with a comment saying what it means in the product.
+   - Every variable is prefixed --st- so nothing collides with a library.
+   - Light is the default. Dark is a second, separately designed palette on
+     [data-theme="dark"]; it is not an inversion. Both are first-class.
+   ========================================================================== */
+
+/* Fonts: Google Fonts, one request. Load in the document <head>:
+   <link rel="preconnect" href="https://fonts.googleapis.com">
+   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+   <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:wght@500;600;700;800&family=Chakra+Petch:wght@400;500;600;700&family=Martian+Mono:wght@400;500&display=swap" rel="stylesheet">
+   If the request fails, the fallbacks below keep the layout working:
+   numbers fall back to Arial Narrow, text to system-ui, mono to the system mono.
+   Chakra Petch (OFL, Cadson Demak) has 45° cut corners in its letters: the same
+   cut the interface uses on buttons, the active nav item and claim tags. */
+
+:root {
+  /* ---------- Type ---------- */
+  --st-font-display: 'Big Shoulders', 'Arial Narrow', sans-serif;          /* NUMBERS ONLY ≥ 20px: $, bps, HF, countdowns, ranks */
+  --st-font-head: 'Chakra Petch', system-ui, sans-serif;   /* every word: wordmark, headings, labels, nav, buttons, steward names (600–700) */
+  --st-font-body: 'Chakra Petch', system-ui, sans-serif;   /* sentences (400–500), line-height 1.5 */
+  --st-font-mono: 'Martian Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace; /* ONLY hashes, IDs, block numbers, journal lines; 11px */
+
+  /* type scale (px). Display sizes ≥ 46 are numbers in --st-font-display; headings use --st-font-head. */
+  --st-text-10: 10px;   /* micro labels (mono, uppercase, .14em) */
+  --st-text-11: 11px;   /* section labels, meta (mono) */
+  --st-text-13: 13px;   /* secondary body, table data (mono) */
+  --st-text-15: 15px;   /* body (app) */
+  --st-text-16: 16px;   /* body (site) */
+  --st-text-19: 19px;   /* hero sub, lead */
+  --st-text-20: 20px;   /* steward names, ranks */
+  --st-text-22: 22px;   /* panel titles (head 700) */
+  --st-text-30: 30px;   /* steward names on cards (head 800) */
+  --st-text-44: 44px;   /* H2 (head 800, -.02em) */
+  --st-text-46: 46px;   /* flip-clock digits */
+  --st-text-64: 64px;   /* key numbers */
+  --st-text-72: 72px;   /* health factor, live board */
+  --st-text-60: 60px;   /* page title, e.g. Rescue #31 (head 800, -.02em) */
+  --st-text-68: 68px;   /* hero H1 (head 800, -.02em) */
+  --st-tracking-button: .02em; /* head 700 buttons, sentence case */
+  --st-tracking-head: -.01em;  /* head ≥ 28px */
+  --st-tracking-label: .09em;  /* uppercase labels: Chakra Petch 600 11px */
+
+  /* ---------- Grid & spacing: every dimension is a multiple of 2, rhythm of 4 ---------- */
+  --st-space-2: 2px;
+  --st-space-4: 4px;
+  --st-space-6: 6px;
+  --st-space-8: 8px;
+  --st-space-10: 10px;
+  --st-space-12: 12px;
+  --st-space-16: 16px;
+  --st-space-20: 20px;
+  --st-space-24: 24px;
+  --st-space-32: 32px;
+  --st-space-48: 48px;
+
+  /* ---------- Corners: square. No border-radius anywhere except circles (lamps, dots). ---------- */
+  --st-radius: 0;
+  /* ---------- The cut: one 45° corner, top-right, on things you act on and on claims ---------- */
+  --st-cut-s: 12px;  /* buttons, active nav item, inputs in focus */
+  --st-cut-l: 20px;  /* claim (lockout) tags */
+  --st-cut-xl: 28px; /* the large claim tag on the rescue page */
+  /* Use: clip-path: polygon(0 0, calc(100% - var(--c)) 0, 100% var(--c), 100% 100%, 0 100%);
+     a bordered element also needs the diagonal stroke drawn as a background band, see components.md §31. */
+
+  /* ---------- Borders ---------- */
+  --st-border: 1.5px solid var(--st-line);       /* structure: panels, rows, buttons, gauges */
+  --st-border-heavy: 2px solid var(--st-line);   /* gauges' outline, gap column, timeline dots */
+  --st-hairline: 1px solid var(--st-hair);       /* table row separators only */
+
+  /* ---------- Shadow: none. Depth comes from borders and fills only. ---------- */
+
+  /* ---------- Motion ---------- */
+  --st-ease-glide: cubic-bezier(.2, .8, .2, 1);  /* rank changes, tags dropping */
+  --st-ease-fill: cubic-bezier(.4, 0, .2, 1);    /* pipes, column drain, chart draw */
+  --st-dur-flash: 900ms;   /* new bid highlight */
+  --st-dur-glide: 700ms;   /* ladder row re-sort, bar width change */
+  --st-dur-flip: 350ms;    /* split-flap digit */
+  --st-dur-drop: 600ms;    /* claim tag drop */
+  --st-dur-fall: 1100ms;   /* gap-column block fall */
+  --st-dur-draw: 2400ms;   /* chart line draw */
+  --st-flow-cycle: 600ms;  /* dashed flow in pipes */
+
+  /* ---------- Steward identity (fills only, never text, never buttons) ---------- */
+  /* Ordered cool → warm by risk appetite. Tile code text uses --st-tile-ink.
+     Light values measured ≥ 4.5:1 against --st-tile-ink at 10px/600. */
+  --st-steward-patient: #2A7363; /* PT · risk 1 · teal */
+  --st-steward-hedged:  #5B4BC4; /* HG · risk 2 · violet */
+  --st-steward-pool:    #2563C9; /* PL · risk 3 · blue */
+  --st-steward-deep:    #A9520A; /* DP · risk 4 · orange */
+  --st-steward-swift:   #C2255C; /* SW · risk 5 · magenta */
+  --st-tile-ink: #F2F3EE;
+
+  /* ---------- Light palette (default) ---------- */
+  --st-ground: #C9CFC3;   /* page, stone-sage. Never white. */
+  --st-panel: #D8DDD2;    /* raised panels */
+  --st-inset: #CDD2C6;    /* wells: gauges, bar tracks, KPI cells, secondary buttons */
+  --st-ink: #1D1F1C;      /* text, borders, primary buttons */
+  --st-quiet: #474D45;    /* secondary text, ≥ 5:1 on panel */
+  --st-line: #1D1F1C;     /* structural borders */
+  --st-hair: #AEB4A8;     /* hairlines, inactive outlines */
+  --st-brand: #A3B9AC;    /* console green: sidebar brand block, active nav item, annunciator bar */
+  --st-level-safe: #8FA89A; /* gauge fill when HF ≥ trigger */
+
+  /* THE ONE IDEA: amber = exposure (see SKILL.md). Fill only. */
+  --st-exposure: #E9A93A;      /* fill: under trigger, claim open, lockout tags, trigger lamp */
+  --st-exposure-ink: #7A4A00;  /* the only permitted amber TEXT colour, ≥ 5:1 on panel */
+  --st-on-exposure: #1D1F1C;   /* text on an amber fill, 8.4:1 */
+
+  /* Liquidation. Only the trip line, the "without Stead" series and the trip lamp. */
+  --st-trip: #A3221B;
+  --st-trip-lamp: #E8B4B0;
+
+  /* Acting: a steward is moving funds right now (lamps, winner row tint). */
+  --st-acting: #8FB0E6;      /* lamp fill */
+  --st-acting-tint: #C9D4E6; /* winner row / won steward card background */
+
+  /* Journal (always dark, both themes) */
+  --st-journal-bg: #1D1F1C;
+  --st-journal-ink: #E8EAE3;
+  --st-journal-quiet: #9AA096;
+
+  /* Textures */
+  --st-hatch-open: repeating-linear-gradient(135deg, transparent 0 8px, var(--st-hair) 8px 10px);      /* unfunded share, OPEN % */
+  --st-hatch-gap: repeating-linear-gradient(180deg, transparent 0 12px, var(--st-hair) 12px 14px);     /* empty gap column */
+  --st-hatch-range: repeating-linear-gradient(135deg, var(--st-trip) 0 4px, transparent 4px 9px);    /* upper half of a cost range */
+  --st-hatch-unverified: repeating-linear-gradient(135deg, transparent 0 5px, var(--st-hair) 5px 7px);/* "fork · unverified" chips */
+}
+
+[data-theme="dark"] {
+  --st-ground: #000000;   /* pitch black, by request */
+  --st-panel: #0B0C0B;
+  --st-inset: #151715;
+  --st-ink: #E8EAE3;
+  --st-quiet: #9AA096;
+  --st-line: #3A3E38;     /* borders are graphite on black, not white */
+  --st-hair: #2A2D29;
+  --st-brand: #17221C;
+  --st-level-safe: #4E6B5C;
+
+  --st-exposure: #E9A93A;
+  --st-exposure-ink: #F0B44C;
+  --st-on-exposure: #1D1F1C;
+
+  --st-trip: #FF6B5E;
+  --st-trip-lamp: #E8B4B0;
+  --st-acting: #8FB0E6;
+  --st-acting-tint: #14213A;
+
+  --st-journal-bg: #0B0C0B;
+
+  --st-steward-patient: #4FC2A6;
+  --st-steward-hedged:  #9B8CF2;
+  --st-steward-pool:    #6C9BF0;
+  --st-steward-deep:    #F2963E;
+  --st-steward-swift:   #F25C8E;
+  --st-tile-ink: #0B0C0B;
+}
+
+/* Base. The ground is a flat colour: no grid, dots, noise or image. */
+html { background: var(--st-ground); }
+body {
+  margin: 0;
+  background-color: var(--st-ground);
+  color: var(--st-ink);
+  font-family: var(--st-font-body);
+  font-size: var(--st-text-15);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+:focus-visible { outline: 2px solid var(--st-ink); outline-offset: 2px; }
+
+/* Keyframes (the complete set; do not add others without adding them here) */
+@keyframes st-flash { 0% { box-shadow: 0 0 0 3px var(--st-flash, var(--st-ink)); } 100% { box-shadow: 0 0 0 0 transparent; } }
+@keyframes st-shake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(3px); } }
+@keyframes st-flip { 0% { transform: rotateX(70deg); opacity: .2; } 100% { transform: rotateX(0); opacity: 1; } }
+@keyframes st-blink { 0%,100% { opacity: 1; } 50% { opacity: .2; } }
+@keyframes st-flow-x { 0% { background-position: 0 0; } 100% { background-position: 40px 0; } }
+@keyframes st-flow-y { 0% { background-position: 0 0; } 100% { background-position: 0 40px; } }
+@keyframes st-drop { 0% { transform: translateY(-24px); opacity: 0; } 70% { transform: translateY(3px); opacity: 1; } 100% { transform: none; } }
+@keyframes st-fall { 0% { transform: translateY(-460px); opacity: 0; } 8% { opacity: 1; } 70% { transform: translateY(8px); } 85% { transform: translateY(-4px); } 100% { transform: none; } }
+@keyframes st-stamp { 0% { transform: scale(1.4); opacity: 0; } 60% { transform: scale(.97); opacity: 1; } 100% { transform: none; opacity: 1; } }
+@keyframes st-draw { from { stroke-dashoffset: 1600; } to { stroke-dashoffset: 0; } }
+@keyframes st-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+h1, h2, h3 { font-family: var(--st-font-head); font-weight: 700; letter-spacing: var(--st-tracking-head); margin: 0; }
+button { font-family: var(--st-font-head); }
