@@ -144,8 +144,9 @@ export function buildLog(inp: Inputs): RescueLog {
       case "auction_opened": {
         if (d.rescue_id !== rid) break;
         opened = true;
-        // The contract labels every opening "TEMPORARY reporter"; it is proven when a verified
-        // reading with the same health factor opened it in the same transaction.
+        // Until 2026-11-09 the contract labelled every opening "TEMPORARY reporter"; an opening is
+        // proven when a verified reading with the same health factor opened it in the same receipt
+        // (newer openings also say "verified" themselves).
         const proven = openReading && openReading.data.hf_wad === d.hf_wad;
         const e = proven
           ? nearEv(net, l.tx, { block: openReading.data.block, rpcs: openReading.data.rpcs_agreeing })
