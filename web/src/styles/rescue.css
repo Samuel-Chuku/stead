@@ -123,6 +123,10 @@
 .st-proof-count { font-family: var(--st-font-head); font-weight: 600; font-size: 13px; color: var(--st-quiet); }
 .st-filters { display: flex; flex-wrap: wrap; gap: 10px 20px; }
 .st-filter-group { display: flex; flex-wrap: wrap; gap: 6px; }
+/* chains sit apart from the kinds: pushed to the far right (and right-aligned when they wrap) */
+.st-filter-group--chains { margin-left: auto; justify-content: flex-end; }
+.st-filter { display: inline-flex; align-items: center; gap: 6px; }
+.st-filter svg { flex: none; }
 .st-filter {
   min-height: 36px; padding: 6px 10px; border: var(--st-border); background: var(--st-panel); color: var(--st-quiet); cursor: pointer;
   font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label);

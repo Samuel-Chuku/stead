@@ -182,10 +182,10 @@ export function render(log: RescueLog, path: CostPath | null): string {
         <div class="st-filter-group" role="group" aria-label="Kind of record">
           ${kinds.filter((k) => count(k.id) > 0).map((k) => `<button type="button" class="st-filter" data-kind="${k.id}" aria-pressed="${k.id === "all"}">${k.label} <span class="st-seg-count">${count(k.id)}</span></button>`).join("")}
         </div>
-        <div class="st-filter-group" role="group" aria-label="Chain">
+        <div class="st-filter-group st-filter-group--chains" role="group" aria-label="Chain">
           <button type="button" class="st-filter" data-chain="all" aria-pressed="true">ALL CHAINS</button>
-          <button type="button" class="st-filter" data-chain="near" aria-pressed="false">NEAR</button>
-          <button type="button" class="st-filter" data-chain="evm" aria-pressed="false">${log.evmChain === "sepolia" ? "SEPOLIA" : "ETHEREUM"}</button>
+          <button type="button" class="st-filter" data-chain="near" aria-pressed="false">${icon("near", 14)}NEAR</button>
+          <button type="button" class="st-filter" data-chain="evm" aria-pressed="false">${icon("ethereum", 14)}${log.evmChain === "sepolia" ? "SEPOLIA" : "ETHEREUM"}</button>
         </div>
       </div>
       <div class="st-table-wrap">
