@@ -23,7 +23,7 @@ describe("rescue page", () => {
 
   it("links every proof row to a real record on NearBlocks or Etherscan", () => {
     const table = html.slice(html.indexOf('class="st-proofs"'), html.indexOf("</table>", html.indexOf('class="st-proofs"')));
-    const rows = table.split("<tr>").slice(2);
+    const rows = table.split("<tr data-kind").slice(1);
     expect(rows.length).toBeGreaterThanOrEqual(14);
     for (const r of rows) expect(r).toMatch(/href="https:\/\/(testnet\.nearblocks\.io\/txns\/[1-9A-HJ-NP-Za-km-z]{43,44}|sepolia\.etherscan\.io\/tx\/0x[0-9a-f]{64})"/);
   });
@@ -34,6 +34,22 @@ describe("rescue page", () => {
     expect(html).toContain("524.3202 DAI");
     expect(html).toContain("0.00865215 + 0.00008652 WBTC");
     expect(html).toContain("$49–103");
+  });
+
+  it("lists proofs newest first, each with a kind and a chain the filters can use", () => {
+    const rows = [...html.matchAll(/<tr data-kind="(\w+)" data-chain="(\w+)"><td class="st-mono">(\d\d:\d\d:\d\d)<\/td>/g)];
+    expect(rows.length).toBeGreaterThanOrEqual(14);
+    const times = rows.map((r) => r[3]);
+    expect([...times].sort().reverse()).toEqual(times);
+    const counts = Object.fromEntries([...html.matchAll(/data-kind="(\w+)" aria-pressed="\w+">[A-Z &;-]+ <span class="st-seg-count">(\d+)<\/span>/g)].map((m) => [m[1], Number(m[2])]));
+    expect(counts.all).toBe(rows.length);
+    expect(Object.entries(counts).filter(([k]) => k !== "all").reduce((a, [, n]) => a + n, 0)).toBe(rows.length);
+    expect(new Set(rows.map((r) => r[2]))).toEqual(new Set(["near", "evm"]));
+  });
+
+  it("uses no emoji-prone arrows anywhere (the external link is the stroke icon)", () => {
+    expect(html).not.toMatch(/[\u2190-\u21FF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}\uFE0F]/u);
+    expect(html).toMatch(/class="st-textlink st-extlink"[^>]*>(NearBlocks|Etherscan)<svg/);
   });
 
   it("does not show a closed claim in amber", () => {

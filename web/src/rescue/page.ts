@@ -3,6 +3,7 @@
 import type { CostPath } from "../../../stewards/src/costpath";
 import type { Evidence, RescueEvent, RescueLog, StewardId } from "../../../stewards/src/rescuelog";
 import { CODE } from "../board/model";
+import { icon } from "../icons";
 
 type Ev<K extends RescueEvent["kind"]> = Extract<RescueEvent, { kind: K }>;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -29,6 +30,7 @@ export async function mountRescue(root: HTMLElement, replayUrl: string) {
   }
   root.innerHTML = render(log, path);
   if (path) wireChart(root, path);
+  wireProofs(root);
   return () => {};
 }
 
@@ -64,7 +66,7 @@ export function render(log: RescueLog, path: CostPath | null): string {
       <div><dt>WINNING PREMIUM</dt><dd>${num(String(win?.bps ?? "—"), "bps")}</dd><dd class="st-kpi-sub">${win ? `${win.steward}, ${usd(premiumUsd)}` : ""}</dd></div>
       <div><dt>PREMIUM CAP</dt><dd>${num(open.capBps.toLocaleString("en-US"), "bps")}</dd><dd class="st-kpi-sub">below Aave's liquidation penalty</dd></div>
       <div><dt>BACK ABOVE TRIGGER</dt><dd>${num(after ? fmtDur(after.t) : "—")}</dd><dd class="st-kpi-sub">trigger to proven top-up</dd></div>
-      <div><dt>HEALTH FACTOR</dt><dd>${num(trigger.hf.toFixed(2))}<span class="st-unit">→</span>${num(after ? after.hf.toFixed(2) : "—")}</dd><dd class="st-kpi-sub">proven readings</dd></div>
+      <div><dt>HEALTH FACTOR</dt><dd>${num(trigger.hf.toFixed(2))}<span class="st-unit">to</span>${num(after ? after.hf.toFixed(2) : "—")}</dd><dd class="st-kpi-sub">proven readings</dd></div>
     </dl>`;
 
   // ---------- timeline ----------
@@ -90,7 +92,7 @@ export function render(log: RescueLog, path: CostPath | null): string {
       <div class="st-results">
         ${ranked
           .map((b, i) => {
-            const history = bids.filter((x) => x.steward === b.steward).map((x) => x.bps).join(" → ");
+            const history = bids.filter((x) => x.steward === b.steward).map((x) => x.bps).join(", ");
             const won = close?.winners.some((w) => w.steward === b.steward);
             return `<div class="st-result${won ? " is-won" : ""}"><span class="st-result-rank">${i + 1}</span>${tile(b.steward, 28)}<span class="st-result-name">${b.steward}</span><span class="st-result-hist">${history} bps</span><span class="st-result-final">${num(String(b.bps), "bps")}</span></div>`;
           })
@@ -131,46 +133,78 @@ export function render(log: RescueLog, path: CostPath | null): string {
     : "";
 
   // ---------- proofs ----------
-  const rows: { step: string; ev: Evidence }[] = [];
+  // Newest first, 7 per page; filterable by kind and by chain (wired in wireProofs).
+  type Kind = "readings" | "auction" | "topup" | "claim" | "payouts";
+  const KIND: Partial<Record<RescueEvent["kind"], Kind>> = {
+    TRIGGER: "readings", READING: "readings", BID: "auction", AUCTION_CLOSE: "auction", TOPUP_SENT: "topup", TOPUP_CONFIRMED: "topup",
+    CLAIM_MINTED: "claim", PAYMENT_IN: "claim", ESCROW_PROVEN: "claim", BUYBACK: "claim", BOUGHT_BACK: "claim", PAYOUT: "payouts",
+  };
+  const rows: { t: number; step: string; kind: Kind; ev: Evidence }[] = [];
   for (const e of log.events) {
     if (!("evidence" in e)) continue;
     const ev = (e as any).evidence as Evidence;
     const label: Record<string, string> = {
-      TRIGGER: `Health ${trigger.hf.toFixed(3)} below ${log.params.triggerHf.toFixed(2)}`,
-      AUCTION_CLOSE: "Auction closed",
-      TOPUP_CONFIRMED: "Top-up proven",
-      CLAIM_MINTED: "Claim minted",
-      PAYMENT_IN: "Borrower's payment",
-      ESCROW_PROVEN: "Payment proven",
-      BUYBACK: "Buy-back committed",
-      BOUGHT_BACK: "Claim closed",
+      TRIGGER: `Health ${trigger.hf.toFixed(3)}, below ${log.params.triggerHf.toFixed(2)}: auction opens`,
+      AUCTION_CLOSE: `Auction closed${win ? `: ${win.steward} wins at ${win.bps} bps` : ""}`,
+      TOPUP_CONFIRMED: "Top-up proven in the position",
+      CLAIM_MINTED: `Claim ${claim?.claim ?? ""} minted to ${claim?.holder ?? ""}`,
+      PAYMENT_IN: `Borrower pays ${pay?.amount ?? ""} ${pay?.asset ?? ""} into the position`,
+      ESCROW_PROVEN: "Payment proven in the position",
+      BUYBACK: `Buy-back committed: ${buyback?.amount ?? ""} ${buyback?.asset ?? ""}`,
+      BOUGHT_BACK: "Claim closed, withdrawals unlocked",
     };
     let step = label[e.kind];
     if (e.kind === "BID") step = `${e.steward} bids ${e.bps} bps`;
     if (e.kind === "TOPUP_SENT") step = `${e.steward} supplies ${e.amount} ${e.asset}`;
     if (e.kind === "READING") step = `Health ${e.hf.toFixed(3)}`;
-    if (e.kind === "PAYOUT") step = e.purpose === "buyback" ? "Payout to the claim owner" : "Refund to the borrower";
-    if (!step || e.kind === "AUCTION_OPEN") continue;
+    if (e.kind === "PAYOUT") step = e.purpose === "buyback" ? `${e.amount} ${e.asset} paid to the claim owner` : `${e.amount} ${e.asset} refunded to the borrower`;
+    const kind = KIND[e.kind];
+    if (!step || !kind) continue;
     if (rows.some((r) => r.ev.tx === ev.tx && r.step === step)) continue;
-    rows.push({ step, ev });
+    rows.push({ t: e.t, step, kind, ev });
     const transfer = (e as any).transfer as Evidence | undefined;
-    if (transfer) rows.push({ step: `${step}: the transfer`, ev: transfer });
+    if (transfer) rows.push({ t: e.t, step: `${step}: the transfer`, kind, ev: transfer });
   }
+  rows.sort((a, b) => b.t - a.t); // newest first
+  const kinds: { id: "all" | Kind; label: string }[] = [
+    { id: "all", label: "ALL" }, { id: "readings", label: "READINGS" }, { id: "auction", label: "AUCTION" },
+    { id: "topup", label: "TOP-UP" }, { id: "claim", label: "CLAIM & BUY-BACK" }, { id: "payouts", label: "PAYOUTS" },
+  ];
+  const chainOf = (ev: Evidence) => (ev.chain === "sepolia" || ev.chain === "ethereum" ? "evm" : "near");
+  const count = (k: string) => (k === "all" ? rows.length : rows.filter((r) => r.kind === k).length);
   const proofs = `
-    <section class="st-panel st-sect" aria-labelledby="proofs-h">
-      <div class="st-label">PROOFS</div>
-      <h2 class="st-panel-title" id="proofs-h">Every step, linked to its record</h2>
+    <section class="st-panel st-sect" aria-labelledby="proofs-h" data-proofs>
+      <div class="st-sect-head">
+        <div><div class="st-label">PROOFS</div><h2 class="st-panel-title" id="proofs-h">Every step, linked to its record</h2></div>
+        <p class="st-proof-count" data-proof-count aria-live="polite"></p>
+      </div>
+      <div class="st-filters">
+        <div class="st-filter-group" role="group" aria-label="Kind of record">
+          ${kinds.filter((k) => count(k.id) > 0).map((k) => `<button type="button" class="st-filter" data-kind="${k.id}" aria-pressed="${k.id === "all"}">${k.label} <span class="st-seg-count">${count(k.id)}</span></button>`).join("")}
+        </div>
+        <div class="st-filter-group" role="group" aria-label="Chain">
+          <button type="button" class="st-filter" data-chain="all" aria-pressed="true">ALL CHAINS</button>
+          <button type="button" class="st-filter" data-chain="near" aria-pressed="false">NEAR</button>
+          <button type="button" class="st-filter" data-chain="evm" aria-pressed="false">${log.evmChain === "sepolia" ? "SEPOLIA" : "ETHEREUM"}</button>
+        </div>
+      </div>
       <div class="st-table-wrap">
         <table class="st-proofs">
-          <thead><tr><th>STEP</th><th>EVIDENCE</th><th>WHERE</th><th>TRUST</th></tr></thead>
+          <thead><tr><th>TIME (UTC)</th><th>STEP</th><th>EVIDENCE</th><th>WHERE</th><th>TRUST</th></tr></thead>
           <tbody>
             ${rows
               .map(
-                (r) => `<tr><td class="st-proof-step">${esc(r.step)}</td><td class="st-mono">${esc(shortId(r.ev.tx))}${r.ev.block ? ` · block ${r.ev.block.toLocaleString("en-US")}` : ""}</td><td><a class="st-textlink" href="${r.ev.url}" target="_blank" rel="noopener">${r.ev.chain === "sepolia" ? "Etherscan" : "NearBlocks"} ↗</a></td><td>${chip(r.ev)}</td></tr>`,
+                (r) => `<tr data-kind="${r.kind}" data-chain="${chainOf(r.ev)}"><td class="st-mono">${clock(log, r.t)}</td><td class="st-proof-step">${esc(r.step)}</td><td class="st-mono">${esc(shortId(r.ev.tx))}${r.ev.block ? ` · block ${r.ev.block.toLocaleString("en-US")}` : ""}</td><td><a class="st-textlink st-extlink" href="${r.ev.url}" target="_blank" rel="noopener" aria-label="${r.ev.chain === "sepolia" ? "Etherscan" : "NearBlocks"}: ${esc(r.step)} (opens in a new tab)">${r.ev.chain === "sepolia" ? "Etherscan" : "NearBlocks"}${icon("external", 14)}</a></td><td>${chip(r.ev)}</td></tr>`,
               )
               .join("")}
+            <tr class="st-proof-empty" data-proof-empty hidden><td colspan="5">No record of this kind on this chain for this rescue.</td></tr>
           </tbody>
         </table>
+      </div>
+      <div class="st-pager">
+        <button type="button" class="st-secondary st-cut" data-page="prev">Previous</button>
+        <span class="st-pager-pos" data-page-pos></span>
+        <button type="button" class="st-secondary st-cut" data-page="next">Next</button>
       </div>
     </section>`;
 
@@ -332,4 +366,45 @@ function wireChart(root: HTMLElement, p: CostPath) {
     tip.hidden = true;
     cross.setAttribute("visibility", "hidden");
   });
+}
+
+const PAGE = 7;
+function wireProofs(root: HTMLElement) {
+  const sect = root.querySelector<HTMLElement>("[data-proofs]");
+  if (!sect) return;
+  const rows = [...sect.querySelectorAll<HTMLTableRowElement>("tbody tr[data-kind]")];
+  let kind = "all";
+  let chain = "all";
+  let page = 0;
+  const draw = () => {
+    const match = rows.filter((r) => (kind === "all" || r.dataset.kind === kind) && (chain === "all" || r.dataset.chain === chain));
+    const pages = Math.max(1, Math.ceil(match.length / PAGE));
+    page = Math.min(page, pages - 1);
+    const shown = new Set(match.slice(page * PAGE, page * PAGE + PAGE));
+    for (const r of rows) r.hidden = !shown.has(r);
+    sect.querySelector<HTMLElement>("[data-proof-empty]")!.hidden = match.length > 0;
+    const from = match.length ? page * PAGE + 1 : 0;
+    const to = Math.min(match.length, page * PAGE + PAGE);
+    sect.querySelector("[data-proof-count]")!.textContent = `${match.length} record${match.length === 1 ? "" : "s"} · newest first`;
+    sect.querySelector("[data-page-pos]")!.textContent = match.length ? `${from}–${to} of ${match.length}` : "0 of 0";
+    const prev = sect.querySelector<HTMLButtonElement>('[data-page="prev"]')!;
+    const next = sect.querySelector<HTMLButtonElement>('[data-page="next"]')!;
+    prev.disabled = page === 0;
+    next.disabled = page >= pages - 1;
+    sect.querySelector<HTMLElement>(".st-pager")!.hidden = pages <= 1;
+  };
+  sect.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
+    if (!b) return;
+    if (b.dataset.kind || b.dataset.chain) {
+      const attr = b.dataset.kind ? "kind" : "chain";
+      for (const x of sect.querySelectorAll<HTMLButtonElement>(`[data-${attr}]:is(button)`)) x.setAttribute("aria-pressed", String(x === b));
+      if (attr === "kind") kind = b.dataset.kind!;
+      else chain = b.dataset.chain!;
+      page = 0;
+    } else if (b.dataset.page === "prev") page--;
+    else if (b.dataset.page === "next") page++;
+    draw();
+  });
+  draw();
 }

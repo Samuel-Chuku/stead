@@ -119,7 +119,28 @@
 .st-push[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .st-disabled-reason { font-family: var(--st-font-head); font-weight: 600; font-size: 12px; color: var(--st-quiet); }
 
-/* §26 proofs table */
+/* §26 proofs table: filters, paging */
+.st-proof-count { font-family: var(--st-font-head); font-weight: 600; font-size: 13px; color: var(--st-quiet); }
+.st-filters { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+.st-filter-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.st-filter {
+  min-height: 36px; padding: 6px 10px; border: var(--st-border); background: var(--st-panel); color: var(--st-quiet); cursor: pointer;
+  font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label);
+}
+.st-filter:hover { background: var(--st-inset); }
+.st-filter[aria-pressed="true"] { background: var(--st-ink); color: var(--st-panel); }
+.st-seg-count { opacity: .7; margin-left: 4px; }
+.st-extlink { display: inline-flex; align-items: center; gap: 5px; }
+.st-extlink svg { flex: none; }
+.st-proof-empty td { color: var(--st-quiet); font-size: 14px; }
+.st-pager { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.st-pager[hidden] { display: none; }
+.st-pager-pos { font-family: var(--st-font-head); font-weight: 600; font-size: 13px; color: var(--st-quiet); min-width: 7ch; text-align: center; }
+/* §16 secondary button: inset fill, ink text, sentence case; carries the cut */
+.st-secondary { --fill: var(--st-inset); min-height: 44px; padding: 0 18px; cursor: pointer; color: var(--st-ink); font-family: var(--st-font-head); font-weight: 600; font-size: 15px; }
+.st-secondary:active { transform: translateY(1px); }
+.st-secondary:disabled { opacity: .45; cursor: not-allowed; }
+
 .st-table-wrap { overflow: auto; }
 .st-proofs { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 14px; }
 .st-proofs th { text-align: left; font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); padding: 10px; border-bottom: 1.5px solid var(--st-line); }
