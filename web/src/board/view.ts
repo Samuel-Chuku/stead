@@ -1,7 +1,10 @@
 // The live board's DOM. Built once per log; `update(board)` only changes text, classes and the
 // few positions/widths that animate (CSS transitions do the motion). No timers in here.
 import type { RescueLog, StewardId } from "../../../stewards/src/rescuelog";
-import { CODE, consequence, RISK, RISK_WORD, RULE, STEWARD_ORDER, type Board, type LampId } from "./model";
+import { CODE, consequence, fmtAmt, isPooled, RISK, RISK_WORD, RULE, STEWARD_ORDER, type Board, type LampId } from "./model";
+import { poolMarkup, updatePool } from "./pool";
+
+export type ReplayChoice = { id: string; label: string };
 
 const LAMPS: { id: LampId; cls: string }[] = [
   { id: "TRIGGER", cls: "exposure" },
@@ -16,7 +19,8 @@ const pct = (hf: number) => Math.max(0, Math.min(100, ((hf - 0.9) / 0.8) * 100))
 const tile = (s: StewardId, size: number) => `<span class="st-tile st-tile--${size}" style="--sc: var(--st-steward-${s})" aria-hidden="true">${CODE[s]}</span>`;
 const clockText = (ms: number) => new Date(ms).toISOString().slice(11, 21);
 
-export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onToggle: () => void }) {
+export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onToggle: () => void; replays?: ReplayChoice[]; current?: string; onPick?: (id: string) => void }) {
+  const pooled = isPooled(log);
   const m = log.market;
   const a = log.atOpen;
   const liqCost = a ? (a.debtUsd * 0.5 * m.liqBonusBps) / 10_000 : null;
@@ -26,6 +30,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
       <div class="st-lamps">${LAMPS.map((l) => `<div class="st-lamp-cell" data-lamp="${l.id}" data-tone="${l.cls}"><span class="st-dot" aria-hidden="true"></span>${l.id}</div>`).join("")}</div>
       <div class="st-annunciator-right">
         <span class="st-chip-market">SEPOLIA · MARKET ${m.id} · ${m.collateral}/${m.debt}</span>
+        ${controls.replays && controls.replays.length > 1 ? `<div class="st-seg st-seg--rec" role="group" aria-label="Recorded rescue">${controls.replays.map((r) => `<button type="button" data-pick="${r.id}" aria-pressed="${r.id === controls.current}">${esc(r.label)}</button>`).join("")}</div>` : ""}
         <div class="st-seg st-seg--mode" role="group" aria-label="Mode">
           <button type="button" aria-pressed="false" aria-disabled="true" title="Live mode comes with the live feed">LIVE</button>
           <button type="button" aria-pressed="true">REPLAY</button>
@@ -64,7 +69,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
           </div>
         </div>
         <dl class="st-pos-facts">
-          <div><dt>COLLATERAL</dt><dd data-coll>${a ? `${a.collateral} ${m.collateral}` : "—"}</dd></div>
+          <div><dt>COLLATERAL</dt><dd data-coll>${a ? `${fmtAmt(a.collateral)} ${m.collateral}` : "—"}</dd></div>
           <div><dt>DEBT</dt><dd>${a ? a.debtUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " " + m.debt : "—"}</dd></div>
           <div><dt>TOP-UP TO ${log.params.targetHf.toFixed(2)}</dt><dd data-topup>—</dd></div>
           <div><dt>LIQUIDATION COST</dt><dd>${liqCost !== null ? usd(liqCost) : "—"}</dd></div>
@@ -126,6 +131,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
       </section>
     </div>
 
+    ${pooled ? poolMarkup(log) : ""}
     <section class="st-journal" aria-label="Journal">
       <div class="st-journal-head">JOURNAL · REPLAY OF A RECORDED RESCUE · ${esc(log.label.toUpperCase())}</div>
       <div class="st-journal-lines" data-journal data-theme="dark"></div>
@@ -134,8 +140,10 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
 
   const q = <T extends HTMLElement = HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
   root.querySelector("[data-toggle]")!.addEventListener("click", controls.onToggle);
+  for (const btn of root.querySelectorAll<HTMLButtonElement>("[data-pick]")) btn.addEventListener("click", () => btn.dataset.pick !== controls.current && controls.onPick?.(btn.dataset.pick!));
+  const poolState = { fell: new Map<string, number>(), tagKey: "" };
   const open = log.events.find((e) => e.kind === "AUCTION_OPEN") as any;
-  q("[data-topup]").textContent = open ? `${open.topUp.amount} ${open.topUp.asset}` : "—";
+  q("[data-topup]").textContent = open ? `${fmtAmt(open.topUp.amount)} ${open.topUp.asset}` : "—";
 
   let lastClock = -1;
   let lastJournal = -1;
@@ -179,7 +187,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
       }
 
       // collateral: the proven amount after the top-up, else the amount at the opening
-      q("[data-coll]").textContent = b.collateral ? `${b.collateral} ${m.collateral}` : a ? `${a.collateral} ${m.collateral}` : "—";
+      q("[data-coll]").textContent = b.collateral ? `${fmtAmt(b.collateral)} ${m.collateral}` : a ? `${fmtAmt(a.collateral)} ${m.collateral}` : "—";
 
       // auction head
       q("[data-title]").textContent = b.title;
@@ -231,7 +239,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
         bar.style.setProperty("--sc", `var(--st-steward-${b.pipe.steward})`);
         bar.classList.toggle("is-flowing", b.pipe.flowing);
         bar.classList.toggle("is-done", b.pipe.done);
-        q("[data-pipe-label]").textContent = `${b.pipe.done ? "SUPPLIED" : b.pipe.flowing ? "SUPPLYING" : "TO SUPPLY"} ${b.pipe.amount} ${b.pipe.asset}`;
+        q("[data-pipe-label]").textContent = `${b.pipe.done ? "SUPPLIED" : b.pipe.flowing ? "SUPPLYING" : "TO SUPPLY"} ${fmtAmt(b.pipe.amount)} ${b.pipe.asset}`;
       } else pipe.hidden = true;
 
       // steward rack
@@ -265,6 +273,8 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
           else slot.innerHTML = `<div class="st-tag st-cut st-cut--l">${html}</div>`;
         }
       }
+
+      if (pooled) updatePool(root, log, b, poolState);
 
       // journal (newest first)
       if (b.journal.length !== lastJournal) {

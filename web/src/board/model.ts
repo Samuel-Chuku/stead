@@ -49,14 +49,24 @@ export type Board = {
   journal: JournalLine[];
   ended: boolean;
   collateral: string | null; // proven collateral after a top-up
+  pool: Pool | null; // only for a pooled rescue (several winners, or bids smaller than the top-up)
 };
 
+/** Display amounts: two decimals from 1 up, otherwise up to 8 decimals (0.00865215). Exact values stay in the log. */
+export const fmtAmt = (v: string | number) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  return n >= 1 ? n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : n.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+};
 const fmtUsd = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtBlock = (b?: number) => (b ? b.toLocaleString("en-US") : "");
 const short = (tx: string) => (tx.startsWith("0x") ? tx.slice(0, 8) + "…" : tx.slice(0, 6) + "…");
 
 /** The length of the recording in seconds (last event, plus a short tail). */
-export const duration = (log: RescueLog) => Math.ceil(Math.max(...log.events.map((e) => e.t)) + 3);
+export const duration = (log: RescueLog) => {
+  const acts = log.events.filter((e) => e.kind !== "READING");
+  return Math.ceil(Math.max(...(acts.length ? acts : log.events).map((e) => e.t)) + 5);
+};
 
 export function boardAt(log: RescueLog, t: number): Board {
   const seen = log.events.filter((e) => e.t <= t);
@@ -65,6 +75,7 @@ export function boardAt(log: RescueLog, t: number): Board {
   const open = log.events.find((e) => e.kind === "AUCTION_OPEN") as Extract<RescueEvent, { kind: "AUCTION_OPEN" }>;
   const dur = open.durationS;
   const topUsd = open.topUp.usd;
+  const topAmt = Number(open.topUp.amount);
 
   // health factor: the latest reading the board holds (trigger or a later proven reading)
   const readings = seen.filter((e) => e.kind === "TRIGGER" || e.kind === "READING") as Extract<RescueEvent, { kind: "TRIGGER" | "READING" }>[];
@@ -100,7 +111,7 @@ export function boardAt(log: RescueLog, t: number): Board {
     const late = !!cur && cur.t >= dur - LATE_S && cur.t <= dur;
     const won = winnerSet.has(s);
     const badge: Row["badge"] = won ? "WON" : phase === "auction" && rank === 0 ? "LEADING" : late ? "LATE" : "";
-    return { steward: s, rank, bps: cur?.bps ?? null, prevBps: prev?.bps ?? null, bidT: cur?.t ?? null, fresh: !!cur && t - cur.t < FRESH_S, late, badge, cost: cur ? (topUsd * cur.bps) / 10_000 : null };
+    return { steward: s, rank, bps: cur?.bps ?? null, prevBps: prev?.bps ?? null, bidT: cur?.t ?? null, fresh: !!cur && t - cur.t < FRESH_S, late, badge, cost: cur ? (topUsd * (Number(cur.amount) / topAmt) * cur.bps) / 10_000 : null };
   });
 
   // "bidding…" cues: a BIDDING event whose BID has not arrived yet
@@ -116,13 +127,16 @@ export function boardAt(log: RescueLog, t: number): Board {
   let title = "Waiting for the trigger";
   let subtitle = "";
   if (phase === "auction") {
-    title = `${open.topUp.amount} ${open.topUp.asset} needed · ${fmtUsd(topUsd)}`;
+    title = `${fmtAmt(open.topUp.amount)} ${open.topUp.asset} needed · ${fmtUsd(topUsd)}`;
     subtitle = thinking.size ? `${[...thinking].join(", ")} bidding…` : `${nBid} of 5 stewards have bid`;
   } else if (phase === "closing") {
     title = "Window closed · closing the auction";
     subtitle = `${nBid} stewards bid`;
   } else if (phase !== "before") {
-    title = phase === "topup" ? `${winnerName} won · topping up` : `${winnerName} won at ${winners[0]?.bps} bps`;
+    const bpsLo = Math.min(...winners.map((w) => w.bps));
+    const bpsHi = Math.max(...winners.map((w) => w.bps));
+    const who = winners.length > 1 ? `${winners.length} stewards won` : `${winnerName} won`;
+    title = phase === "topup" ? `${who} · topping up` : winners.length > 1 ? `${who} · ${bpsLo === bpsHi ? bpsLo : `${bpsLo}–${bpsHi}`} bps` : `${who} at ${winners[0]?.bps} bps`;
     subtitle = `Auction closed · ${nBid} stewards bid`;
   }
 
@@ -137,12 +151,13 @@ export function boardAt(log: RescueLog, t: number): Board {
     ? { steward: winners[0].steward, amount: winners[0].amount, asset: open.topUp.asset, flowing: !!sent && !confirmed, done: !!confirmed }
     : null;
 
-  const claim = claimEv
+  const claimCount = seen.filter((e) => e.kind === "CLAIM_MINTED").length;
+  const claim = claimEv && claimCount === 1
     ? {
         id: claimEv.claim,
         holder: claimEv.holder,
-        owed: claimEv.owed,
-        premium: claimEv.premium,
+        owed: fmtAmt(claimEv.owed),
+        premium: fmtAmt(claimEv.premium),
         asset: claimEv.asset,
         windowLeft: Math.max(0, Math.ceil(claimEv.windowEndsT - t)),
         closed: !!(boughtBack || settled || liquidated),
@@ -175,6 +190,7 @@ export function boardAt(log: RescueLog, t: number): Board {
     claim,
     journal: journal(log, seen),
     collateral: confirmed?.collateral || null,
+    pool: poolAt(log, seen, t, phase),
     ended: t >= duration(log),
   };
 }
@@ -189,16 +205,16 @@ function journal(log: RescueLog, seen: RescueEvent[]): JournalLine[] {
         at("TRIGGER", "exposure", `Position ${pos} health ${e.hf.toFixed(3)}, below ${log.params.triggerHf.toFixed(2)} · proven at block ${fmtBlock(e.evidence.block)}, ${e.evidence.rpcs} RPCs agree`, e.evidence);
         break;
       case "AUCTION_OPEN":
-        at("AUCTION", "acting", `Auction opens: ${e.topUp.amount} ${e.topUp.asset} (${fmtUsd(e.topUp.usd)}) for ${e.durationS} s, premium cap ${e.capBps.toLocaleString("en-US")} bps`, e.evidence);
+        at("AUCTION", "acting", `Auction opens: ${fmtAmt(e.topUp.amount)} ${e.topUp.asset} (${fmtUsd(e.topUp.usd)}) for ${e.durationS} s, premium cap ${e.capBps.toLocaleString("en-US")} bps`, e.evidence);
         break;
       case "BID":
-        at("BID", e.steward, `${e.steward} bids ${e.bps} bps for ${e.amount} ${log.market.collateral}`, e.evidence);
+        at("BID", e.steward, `${e.steward} bids ${e.bps} bps for ${fmtAmt(e.amount)} ${log.market.collateral}`, e.evidence);
         break;
       case "AUCTION_CLOSE":
         at("WON", "acting", e.winners.map((w) => `${w.steward} wins at ${w.bps} bps`).join(", ") || "No bid covered the top-up", e.evidence);
         break;
       case "TOPUP_SENT":
-        at("TOP-UP", "safe", `${e.steward} supplies ${e.amount} ${e.asset} to the position · Sepolia block ${fmtBlock(e.evidence.block)}`, e.evidence);
+        at("TOP-UP", "safe", `${e.steward} supplies ${fmtAmt(e.amount)} ${e.asset} to the position · Sepolia block ${fmtBlock(e.evidence.block)}`, e.evidence);
         break;
       case "TOPUP_CONFIRMED":
         at("TOP-UP", "safe", `Top-up proven at block ${fmtBlock(e.evidence.block)}`, e.evidence);
@@ -207,7 +223,7 @@ function journal(log: RescueLog, seen: RescueEvent[]): JournalLine[] {
         at("READING", "plain", `Health ${e.hf.toFixed(3)} proven at block ${fmtBlock(e.evidence.block)}`, e.evidence);
         break;
       case "CLAIM_MINTED":
-        at("CLAIM", "exposure", `Claim ${e.claim} to ${e.holder}: ${e.owed} + ${e.premium} ${e.asset} premium`, e.evidence);
+        at("CLAIM", "exposure", `Claim ${e.claim} to ${e.holder}: ${fmtAmt(e.owed)} + ${fmtAmt(e.premium)} ${e.asset} premium`, e.evidence);
         break;
       case "PAYMENT_IN":
         at("BUY-BACK", "plain", `Borrower pays ${e.amount} ${e.asset} into the position`, e.evidence);
@@ -243,3 +259,117 @@ function journal(log: RescueLog, seen: RescueEvent[]): JournalLine[] {
 
 /** "WBTC can fall X% before liquidation": X = (1 − 1/HF) × 100, one decimal. */
 export const consequence = (hf: number) => Math.max(0, (1 - 1 / hf) * 100).toFixed(1);
+
+
+// ───────────── pooled rescue (components.md §15, option B "fill the gap") ─────────────
+// Bids are offers: a premium and an amount up to the steward's limit. At the close the contract
+// fills the top-up from the lowest premium up (ties: earlier bid) and trims the last offer to fit.
+// Before the close, the column shows the coalition that rule would form from the bids so far.
+
+export type PoolBlock = { steward: StewardId; amount: number; amountText: string; share: number; bottom: number; bps: number; since: number };
+export type PoolCard = { steward: StewardId; status: string; state: "watching" | "bidding" | "offered" | "joined" | "unused" | "nobid" };
+export type PoolTag = { claim: string; holder: StewardId; owed: string; premium: string; asset: string; share: number; paid: string | null; buyback: string | null };
+export type Pool = {
+  gap: number;
+  gapText: string;
+  asset: string;
+  committed: number;
+  final: boolean;
+  funded: boolean;
+  draining: boolean;
+  sentT: number | null; // when the first supply landed (so a jump past it shows the column already drained)
+  flowing: boolean;
+  confirmed: boolean;
+  blocks: PoolBlock[];
+  cards: PoolCard[];
+  tags: PoolTag[];
+  claimsOpen: boolean;
+  closedText: string;
+};
+
+export function isPooled(log: RescueLog): boolean {
+  const open = log.events.find((e) => e.kind === "AUCTION_OPEN") as Extract<RescueEvent, { kind: "AUCTION_OPEN" }> | undefined;
+  const close = log.events.find((e) => e.kind === "AUCTION_CLOSE") as Extract<RescueEvent, { kind: "AUCTION_CLOSE" }> | undefined;
+  if (!open) return false;
+  return (close?.winners.length ?? 0) > 1 || log.events.some((e) => e.kind === "BID" && Number(e.amount) < Number(open.topUp.amount));
+}
+
+function poolAt(log: RescueLog, seen: RescueEvent[], t: number, phase: Phase): Pool | null {
+  if (!isPooled(log)) return null;
+  const open = log.events.find((e) => e.kind === "AUCTION_OPEN") as Extract<RescueEvent, { kind: "AUCTION_OPEN" }>;
+  const gap = Number(open.topUp.amount);
+  const close = seen.find((e) => e.kind === "AUCTION_CLOSE") as Extract<RescueEvent, { kind: "AUCTION_CLOSE" }> | undefined;
+  const bids = seen.filter((e) => e.kind === "BID") as Extract<RescueEvent, { kind: "BID" }>[];
+  const latest = new Map<StewardId, (typeof bids)[number]>();
+  for (const b of bids) latest.set(b.steward, b);
+  // the coalition: the real winners after the close; before it, the same rule over the bids so far
+  let members: { steward: StewardId; bps: number; amount: number; since: number }[];
+  if (close) {
+    members = close.winners.map((w) => ({ steward: w.steward, bps: w.bps, amount: Number(w.amount), since: close.t }));
+  } else {
+    let left = gap;
+    members = [];
+    for (const b of [...latest.values()].sort((x, y) => x.bps - y.bps || x.t - y.t)) {
+      if (left <= 1e-12) break;
+      const take = Math.min(Number(b.amount), left);
+      members.push({ steward: b.steward, bps: b.bps, amount: take, since: b.t });
+      left -= take;
+    }
+  }
+  let cum = 0;
+  const fmt = (n: number) => (Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const blocks: PoolBlock[] = members.map((m) => {
+    const share = (m.amount / gap) * 100;
+    const b = { steward: m.steward, amount: m.amount, amountText: `${fmt(m.amount)} ${open.topUp.asset}`, share, bottom: cum, bps: m.bps, since: m.since };
+    cum += share;
+    return b;
+  });
+  const committed = Math.min(gap, members.reduce((a, m) => a + m.amount, 0));
+  const sent = seen.some((e) => e.kind === "TOPUP_SENT");
+  const confirmed = seen.some((e) => e.kind === "TOPUP_CONFIRMED");
+  const thinking = new Set<StewardId>();
+  for (const e of seen) {
+    if (e.kind === "BIDDING") thinking.add(e.steward);
+    if (e.kind === "BID") thinking.delete(e.steward);
+  }
+  const memberSet = new Set(members.map((m) => m.steward));
+  const cards: PoolCard[] = STEWARD_ORDER.map((s) => {
+    const b = latest.get(s);
+    const m = blocks.find((x) => x.steward === s);
+    if (close) {
+      if (m) return { steward: s, state: "joined", status: `joined · ${Math.round(m.share)}% · ${m.amountText}` };
+      if (b) return { steward: s, state: "unused", status: `not needed · offered ${fmtAmt(b.amount)} ${open.topUp.asset} at ${b.bps} bps` };
+      return { steward: s, state: "nobid", status: "no bid" };
+    }
+    if (phase === "auction" && thinking.has(s)) return { steward: s, state: "bidding", status: "bidding…" };
+    if (b) return { steward: s, state: memberSet.has(s) ? "offered" : "unused", status: `offers ${fmt(Number(b.amount))} ${open.topUp.asset} at ${b.bps} bps` };
+    return { steward: s, state: phase === "auction" || phase === "before" ? "watching" : "nobid", status: phase === "auction" || phase === "before" ? "watching" : "no bid" };
+  });
+  const mints = seen.filter((e) => e.kind === "CLAIM_MINTED") as Extract<RescueEvent, { kind: "CLAIM_MINTED" }>[];
+  const buybacks = seen.filter((e) => e.kind === "BUYBACK") as Extract<RescueEvent, { kind: "BUYBACK" }>[];
+  const payouts = seen.filter((e) => e.kind === "PAYOUT") as Extract<RescueEvent, { kind: "PAYOUT" }>[];
+  const tags: PoolTag[] = mints.map((c) => {
+    const blk = blocks.find((x) => x.steward === c.holder);
+    const bb = buybacks.find((x) => x.claim === c.claim);
+    const paid = payouts.find((x) => x.claim === c.claim);
+    return { claim: c.claim, holder: c.holder, owed: fmtAmt(c.owed), premium: fmtAmt(c.premium), asset: c.asset, share: blk ? blk.share : 0, buyback: bb ? `${fmtAmt(bb.amount)} ${bb.asset}` : null, paid: paid ? `${fmtAmt(paid.amount)} ${paid.asset}` : null };
+  });
+  const ended = seen.find((e) => e.kind === "BOUGHT_BACK" || e.kind === "SETTLED" || e.kind === "LIQUIDATED");
+  return {
+    gap,
+    gapText: `${fmt(gap)} ${open.topUp.asset}`,
+    asset: open.topUp.asset,
+    committed,
+    final: !!close,
+    funded: committed >= gap - 1e-9,
+    draining: sent,
+    sentT: (seen.find((e) => e.kind === "TOPUP_SENT")?.t ?? null) as number | null,
+    flowing: sent && !confirmed,
+    confirmed,
+    blocks,
+    cards,
+    tags,
+    claimsOpen: mints.length > 0 && !ended,
+    closedText: ended ? (ended.kind === "BOUGHT_BACK" ? "bought back" : ended.kind === "SETTLED" ? "settled" : "liquidated") : "",
+  };
+}

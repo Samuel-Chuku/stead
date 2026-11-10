@@ -2,11 +2,11 @@
 // The board is redrawn from (log, t) every frame; nothing animates on its own timer.
 import type { RescueLog } from "../../../stewards/src/rescuelog";
 import { boardAt, duration } from "./model";
-import { mountBoard } from "./view";
+import { mountBoard, type ReplayChoice } from "./view";
 
 const LEAD_IN = -3; // seconds of calm before the trigger
 
-export async function mountReplay(root: HTMLElement, url: string) {
+export async function mountReplay(root: HTMLElement, url: string, choice?: { replays: ReplayChoice[]; current: string; onPick: (id: string) => void }) {
   root.innerHTML = `<section class="st-panel st-page"><div class="st-label">LIVE AUCTIONS</div><p class="st-empty">Loading the recorded rescue…</p></section>`;
   let log: RescueLog;
   try {
@@ -32,6 +32,7 @@ export async function mountReplay(root: HTMLElement, url: string) {
       if (playing) pause();
       else play();
     },
+    ...(choice ?? {}),
   });
 
   function frame(now: number) {

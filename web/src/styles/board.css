@@ -38,6 +38,7 @@
   font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label);
 }
 .st-seg--mode button { min-height: 36px; }
+.st-seg--rec button { min-height: 36px; white-space: nowrap; }
 .st-seg button[aria-disabled="true"] { cursor: not-allowed; opacity: .45; }
 .st-annunciator .st-push--small { min-height: 40px; padding: 0 16px; font-size: 14px; }
 
@@ -210,6 +211,66 @@
 .st-error h2 { font-size: 16px; }
 .st-error p { font-size: 14px; }
 
+/* ---------- §15 Pooled rescue: fill the gap (option B) ---------- */
+.st-pool { gap: 16px; }
+.st-pool-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.st-pool-card { display: flex; gap: 10px; align-items: center; border: 1.5px dashed var(--st-hair); padding: 10px 12px; transition: opacity 400ms, background-color 400ms, border-color 400ms; min-width: 0; }
+.st-pool-card .st-tile--30 { width: 30px; height: 30px; font-size: 10px; }
+.st-pool-card-body { display: flex; flex-direction: column; min-width: 0; }
+.st-pool-card-name { font-family: var(--st-font-head); font-weight: 700; font-size: 18px; }
+.st-pool-card-status { font-family: var(--st-font-head); font-weight: 600; font-size: 12px; color: var(--st-quiet); }
+.st-pool-card-status.is-blink { animation: st-blink 1.2s steps(2) infinite; }
+.st-pool-card[data-state="offered"] { border-style: solid; }
+.st-pool-card[data-state="joined"] { border: var(--st-border); background: var(--st-inset); }
+.st-pool-card[data-state="joined"] .st-pool-card-status { color: var(--st-ink); }
+.st-pool-card[data-state="unused"], .st-pool-card[data-state="nobid"] { opacity: .5; }
+
+.st-pool-stage { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.st-pool-rail { position: relative; width: 40px; height: 400px; flex: none; }
+.st-pool-rail span { position: absolute; right: 4px; transform: translateY(50%); font-family: var(--st-font-head); font-weight: 600; font-size: 10px; color: var(--st-quiet); }
+.st-pool-col { position: relative; width: 230px; height: 400px; flex: none; background: var(--st-inset); border: var(--st-border-heavy); border-top: 0; }
+.st-pool-hatch { position: absolute; inset: 0; background: var(--st-hatch-gap); animation: st-flow-y 2s linear infinite; transition: opacity 600ms; }
+.st-pool-col.is-funded .st-pool-hatch { opacity: 0; animation: none; }
+.st-pool-block {
+  position: absolute; left: 6px; right: 6px; bottom: calc(var(--bottom) * 1% + 4px); height: calc(var(--share) * 1% - 6px);
+  background: var(--sc); color: var(--st-tile-ink); border: 1.5px solid var(--st-line); padding: 8px 10px; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: flex-start; transform-origin: bottom;
+  transition: bottom var(--st-dur-glide) var(--st-ease-glide), height var(--st-dur-glide) var(--st-ease-glide), transform 5.5s var(--st-ease-fill);
+}
+.st-pool-block[hidden] { display: none; }
+.st-pool-block.is-falling { animation: st-fall var(--st-dur-fall) cubic-bezier(.3, .7, .2, 1); }
+.st-pool-block-name { font-family: var(--st-font-head); font-weight: 700; font-size: 21px; line-height: 1.1; white-space: nowrap; }
+.st-pool-block-amt { font-family: var(--st-font-mono); font-size: 11px; }
+.st-pool-block.is-small { padding: 2px 8px; justify-content: center; }
+.st-pool-block.is-small .st-pool-block-name { font-size: 13px; }
+.st-pool-block.is-small .st-pool-block-amt { display: none; }
+.st-pool-col.is-draining .st-pool-block { transform: scaleY(0); opacity: 0; transition: transform 5.5s var(--st-ease-fill), opacity 5.5s var(--st-ease-fill); }
+.st-pool-col.is-drained .st-pool-block { transition: none; }
+.st-pool-lid { position: absolute; left: -2px; right: -2px; top: 0; height: 6px; background: var(--st-ink); transform: scaleX(0); transform-origin: left; transition: transform 500ms var(--st-ease-glide); }
+.st-pool-col.is-funded .st-pool-lid { transform: scaleX(1); }
+.st-pool-stamp {
+  position: absolute; left: 50%; top: 36%; translate: -50% 0; border: 2px solid var(--st-ink); background: var(--st-panel); color: var(--st-ink); padding: 6px 12px;
+  font-family: var(--st-font-head); font-weight: 700; font-size: 24px; letter-spacing: .02em; opacity: 0; pointer-events: none;
+}
+.st-pool-col.is-funded .st-pool-stamp { opacity: 1; animation: st-stamp 500ms var(--st-ease-glide); }
+.st-pool-pipe { position: relative; flex: 1 1 60px; min-width: 40px; height: 30px; border: var(--st-border); background: var(--st-inset); margin-bottom: 20px; overflow: hidden; }
+.st-pool-pipe-flow { position: absolute; inset: 0; background: var(--stripes); opacity: 0; transition: opacity 400ms; }
+.st-pool-pipe.is-flowing .st-pool-pipe-flow { opacity: 1; animation: st-flow-x var(--st-flow-cycle) linear infinite; }
+.st-pool-pipe.is-done .st-pool-pipe-flow { opacity: .35; }
+.st-pool-tank { display: flex; gap: 12px; align-items: flex-end; flex: none; }
+.st-gauge--tank { width: 60px; height: 300px; }
+.st-pool-tank-read { display: flex; flex-direction: column; gap: 4px; padding-bottom: 6px; }
+.st-hf--tank { font-size: 56px; }
+.st-pool-tank-sub { font-size: 13px; color: var(--st-quiet); }
+.st-pool-counter { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; font-family: var(--st-font-mono); font-size: 13px; }
+.st-pool-counter .st-quiet { font-family: var(--st-font-head); font-weight: 600; font-size: 12px; }
+.st-pool-tags { display: flex; flex-wrap: wrap; gap: 12px; }
+.st-pool-tags:empty { display: none; }
+.st-pool-tag { flex: 1 1 220px; animation-fill-mode: both; }
+.st-pool-tag.no-drop { animation: none; }
+.st-tag.is-closed { --fill: var(--st-panel); color: var(--st-ink); }
+.st-pool-tag .st-tag-id { font-family: var(--st-font-mono); font-size: 11px; opacity: .75; }
+
 /* ---------- small screens: panels stack in reading order; the ladder folds ---------- */
 @media (max-width: 899.98px) {
   .st-board, .st-board-grid { gap: var(--st-space-12); }
@@ -254,6 +315,22 @@
   .st-risk .st-pip { width: 6px; height: 6px; }
   .st-rack-note { font-size: 12px; }
   .st-journal { padding: 10px 12px; }
+  .st-pool { gap: 12px; }
+  .st-pool-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .st-pool-card { padding: 8px; gap: 8px; }
+  .st-pool-card .st-tile--30 { width: 24px; height: 24px; font-size: 9px; }
+  .st-pool-card-name { font-size: 14px; }
+  .st-pool-card-status { font-size: 11px; }
+  .st-pool-stage { gap: 8px; }
+  .st-pool-rail { width: 30px; height: 280px; }
+  .st-pool-col { width: auto; flex: 1 1 160px; height: 280px; }
+  .st-pool-block-name { font-size: 16px; }
+  .st-pool-pipe { flex: 1 1 100%; order: 3; height: 16px; margin: 0; }
+  .st-pool-tank { order: 4; width: 100%; }
+  .st-gauge--tank { height: 120px; width: 44px; }
+  .st-hf--tank { font-size: 44px; }
+  .st-pool-counter { font-size: 12px; }
+  .st-pool-tag { flex: 1 1 100%; }
   .st-journal-lines { max-height: none; }
   .st-jline { flex-wrap: wrap; column-gap: var(--st-space-12); row-gap: 0; white-space: normal; padding: 4px 0; border-bottom: 1px solid var(--st-hair); }
   .st-jline:nth-child(n+7) { display: none; }

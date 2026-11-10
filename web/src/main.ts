@@ -7,6 +7,15 @@ import { mountHome } from "./home/page";
 
 /** The recorded rescue the live board replays: a real auction on Sepolia, rebuilt from the chains. */
 const REPLAY_URL = "/replays/sepolia-demo-rescue-8.json";
+/** Recorded rescues the live board can replay (?replay=<id>). */
+const REPLAYS = [
+  { id: "8", label: "RESCUE 8", url: "/replays/sepolia-demo-rescue-8.json" },
+  { id: "10", label: "RESCUE 10 · POOLED", url: "/replays/sepolia-demo-rescue-10.json" },
+];
+const replayId = () => {
+  const r = new URLSearchParams(location.search).get("replay");
+  return REPLAYS.some((x) => x.id === r) ? r! : REPLAYS[0].id;
+};
 
 type Route = "overview" | "live" | "rescues" | "positions" | "stewards" | "claims" | "proofs";
 
@@ -145,7 +154,18 @@ function fill(r: Route) {
     let stop = () => {};
     let gone = false;
     unmount = () => { gone = true; stop(); };
-    void mountReplay(content, REPLAY_URL).then((s) => (gone ? s() : (stop = s)));
+    const cur = replayId();
+    void mountReplay(content, REPLAYS.find((x) => x.id === cur)!.url, {
+      replays: REPLAYS,
+      current: cur,
+      onPick(id) {
+        const u = new URL(location.href);
+        u.searchParams.set("replay", id);
+        u.searchParams.delete("t");
+        history.replaceState(null, "", u);
+        fill("live");
+      },
+    }).then((s) => (gone ? s() : (stop = s)));
   } else if (r === "rescues") {
     void mountRescue(content, REPLAY_URL);
   } else content.innerHTML = page(r);

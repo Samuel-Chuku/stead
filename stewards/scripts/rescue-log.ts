@@ -19,7 +19,8 @@ const minutes = Number(arg("--minutes") ?? 20);
 const out = resolve(arg("--out") ?? join(REPO, "web", "public", "replays", `${contract.split(".")[0]}-rescue-${rid}.json`));
 const rawOut = arg("--raw");
 const NEARBLOCKS = "https://api-testnet.nearblocks.io/v3";
-const ARCHIVAL = "https://archival-rpc.testnet.fastnear.com";
+// public archival nodes, tried in turn (each rate-limits on its own)
+const ARCHIVALS = ["https://archival-rpc.testnet.near.org", "https://archival-rpc.testnet.fastnear.com"];
 const BLOCKSCOUT = "https://eth-sepolia.blockscout.com/api/v2";
 const UA = { "user-agent": "stead-rescue-log", accept: "application/json" };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -35,7 +36,7 @@ async function get(url: string, tries = 8): Promise<any> {
 }
 async function rpc(method: string, params: unknown): Promise<any> {
   for (let i = 0; ; i++) {
-    const r = await fetch(ARCHIVAL, { method: "POST", headers: { ...UA, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }).catch(() => null);
+    const r = await fetch(ARCHIVALS[i % ARCHIVALS.length], { method: "POST", headers: { ...UA, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }).catch(() => null);
     const j: any = !r ? { error: { message: "unreachable" } } : r.ok ? await r.json() : { error: { message: `HTTP ${r.status}` } };
     if (!j.error) return j.result;
     if (i >= 4) throw new Error(`${method}: ${j.error.cause?.name ?? j.error.message ?? "error"}`);

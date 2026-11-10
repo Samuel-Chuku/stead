@@ -73,3 +73,47 @@ describe("live board from a recorded rescue", () => {
     expect(consequence(0.95)).toBe("0.0");
   });
 });
+
+describe("pooled rescue from a recorded log (rescue 10, four stewards)", () => {
+  const pooled: RescueLog = JSON.parse(readFileSync(new URL("../../web/public/replays/sepolia-demo-rescue-10.json", import.meta.url), "utf8"));
+  const single = boardAt(log, 60);
+
+  it("shows the gap section only for a pooled rescue", () => {
+    expect(single.pool).toBeNull();
+    expect(boardAt(pooled, 0).pool).not.toBeNull();
+  });
+
+  it("fills the gap from the lowest premium up as offers arrive, trimming the last to fit", () => {
+    const early = boardAt(pooled, 3)!.pool!; // only swift has offered
+    expect(early.blocks.map((b) => b.steward)).toEqual(["swift"]);
+    const p = boardAt(pooled, 40).pool!; // all four offers in
+    expect(p.blocks.map((b) => b.steward)).toEqual(["deep", "hedged", "patient", "swift"]);
+    expect(p.blocks.at(-1)!.amount).toBeCloseTo(83.104743016 - 75, 6);
+    expect(p.committed).toBeCloseTo(83.104743016, 6);
+    expect(p.final).toBe(false);
+  });
+
+  it("uses the contract's coalition after the close and says the premiums range", () => {
+    const b = boardAt(pooled, 51);
+    expect(b.pool!.final).toBe(true);
+    expect(b.pool!.funded).toBe(true);
+    expect(b.pool!.cards.find((c) => c.steward === "pool")!.state).toBe("nobid");
+    expect(b.title).toBe("4 stewards won · topping up");
+  });
+
+  it("drains the column while the supplies are in flight and stops the pipe on the proof", () => {
+    expect(boardAt(pooled, 70).pool).toMatchObject({ draining: true, flowing: true, confirmed: false });
+    expect(boardAt(pooled, 121).pool).toMatchObject({ flowing: false, confirmed: true });
+  });
+
+  it("opens one claim per member and shows each one's exact payout as it lands", () => {
+    const open = boardAt(pooled, 150).pool!;
+    expect(open.tags.map((t) => t.holder)).toEqual(["deep", "hedged", "patient", "swift"]);
+    expect(open.claimsOpen).toBe(true);
+    const later = boardAt(pooled, 300).pool!;
+    expect(later.claimsOpen).toBe(false);
+    expect(later.tags.filter((t) => t.paid).map((t) => t.paid)).toEqual(["761.25 DAI", "761.25 DAI"]);
+    const done = boardAt(pooled, duration(pooled)).pool!;
+    expect(done.tags.every((t) => t.paid)).toBe(true);
+  });
+});
