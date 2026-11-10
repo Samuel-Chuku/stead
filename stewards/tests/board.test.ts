@@ -117,3 +117,17 @@ describe("pooled rescue from a recorded log (rescue 10, four stewards)", () => {
     expect(done.tags.every((t) => t.paid)).toBe(true);
   });
 });
+
+describe("settling warning", () => {
+  it("warns not to repay on Aave directly only while a settlement runs", () => {
+    // rescue 8 as if its buy-back window had run out: claims open, then a settlement starts and ends
+    const claimT = log.events.find((e) => e.kind === "CLAIM_MINTED")!.t;
+    const ev = { mark: "proven", chain: "near-testnet", tx: "x" } as any;
+    const base = log.events.filter((e) => !["PAYMENT_IN", "ESCROW_PROVEN", "BUYBACK", "BOUGHT_BACK", "PAYOUT"].includes(e.kind));
+    const settling: RescueLog = { ...log, outcome: "settled", events: [...base, { t: claimT + 200, kind: "SETTLE_START", evidence: ev }, { t: claimT + 300, kind: "SETTLED", evidence: ev }] as any };
+    expect(boardAt(settling, claimT + 100).warning).toBeNull();
+    expect(boardAt(settling, claimT + 250).warning).toMatch(/don't repay this position on Aave directly/);
+    expect(boardAt(settling, claimT + 310).warning).toBeNull();
+    expect(boardAt(log, 1e6).warning).toBeNull(); // a bought-back rescue never shows it
+  });
+});

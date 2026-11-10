@@ -28,6 +28,7 @@ export type RescueEvent = { t: number } & (
   | { kind: "AUCTION_CLOSE"; winners: { steward: StewardId; bps: number; amount: string }[]; evidence: Evidence }
   | { kind: "TOPUP_SENT"; steward: StewardId; amount: string; asset: string; evidence: Evidence }
   | { kind: "TOPUP_CONFIRMED"; steward: StewardId | null; collateral: string; evidence: Evidence }
+  | { kind: "TOPUP_EXPIRED"; slashed: number; evidence: Evidence }
   | { kind: "CLAIM_MINTED"; claim: string; holder: StewardId; owed: string; premium: string; asset: string; windowEndsT: number; evidence: Evidence }
   | { kind: "PAYMENT_IN"; amount: string; asset: string; evidence: Evidence }
   | { kind: "ESCROW_PROVEN"; debtUnits: string; asset: string; evidence: Evidence }
@@ -180,6 +181,11 @@ export function buildLog(inp: Inputs): RescueLog {
         if (d.rescue_id !== rid) break;
         ev.push({ t, kind: "TOPUP_CONFIRMED", steward: null, collateral: units(d.collateral_units, cDec), evidence: nearEv(net, l.tx, { block: d.block }) });
         break;
+      case "topup_expired":
+        // the top-up deadline passed: unconfirmed members lose their bond
+        if (d.rescue_id !== rid) break;
+        ev.push({ t, kind: "TOPUP_EXPIRED", slashed: Number(d.slashed ?? 0), evidence: nearEv(net, l.tx) });
+        break;
       case "topup_confirmed":
         if (d.rescue_id !== rid) break;
         ev.push({ t, kind: "TOPUP_CONFIRMED", steward: stewardOf(d.steward), collateral: "", evidence: nearEv(net, l.tx, { reporter: l.signer }, "reported") });
@@ -260,7 +266,10 @@ export function buildLog(inp: Inputs): RescueLog {
       })()
     : null;
   const kinds = new Set(ev.map((e) => e.kind));
-  const outcome = kinds.has("BOUGHT_BACK") ? "bought back" : kinds.has("SETTLED") ? "settled" : kinds.has("LIQUIDATED") ? "liquidated" : "open";
+  const closeEv = ev.find((e) => e.kind === "AUCTION_CLOSE") as Extract<RescueEvent, { kind: "AUCTION_CLOSE" }> | undefined;
+  const outcome = kinds.has("BOUGHT_BACK") ? "bought back" : kinds.has("SETTLED") ? "settled" : kinds.has("LIQUIDATED") ? "liquidated"
+    : closeEv && !closeEv.winners.length ? "uncovered"
+    : kinds.has("TOPUP_EXPIRED") && !kinds.has("CLAIM_MINTED") ? "failed" : "open";
   return {
     version: 1,
     title: `Rescue ${rid} · position ${pid}`,
@@ -286,5 +295,5 @@ export function buildLog(inp: Inputs): RescueLog {
   };
 }
 
-const ORDER = ["TRIGGER", "AUCTION_OPEN", "READING", "BIDDING", "BID", "AUCTION_CLOSE", "TOPUP_SENT", "TOPUP_CONFIRMED", "CLAIM_MINTED", "PAYMENT_IN", "ESCROW_PROVEN", "BUYBACK", "BOUGHT_BACK", "PAYOUT", "SETTLE_START", "SETTLED", "LIQUIDATED"];
+const ORDER = ["TRIGGER", "AUCTION_OPEN", "READING", "BIDDING", "BID", "AUCTION_CLOSE", "TOPUP_SENT", "TOPUP_CONFIRMED", "TOPUP_EXPIRED", "CLAIM_MINTED", "PAYMENT_IN", "ESCROW_PROVEN", "BUYBACK", "BOUGHT_BACK", "PAYOUT", "SETTLE_START", "SETTLED", "LIQUIDATED"];
 const order = (k: string) => ORDER.indexOf(k);

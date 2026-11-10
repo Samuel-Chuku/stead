@@ -2,8 +2,11 @@
 // Pages fill the content column; the shell holds no data of its own.
 import { icon, logo, type IconName } from "./icons";
 import { mountReplay } from "./board/player";
-import { mountRescue } from "./rescue/page";
+import { mountLive } from "./board/live";
+import type { BoardMode } from "./board/view";
+import { mountProofs, mountRescue } from "./rescue/page";
 import { mountHome } from "./home/page";
+import { loadRecords, mountList } from "./lists/pages";
 
 /** The recorded rescue the live board replays: a real auction on Sepolia, rebuilt from the chains. */
 const REPLAY_URL = "/replays/sepolia-demo-rescue-8.json";
@@ -11,11 +14,27 @@ const REPLAY_URL = "/replays/sepolia-demo-rescue-8.json";
 const REPLAYS = [
   { id: "8", label: "RESCUE 8", url: "/replays/sepolia-demo-rescue-8.json" },
   { id: "10", label: "RESCUE 10 · POOLED", url: "/replays/sepolia-demo-rescue-10.json" },
+  { id: "11", label: "RESCUE 11 · POOLED", url: "/replays/sepolia-demo-rescue-11.json" },
 ];
 const replayId = () => {
   const r = new URLSearchParams(location.search).get("replay");
   return REPLAYS.some((x) => x.id === r) ? r! : REPLAYS[0].id;
 };
+/** #/live opens on LIVE; ?replay=<id> (or the REPLAY switch) opens a recorded rescue; ?demo opens DEMO. */
+const boardMode = (): BoardMode => {
+  const q = new URLSearchParams(location.search);
+  return q.has("replay") ? "replay" : q.has("demo") ? "demo" : "live";
+};
+function setBoardMode(m: BoardMode) {
+  const u = new URL(location.href);
+  if (m === "replay") u.searchParams.set("replay", replayId());
+  else u.searchParams.delete("replay");
+  if (m === "demo") u.searchParams.set("demo", "");
+  else u.searchParams.delete("demo");
+  u.searchParams.delete("t");
+  history.replaceState(null, "", u);
+  fill("live");
+}
 
 type Route = "overview" | "live" | "rescues" | "positions" | "stewards" | "claims" | "proofs";
 
@@ -150,7 +169,9 @@ function fill(r: Route) {
   unmount();
   unmount = () => {};
   const content = document.querySelector<HTMLElement>("#content")!;
-  if (r === "live") {
+  if (r === "live" && boardMode() !== "replay") {
+    unmount = mountLive(content, setBoardMode, boardMode() === "demo" ? "demo" : "live");
+  } else if (r === "live") {
     let stop = () => {};
     let gone = false;
     unmount = () => { gone = true; stop(); };
@@ -158,6 +179,7 @@ function fill(r: Route) {
     void mountReplay(content, REPLAYS.find((x) => x.id === cur)!.url, {
       replays: REPLAYS,
       current: cur,
+      onMode: setBoardMode,
       onPick(id) {
         const u = new URL(location.href);
         u.searchParams.set("replay", id);
@@ -166,8 +188,14 @@ function fill(r: Route) {
         fill("live");
       },
     }).then((s) => (gone ? s() : (stop = s)));
-  } else if (r === "rescues") {
-    void mountRescue(content, REPLAY_URL);
+  } else if (r === "rescues" && new URLSearchParams(location.search).has("rescue")) {
+    // a recorded rescue's own page (?rescue=<id>)
+    const id = new URLSearchParams(location.search).get("rescue");
+    void mountRescue(content, (REPLAYS.find((x) => x.id === id) ?? REPLAYS[REPLAYS.length - 1]).url);
+  } else if (r === "overview" || r === "positions" || r === "rescues" || r === "claims" || r === "stewards") {
+    unmount = mountList(content, r, REPLAYS.map((x) => ({ id: x.id, contract: "sepolia-demo.steadfi.testnet", rescueId: Number(x.id) })));
+  } else if (r === "proofs") {
+    void mountProofs(content, REPLAYS);
   } else content.innerHTML = page(r);
 }
 
@@ -186,7 +214,21 @@ function render() {
   const r = route();
   app.innerHTML = shell(r);
   fill(r);
+  fillStatus();
   document.title = `${PAGES[r].title} · Stead`;
+}
+
+/** The sidebar's status card, from the contracts' records: how Sepolia readings are proven and how many stewards are registered. */
+function fillStatus() {
+  loadRecords().then(
+    ({ rec }) => {
+      const sep = rec.positions.filter((p) => p.chain === "Sepolia" && p.hfSource);
+      const proven = sep.filter((p) => p.hfSource === "verified").length;
+      for (const el of document.querySelectorAll<HTMLElement>('[data-status="readings"]')) el.textContent = sep.length ? `${proven}/${sep.length} proven` : "—";
+      for (const el of document.querySelectorAll<HTMLElement>('[data-status="stewards"]')) el.textContent = `${rec.stewards.length} registered`;
+    },
+    () => {},
+  );
 }
 
 function onRoute() {
@@ -204,6 +246,14 @@ function onRoute() {
 
 app.addEventListener("click", (e) => {
   const t = e.target as HTMLElement;
+  // menu links open a page fresh: page options (?rescue, ?replay, ?demo) belong to the page they were set on
+  const nav = t.closest<HTMLAnchorElement>("a.st-nav-item");
+  if (nav && location.search && !(e as MouseEvent).metaKey && !(e as MouseEvent).ctrlKey) {
+    e.preventDefault();
+    history.pushState(null, "", location.pathname + nav.getAttribute("href"));
+    onRoute();
+    return;
+  }
   const theme = t.closest<HTMLButtonElement>("[data-theme-set]");
   if (theme) return setTheme(theme.dataset.themeSet as Theme);
   if (t.closest("[data-open]")) return setDrawer(true);

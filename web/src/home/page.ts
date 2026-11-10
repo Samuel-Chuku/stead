@@ -41,7 +41,7 @@ export function mountHome(root: HTMLElement, replayUrl: string): () => void {
       raf = requestAnimationFrame(frame);
       if (path) {
         const slot = root.querySelector<HTMLElement>("[data-chart]")!;
-        slot.innerHTML = costChartSection(log, path) + `<p class="st-site-caption">From <a class="st-textlink" href="#/rescues">rescue ${log.rescueId}</a>, the latest recorded rescue.</p>`;
+        slot.innerHTML = costChartSection(log, path) + `<p class="st-site-caption">From <a class="st-textlink" href="?rescue=${log.rescueId}#/rescues">rescue ${log.rescueId}</a>, the latest recorded rescue.</p>`;
         wireChart(slot, path);
       }
     }

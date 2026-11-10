@@ -50,7 +50,11 @@ export type Board = {
   ended: boolean;
   collateral: string | null; // proven collateral after a top-up
   pool: Pool | null; // only for a pooled rescue (several winners, or bids smaller than the top-up)
+  /** While a settlement runs: a repay made directly on Aave would be counted toward the settler's repay. */
+  warning: string | null;
 };
+/** Shown while a rescue settles (the README's honest limits promise it). */
+export const SETTLING_WARNING = "Settlement running: don't repay this position on Aave directly until it ends. The settlement's repay is proven from the drop in the position's debt, so a direct repay would be counted toward the settler's.";
 
 /** Display amounts: two decimals from 1 up, otherwise up to 8 decimals (0.00865215). Exact values stay in the log. */
 export const fmtAmt = (v: string | number) => {
@@ -92,7 +96,10 @@ export function boardAt(log: RescueLog, t: number): Board {
   const settled = last("SETTLED");
   const liquidated = last("LIQUIDATED");
 
-  const phase: Phase = !has("AUCTION_OPEN") ? "before" : t < dur && !close ? "auction" : !close ? "closing" : !claimEv ? "topup" : !(boughtBack || settled || liquidated) ? "claim" : "done";
+  // an auction nobody covered, or a top-up nobody made in time, ends the rescue without a claim
+  const uncovered = !!close && !winners.length;
+  const expired = !claimEv && has("TOPUP_EXPIRED");
+  const phase: Phase = !has("AUCTION_OPEN") ? "before" : t < dur && !close ? "auction" : !close ? "closing" : uncovered || expired ? "done" : !claimEv ? "topup" : !(boughtBack || settled || liquidated) ? "claim" : "done";
 
   // ladder: each steward's bids so far
   const bids = seen.filter((e) => e.kind === "BID") as Extract<RescueEvent, { kind: "BID" }>[];
@@ -136,7 +143,9 @@ export function boardAt(log: RescueLog, t: number): Board {
     const bpsLo = Math.min(...winners.map((w) => w.bps));
     const bpsHi = Math.max(...winners.map((w) => w.bps));
     const who = winners.length > 1 ? `${winners.length} stewards won` : `${winnerName} won`;
-    title = phase === "topup" ? `${who} · topping up` : winners.length > 1 ? `${who} · ${bpsLo === bpsHi ? bpsLo : `${bpsLo}–${bpsHi}`} bps` : `${who} at ${winners[0]?.bps} bps`;
+    title = uncovered ? `No steward covered the top-up · position ${log.positionId} is left to Aave`
+      : expired ? `Top-up not made in time · ${winnerName}'s bond slashed`
+      : phase === "topup" ? `${who} · topping up` : winners.length > 1 ? `${who} · ${bpsLo === bpsHi ? bpsLo : `${bpsLo}–${bpsHi}`} bps` : `${who} at ${winners[0]?.bps} bps`;
     subtitle = `Auction closed · ${nBid} stewards bid`;
   }
 
@@ -191,6 +200,7 @@ export function boardAt(log: RescueLog, t: number): Board {
     journal: journal(log, seen),
     collateral: confirmed?.collateral || null,
     pool: poolAt(log, seen, t, phase),
+    warning: has("SETTLE_START") && !(settled || liquidated) ? SETTLING_WARNING : null,
     ended: t >= duration(log),
   };
 }
@@ -202,7 +212,7 @@ function journal(log: RescueLog, seen: RescueEvent[]): JournalLine[] {
     const at = (kind: string, tone: JournalLine["tone"], text: string, evidence?: Evidence) => L.push({ t: e.t, kind, tone, text, evidence });
     switch (e.kind) {
       case "TRIGGER":
-        at("TRIGGER", "exposure", `Position ${pos} health ${e.hf.toFixed(3)}, below ${log.params.triggerHf.toFixed(2)} · proven at block ${fmtBlock(e.evidence.block)}, ${e.evidence.rpcs} RPCs agree`, e.evidence);
+        at("TRIGGER", "exposure", `Position ${pos} health ${e.hf.toFixed(3)}, below ${log.params.triggerHf.toFixed(2)} · ${e.evidence.mark === "proven" ? `proven at block ${fmtBlock(e.evidence.block)}, ${e.evidence.rpcs} RPCs agree` : `reported by ${e.evidence.reporter ?? "the keeper"}`}`, e.evidence);
         break;
       case "AUCTION_OPEN":
         at("AUCTION", "acting", `Auction opens: ${fmtAmt(e.topUp.amount)} ${e.topUp.asset} (${fmtUsd(e.topUp.usd)}) for ${e.durationS} s, premium cap ${e.capBps.toLocaleString("en-US")} bps`, e.evidence);
@@ -218,6 +228,9 @@ function journal(log: RescueLog, seen: RescueEvent[]): JournalLine[] {
         break;
       case "TOPUP_CONFIRMED":
         at("TOP-UP", "safe", `Top-up proven at block ${fmtBlock(e.evidence.block)}`, e.evidence);
+        break;
+      case "TOPUP_EXPIRED":
+        at("TOP-UP", "plain", `Top-up deadline passed · ${e.slashed} bond${e.slashed === 1 ? "" : "s"} slashed`, e.evidence);
         break;
       case "READING":
         at("READING", "plain", `Health ${e.hf.toFixed(3)} proven at block ${fmtBlock(e.evidence.block)}`, e.evidence);

@@ -19,7 +19,23 @@ const pct = (hf: number) => Math.max(0, Math.min(100, ((hf - 0.9) / 0.8) * 100))
 const tile = (s: StewardId, size: number) => `<span class="st-tile st-tile--${size}" style="--sc: var(--st-steward-${s})" aria-hidden="true">${CODE[s]}</span>`;
 const clockText = (ms: number) => new Date(ms).toISOString().slice(11, 21);
 
-export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onToggle: () => void; replays?: ReplayChoice[]; current?: string; onPick?: (id: string) => void }) {
+export type BoardMode = "replay" | "live" | "demo";
+export type BoardControls = { onToggle: () => void; replays?: ReplayChoice[]; current?: string; onPick?: (id: string) => void; mode?: BoardMode; onMode?: (m: BoardMode) => void; delayS?: number };
+
+/** The LIVE / REPLAY / DEMO switch. DEMO starts a real rescue on a demo borrower's testnet position. */
+export function modeSwitch(mode: BoardMode) {
+  return `<div class="st-seg st-seg--mode" role="group" aria-label="Mode">
+          <button type="button" data-mode="live" aria-pressed="${mode === "live"}">${mode === "live" ? `<span class="st-live-dot" aria-hidden="true"></span>` : ""}LIVE</button>
+          <button type="button" data-mode="replay" aria-pressed="${mode === "replay"}">REPLAY</button>
+          <button type="button" data-mode="demo" aria-pressed="${mode === "demo"}">DEMO</button>
+        </div>`;
+}
+export function bindModeSwitch(root: HTMLElement, mode: BoardMode, onMode?: (m: BoardMode) => void) {
+  for (const b of root.querySelectorAll<HTMLButtonElement>("[data-mode]")) b.addEventListener("click", () => b.dataset.mode !== mode && onMode?.(b.dataset.mode as BoardMode));
+}
+
+export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardControls) {
+  const mode = controls.mode ?? "replay";
   const pooled = isPooled(log);
   const m = log.market;
   const a = log.atOpen;
@@ -30,15 +46,12 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
       <div class="st-lamps">${LAMPS.map((l) => `<div class="st-lamp-cell" data-lamp="${l.id}" data-tone="${l.cls}"><span class="st-dot" aria-hidden="true"></span>${l.id}</div>`).join("")}</div>
       <div class="st-annunciator-right">
         <span class="st-chip-market">SEPOLIA · MARKET ${m.id} · ${m.collateral}/${m.debt}</span>
-        ${controls.replays && controls.replays.length > 1 ? `<div class="st-seg st-seg--rec" role="group" aria-label="Recorded rescue">${controls.replays.map((r) => `<button type="button" data-pick="${r.id}" aria-pressed="${r.id === controls.current}">${esc(r.label)}</button>`).join("")}</div>` : ""}
-        <div class="st-seg st-seg--mode" role="group" aria-label="Mode">
-          <button type="button" aria-pressed="false" aria-disabled="true" title="Live mode comes with the live feed">LIVE</button>
-          <button type="button" aria-pressed="true">REPLAY</button>
-          <button type="button" aria-pressed="false" aria-disabled="true" title="Demo mode comes with the demo account">DEMO</button>
-        </div>
-        <button type="button" class="st-push st-push--small st-cut" data-toggle><span class="st-lamp" aria-hidden="true"></span><span data-toggle-label>PLAY</span></button>
+        ${controls.replays && controls.replays.length > 1 ? `<div class="st-seg st-seg--rec" role="group" aria-label="${mode === "replay" ? "Recorded rescue" : "Open rescue"}">${controls.replays.map((r) => `<button type="button" data-pick="${r.id}" aria-pressed="${r.id === controls.current}">${esc(r.label)}</button>`).join("")}</div>` : ""}
+        ${modeSwitch(mode)}
+        ${mode === "replay" ? `<button type="button" class="st-push st-push--small st-cut" data-toggle><span class="st-lamp" aria-hidden="true"></span><span data-toggle-label>PLAY</span></button>` : ""}
       </div>
     </header>
+    <section class="st-error st-board-warn" role="alert" data-warn hidden><h2>Do not repay on Aave directly</h2><p data-warn-text></p></section>
 
     <div class="st-board-grid">
       <section class="st-panel st-board-panel st-pos" aria-label="Position">
@@ -133,13 +146,14 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
 
     ${pooled ? poolMarkup(log) : ""}
     <section class="st-journal" aria-label="Journal">
-      <div class="st-journal-head">JOURNAL · REPLAY OF A RECORDED RESCUE, ON LOOP · ${esc(log.label.toUpperCase())}</div>
+      <div class="st-journal-head">${mode === "live" ? `JOURNAL · LIVE · ${controls.delayS ?? 6} S BEHIND THE CHAIN` : mode === "demo" ? `JOURNAL · DEMO · STARTED FROM THIS PAGE · ${controls.delayS ?? 6} S BEHIND THE CHAIN` : "JOURNAL · REPLAY OF A RECORDED RESCUE, ON LOOP"} · ${esc(log.label.toUpperCase())}</div>
       <div class="st-journal-lines" data-journal data-theme="dark"></div>
     </section>
   </div>`;
 
   const q = <T extends HTMLElement = HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
-  root.querySelector("[data-toggle]")!.addEventListener("click", controls.onToggle);
+  root.querySelector("[data-toggle]")?.addEventListener("click", controls.onToggle);
+  bindModeSwitch(root, mode, controls.onMode);
   for (const btn of root.querySelectorAll<HTMLButtonElement>("[data-pick]")) btn.addEventListener("click", () => btn.dataset.pick !== controls.current && controls.onPick?.(btn.dataset.pick!));
   const poolState = { fell: new Map<string, number>(), tagKey: "" };
   const open = log.events.find((e) => e.kind === "AUCTION_OPEN") as any;
@@ -152,6 +166,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
 
   return {
     setPlaying(playing: boolean, ended: boolean) {
+      if (mode !== "replay") return;
       q("[data-toggle-label]").textContent = playing ? "PAUSE" : ended ? "REPLAY AGAIN" : "PLAY";
       q("[data-toggle]").setAttribute("aria-pressed", String(playing));
     },
@@ -188,6 +203,11 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
 
       // collateral: the proven amount after the top-up, else the amount at the opening
       q("[data-coll]").textContent = b.collateral ? `${fmtAmt(b.collateral)} ${m.collateral}` : a ? `${fmtAmt(a.collateral)} ${m.collateral}` : "—";
+
+      // settlement running: the warning stays up until it ends
+      const warn = q("[data-warn]") as HTMLElement;
+      if (warn.hidden !== !b.warning) warn.hidden = !b.warning;
+      if (b.warning && q("[data-warn-text]").textContent !== b.warning) q("[data-warn-text]").textContent = b.warning;
 
       // auction head
       q("[data-title]").textContent = b.title;
@@ -285,7 +305,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
               l.evidence ? `<a href="${l.evidence.url}" target="_blank" rel="noopener">${esc(l.text)}</a>` : esc(l.text)
             }</span></div>`,
           )
-          .join("") || `<div class="st-jline st-jline--quiet">Press PLAY to replay rescue ${log.rescueId} from its recorded events.</div>`;
+          .join("") || `<div class="st-jline st-jline--quiet">${mode !== "replay" ? `Rescue ${log.rescueId} opened. Events appear here as the chains record them.` : `Press PLAY to replay rescue ${log.rescueId} from its recorded events.`}</div>`;
       }
     },
   };

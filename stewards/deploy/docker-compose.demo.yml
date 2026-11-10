@@ -67,3 +67,53 @@ services:
   steward-hedged:
     <<: *bot
     command: ["scripts/steward.ts", "hedged"]
+
+  # ── public read-only live feed and the demo runner, behind Stead's own Cloudflare tunnel ──
+  # Nothing here publishes a host port: the tunnel reaches live-feed on the stack's network, and
+  # live-feed passes /demo/start and /demo/status to the runner.
+  live-feed:
+    <<: *bot
+    # its own image tag: building it never rebuilds the running keeper and stewards
+    image: stead-live:local
+    command: ["scripts/live-feed.ts", "--serve", "8788", "--host", "0.0.0.0"]
+    environment:
+      STEAD_EVM: sepolia
+      DEMO_RUNNER_URL: http://demo-runner:8789
+    # only the testnet node URL (QUICKNODE_NEAR_TESTNET_URL): no keys
+    volumes:
+      - /opt/stead/secrets-live/.env:/app/.env:ro
+    mem_limit: 256m
+  # starts a real testnet rescue on a demo borrower's position when a visitor clicks; holds only
+  # the two demo borrowers' NEAR keys, their Sepolia payout keys and the reserve wallet's key
+  demo-runner:
+    <<: *bot
+    image: stead-live:local
+    command: ["scripts/demo-runner.ts", "--port", "8789", "--host", "0.0.0.0"]
+    environment:
+      STEAD_EVM: sepolia
+      NEAR_CONTRACT_ID: sepolia-demo.steadfi.testnet
+      STEAD_MARKET_ID: "1"
+      NEAR_RPC_URL: https://near-testnet.drpc.org
+      NEAR_RPC_FALLBACK: https://test.rpc.fastnear.com
+      NEAR_CREDENTIALS_DIR: /secrets/near
+      DEMO_STATE_FILE: /app/state/demo-slots.json
+      DEMO_ALLOWED_ORIGINS: https://app.usestead.xyz,https://usestead.xyz
+    volumes:
+      - /opt/stead/secrets-demo-runner/.env:/app/.env:ro
+      - /opt/stead/secrets-demo-runner/near:/secrets/near:ro
+      - /opt/stead/state-demo:/app/state
+      - /opt/stead/logs-demo:/app/stewards/logs
+    mem_limit: 256m
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.3@sha256:faa8e0a1475f137c910be6025f43c8e4092fdd35461b31e19fd1390657a1ff39
+    command: ["tunnel", "--no-autoupdate", "run"]
+    restart: always
+    # TUNNEL_TOKEN only (live.usestead.xyz → http://live-feed:8788)
+    env_file: /opt/stead/secrets-tunnel/.env
+    depends_on: [live-feed]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 128m

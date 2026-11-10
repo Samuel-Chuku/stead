@@ -1,0 +1,1990 @@
+{
+ "version": 1,
+ "generated": "2026-11-10T15:00:22.326Z",
+ "contracts": [
+  "sepolia-demo.steadfi.testnet",
+  "steadfi.testnet"
+ ],
+ "positions": [
+  {
+   "key": "sepolia-demo.steadfi.testnet#p6",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 6,
+   "owner": "demo-2.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "hf": null,
+   "hfBlock": 12105356,
+   "hfSource": "verified",
+   "hfAtMs": 1794322565739,
+   "collateralUsd": 1799.99999999,
+   "debtUsd": 0,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#p5",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 5,
+   "owner": "demo.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "hf": 1.140004,
+   "hfBlock": 12105373,
+   "hfSource": "verified",
+   "hfAtMs": 1794322767854,
+   "collateralUsd": 1800.06533164,
+   "debtUsd": 1184.2484501,
+   "status": "in rescue",
+   "openRescues": [
+    12
+   ]
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#p4",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 4,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "hf": 1.501814,
+   "hfBlock": 12105337,
+   "hfSource": "verified",
+   "hfAtMs": 1794322329000,
+   "collateralUsd": 13880.65309002,
+   "debtUsd": 6931.94066801,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#p3",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 3,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "WBTC/DAI",
+   "chain": "Sepolia",
+   "hf": 1.497348,
+   "hfBlock": 12088284,
+   "hfSource": "verified",
+   "hfAtMs": 1794111321620,
+   "collateralUsd": 2163.0258,
+   "debtUsd": 1083.42816715,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#p2",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 2,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "hf": 1.525207,
+   "hfBlock": 12105346,
+   "hfSource": "verified",
+   "hfAtMs": 1794322438086,
+   "collateralUsd": 4151.41996756,
+   "debtUsd": 2041.40363611,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#p1",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 1,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "hf": 1.527558,
+   "hfBlock": 12105345,
+   "hfSource": "verified",
+   "hfAtMs": 1794322424109,
+   "collateralUsd": 5475.35534781,
+   "debtUsd": 2688.28814727,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#p0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 0,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "hf": null,
+   "hfBlock": 12075781,
+   "hfSource": "verified",
+   "hfAtMs": 1793958600460,
+   "collateralUsd": 6000.1740349,
+   "debtUsd": 0,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p15",
+   "contract": "steadfi.testnet",
+   "id": 15,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": 1.500035,
+   "hfBlock": 12088699,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1794116953973,
+   "collateralUsd": 1846.16947626,
+   "debtUsd": 923.06274949,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p14",
+   "contract": "steadfi.testnet",
+   "id": 14,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": 1.50001,
+   "hfBlock": 12088678,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1794116368693,
+   "collateralUsd": 3600.03990853,
+   "debtUsd": 1800.00789005,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p13",
+   "contract": "steadfi.testnet",
+   "id": 13,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": 1.504892,
+   "hfBlock": 12082422,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1794039475138,
+   "collateralUsd": 1593.28399214,
+   "debtUsd": 794.0521512,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p12",
+   "contract": "steadfi.testnet",
+   "id": 12,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "hf": 1.526457,
+   "hfBlock": 12105336,
+   "hfSource": "verified",
+   "hfAtMs": 1794322323422,
+   "collateralUsd": 8104.59917208,
+   "debtUsd": 3982.06204931,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p11",
+   "contract": "steadfi.testnet",
+   "id": 11,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": 1.500007,
+   "hfBlock": 12070639,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1793895768663,
+   "collateralUsd": 3600.03271575,
+   "debtUsd": 1800.00676285,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p10",
+   "contract": "steadfi.testnet",
+   "id": 10,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": 1.500002,
+   "hfBlock": 12070595,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1793895323277,
+   "collateralUsd": 3600.01483233,
+   "debtUsd": 1800.00392245,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p9",
+   "contract": "steadfi.testnet",
+   "id": 9,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "hf": 1.50563,
+   "hfBlock": 12076647,
+   "hfSource": "verified",
+   "hfAtMs": 1793969147535,
+   "collateralUsd": 7939.20725072,
+   "debtUsd": 3954.7598865,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p8",
+   "contract": "steadfi.testnet",
+   "id": 8,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": 1.50002,
+   "hfBlock": 12063287,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1793805980285,
+   "collateralUsd": 1846.14013314,
+   "debtUsd": 923.05762011,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p7",
+   "contract": "steadfi.testnet",
+   "id": 7,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": 1.50002,
+   "hfBlock": 12063176,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1793804567843,
+   "collateralUsd": 1846.14153359,
+   "debtUsd": 923.05827648,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p6",
+   "contract": "steadfi.testnet",
+   "id": 6,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": 1.50002,
+   "hfBlock": 12063107,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1793803735479,
+   "collateralUsd": 1846.1399593,
+   "debtUsd": 923.05762413,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p5",
+   "contract": "steadfi.testnet",
+   "id": 5,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": 1.500003,
+   "hfBlock": 12062900,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1793802934574,
+   "collateralUsd": 3600.02717748,
+   "debtUsd": 1800.00910729,
+   "status": "in rescue",
+   "openRescues": [
+    5
+   ]
+  },
+  {
+   "key": "steadfi.testnet#p4",
+   "contract": "steadfi.testnet",
+   "id": 4,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": null,
+   "hfBlock": 12062899,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1793802799615,
+   "collateralUsd": 0,
+   "debtUsd": 0,
+   "status": "empty",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p3",
+   "contract": "steadfi.testnet",
+   "id": 3,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": null,
+   "hfBlock": 12062899,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1793802795504,
+   "collateralUsd": 0,
+   "debtUsd": 0,
+   "status": "empty",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p2",
+   "contract": "steadfi.testnet",
+   "id": 2,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": 1.500103,
+   "hfBlock": 12062899,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1793802791248,
+   "collateralUsd": 1846.29730046,
+   "debtUsd": 923.08518512,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p1",
+   "contract": "steadfi.testnet",
+   "id": 1,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": 9.479637,
+   "hfBlock": 12062899,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1793802786974,
+   "collateralUsd": 746.51511341,
+   "debtUsd": 59.06199727,
+   "status": "protected",
+   "openRescues": []
+  },
+  {
+   "key": "steadfi.testnet#p0",
+   "contract": "steadfi.testnet",
+   "id": 0,
+   "owner": "borrower.steadfi.testnet",
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "hf": 3.105269,
+   "hfBlock": 12062899,
+   "hfSource": "reporter.steadfi.testnet",
+   "hfAtMs": 1793802782751,
+   "collateralUsd": 987.3441796,
+   "debtUsd": 238.46826387,
+   "status": "protected",
+   "openRescues": []
+  }
+ ],
+ "rescues": [
+  {
+   "key": "sepolia-demo.steadfi.testnet#12",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 12,
+   "positionId": 5,
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "state": "auction",
+   "openedAtMs": 1794322767854,
+   "topUp": "18.947718952",
+   "asset": "LINK",
+   "topUpUsd": 568.43156856,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [],
+   "premiumUsd": 0,
+   "claims": []
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#11",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 11,
+   "positionId": 4,
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "state": "bought_back",
+   "openedAtMs": 1794298351793,
+   "topUp": "110.843362359",
+   "asset": "LINK",
+   "topUpUsd": 3325.30087077,
+   "capBps": 1041,
+   "bids": 4,
+   "winners": [
+    {
+     "steward": "hedged",
+     "bps": 63,
+     "share": "30"
+    },
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "30"
+    },
+    {
+     "steward": "patient",
+     "bps": 268,
+     "share": "30"
+    },
+    {
+     "steward": "swift",
+     "bps": 400,
+     "share": "20.843362359"
+    }
+   ],
+   "premiumUsd": 68.30203483000001,
+   "claims": [
+    "4-2-0",
+    "4-2-1",
+    "4-2-2",
+    "4-2-3"
+   ]
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#10",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 10,
+   "positionId": 4,
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "state": "bought_back",
+   "openedAtMs": 1794117920483,
+   "topUp": "83.104743016",
+   "asset": "LINK",
+   "topUpUsd": 2493.14229048,
+   "capBps": 1041,
+   "bids": 4,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "25"
+    },
+    {
+     "steward": "hedged",
+     "bps": 150,
+     "share": "25"
+    },
+    {
+     "steward": "patient",
+     "bps": 268,
+     "share": "25"
+    },
+    {
+     "steward": "swift",
+     "bps": 400,
+     "share": "8.104743016"
+    }
+   ],
+   "premiumUsd": 52.32569161,
+   "claims": [
+    "4-1-0",
+    "4-1-1",
+    "4-1-2",
+    "4-1-3"
+   ]
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#9",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 9,
+   "positionId": 4,
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "state": "bought_back",
+   "openedAtMs": 1794117417049,
+   "topUp": "63.157618673333333334",
+   "asset": "LINK",
+   "topUpUsd": 1894.7285602,
+   "capBps": 1041,
+   "bids": 4,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "25"
+    },
+    {
+     "steward": "hedged",
+     "bps": 150,
+     "share": "25"
+    },
+    {
+     "steward": "patient",
+     "bps": 268,
+     "share": "13.157618673333333334"
+    }
+   ],
+   "premiumUsd": 33.078725410000004,
+   "claims": [
+    "4-0-0",
+    "4-0-1",
+    "4-0-2"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#21",
+   "contract": "steadfi.testnet",
+   "id": 21,
+   "positionId": 15,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "settled",
+   "openedAtMs": 1794116644837,
+   "topUp": "41.551570283918269534",
+   "asset": "LINK",
+   "topUpUsd": 864.00258584,
+   "capBps": 1041,
+   "bids": 4,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "41.551570283918269534"
+    }
+   ],
+   "premiumUsd": 12.96003878,
+   "claims": [
+    "15-1-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#20",
+   "contract": "steadfi.testnet",
+   "id": 20,
+   "positionId": 15,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "bought_back",
+   "openedAtMs": 1794116527388,
+   "topUp": "31.578673615497076024",
+   "asset": "LINK",
+   "topUpUsd": 863.99251012,
+   "capBps": 1041,
+   "bids": 4,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "31.578673615497076024"
+    }
+   ],
+   "premiumUsd": 12.95988765,
+   "claims": [
+    "15-0-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#19",
+   "contract": "steadfi.testnet",
+   "id": 19,
+   "positionId": 14,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "bought_back",
+   "openedAtMs": 1794116213567,
+   "topUp": "31.578690660818713451",
+   "asset": "LINK",
+   "topUpUsd": 863.99297648,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "patient",
+     "bps": 268,
+     "share": "15"
+    },
+    {
+     "steward": "pool",
+     "bps": 300,
+     "share": "12.63147626432748538"
+    },
+    {
+     "steward": "swift",
+     "bps": 400,
+     "share": "3.947214396491228071"
+    }
+   ],
+   "premiumUsd": 25.68646714,
+   "claims": [
+    "14-0-0",
+    "14-0-1",
+    "14-0-2"
+   ]
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#8",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 8,
+   "positionId": 3,
+   "pair": "WBTC/DAI",
+   "chain": "Sepolia",
+   "state": "bought_back",
+   "openedAtMs": 1794040675653,
+   "topUp": "0.00865215",
+   "asset": "WBTC",
+   "topUpUsd": 519.1287379,
+   "capBps": 1041,
+   "bids": 4,
+   "winners": [
+    {
+     "steward": "hedged",
+     "bps": 100,
+     "share": "0.00865215"
+    }
+   ],
+   "premiumUsd": 5.1912,
+   "claims": [
+    "3-5-0"
+   ]
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#7",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 7,
+   "positionId": 3,
+   "pair": "WBTC/DAI",
+   "chain": "Sepolia",
+   "state": "settled",
+   "openedAtMs": 1794040016421,
+   "topUp": "0.01276346",
+   "asset": "WBTC",
+   "topUpUsd": 765.80713516,
+   "capBps": 1041,
+   "bids": 4,
+   "winners": [
+    {
+     "steward": "hedged",
+     "bps": 100,
+     "share": "0.01276346"
+    }
+   ],
+   "premiumUsd": 7.6578,
+   "claims": [
+    "3-4-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#18",
+   "contract": "steadfi.testnet",
+   "id": 18,
+   "positionId": 13,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "settled",
+   "openedAtMs": 1794039359512,
+   "topUp": "41.551117707595333477",
+   "asset": "LINK",
+   "topUpUsd": 863.99515926,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "hedged",
+     "bps": 63,
+     "share": "41.551117707595333477"
+    }
+   ],
+   "premiumUsd": 5.4431695,
+   "claims": [
+    "13-1-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#17",
+   "contract": "steadfi.testnet",
+   "id": 17,
+   "positionId": 13,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "bought_back",
+   "openedAtMs": 1794039227260,
+   "topUp": "31.578686475146198831",
+   "asset": "LINK",
+   "topUpUsd": 863.99286196,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "hedged",
+     "bps": 63,
+     "share": "31.578686475146198831"
+    }
+   ],
+   "premiumUsd": 5.44315503,
+   "claims": [
+    "13-0-0"
+   ]
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#6",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 6,
+   "positionId": 3,
+   "pair": "WBTC/DAI",
+   "chain": "Sepolia",
+   "state": "settled",
+   "openedAtMs": 1794033236416,
+   "topUp": "0.01891655",
+   "asset": "WBTC",
+   "topUpUsd": 1134.99244612,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "0.01891655"
+    }
+   ],
+   "premiumUsd": 17.0244,
+   "claims": [
+    "3-3-0"
+   ]
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#5",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 5,
+   "positionId": 3,
+   "pair": "WBTC/DAI",
+   "chain": "Sepolia",
+   "state": "failed",
+   "openedAtMs": 1794029785182,
+   "topUp": "0.01437707",
+   "asset": "WBTC",
+   "topUpUsd": 862.6238738,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [],
+   "premiumUsd": 0,
+   "claims": []
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#4",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 4,
+   "positionId": 3,
+   "pair": "WBTC/DAI",
+   "chain": "Sepolia",
+   "state": "settled",
+   "openedAtMs": 1794027195311,
+   "topUp": "0.02130732",
+   "asset": "WBTC",
+   "topUpUsd": 1278.43909622,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "0.02130732"
+    }
+   ],
+   "premiumUsd": 19.176,
+   "claims": [
+    "3-1-0"
+   ]
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#3",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 3,
+   "positionId": 3,
+   "pair": "WBTC/DAI",
+   "chain": "Sepolia",
+   "state": "settled",
+   "openedAtMs": 1794005501468,
+   "topUp": "0.03157923",
+   "asset": "WBTC",
+   "topUpUsd": 1894.7532702,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "0.03157923"
+    }
+   ],
+   "premiumUsd": 28.4208,
+   "claims": [
+    "3-0-0"
+   ]
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#2",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 2,
+   "positionId": 2,
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "state": "settled",
+   "openedAtMs": 1793990751384,
+   "topUp": "63.156877087",
+   "asset": "LINK",
+   "topUpUsd": 1894.70631261,
+   "capBps": 1041,
+   "bids": 2,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "63.156877087"
+    }
+   ],
+   "premiumUsd": 28.42059468,
+   "claims": [
+    "2-0-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#16",
+   "contract": "steadfi.testnet",
+   "id": 16,
+   "positionId": 12,
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "state": "bought_back",
+   "openedAtMs": 1793974684832,
+   "topUp": "63.150913358666666667",
+   "asset": "LINK",
+   "topUpUsd": 1894.52740076,
+   "capBps": 1041,
+   "bids": 2,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "63.150913358666666667"
+    }
+   ],
+   "premiumUsd": 28.41791101,
+   "claims": [
+    "12-1-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#15",
+   "contract": "steadfi.testnet",
+   "id": 15,
+   "positionId": 12,
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "state": "failed",
+   "openedAtMs": 1793974047199,
+   "topUp": "63.156329629666666667",
+   "asset": "LINK",
+   "topUpUsd": 1894.68988889,
+   "capBps": 1041,
+   "bids": 1,
+   "winners": [],
+   "premiumUsd": 0,
+   "claims": []
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#1",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 1,
+   "positionId": 1,
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "state": "bought_back",
+   "openedAtMs": 1793960545184,
+   "topUp": "42.623940284333333334",
+   "asset": "LINK",
+   "topUpUsd": 1278.71820853,
+   "capBps": 1041,
+   "bids": 1,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "42.623940284333333334"
+    }
+   ],
+   "premiumUsd": 19.18077312,
+   "claims": [
+    "1-1-0"
+   ]
+  },
+  {
+   "key": "sepolia-demo.steadfi.testnet#0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "id": 0,
+   "positionId": 1,
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "state": "settled",
+   "openedAtMs": 1793959565141,
+   "topUp": "63.157091942",
+   "asset": "LINK",
+   "topUpUsd": 1894.71275826,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "63.157091942"
+    }
+   ],
+   "premiumUsd": 28.42069137,
+   "claims": [
+    "1-0-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#14",
+   "contract": "steadfi.testnet",
+   "id": 14,
+   "positionId": 11,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "bought_back",
+   "openedAtMs": 1793895638690,
+   "topUp": "31.578682358918128655",
+   "asset": "LINK",
+   "topUpUsd": 863.99274934,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "20"
+    },
+    {
+     "steward": "patient",
+     "bps": 268,
+     "share": "11.578682358918128655"
+    }
+   ],
+   "premiumUsd": 16.69804568,
+   "claims": [
+    "11-0-0",
+    "11-0-1"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#13",
+   "contract": "steadfi.testnet",
+   "id": 13,
+   "positionId": 10,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "failed",
+   "openedAtMs": 1793895198476,
+   "topUp": "31.578673847222222223",
+   "asset": "LINK",
+   "topUpUsd": 863.99251646,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [],
+   "premiumUsd": 0,
+   "claims": []
+  },
+  {
+   "key": "steadfi.testnet#12",
+   "contract": "steadfi.testnet",
+   "id": 12,
+   "positionId": 9,
+   "pair": "LINK/DAI",
+   "chain": "Sepolia",
+   "state": "bought_back",
+   "openedAtMs": 1793894783101,
+   "topUp": "63.157414839",
+   "asset": "LINK",
+   "topUpUsd": 1894.72244517,
+   "capBps": 1041,
+   "bids": 2,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "63.157414839"
+    }
+   ],
+   "premiumUsd": 28.42083667,
+   "claims": [
+    "9-0-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#11",
+   "contract": "steadfi.testnet",
+   "id": 11,
+   "positionId": 8,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "settled",
+   "openedAtMs": 1793805790160,
+   "topUp": "41.55157838468242776",
+   "asset": "LINK",
+   "topUpUsd": 864.00269528,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "41.55157838468242776"
+    }
+   ],
+   "premiumUsd": 12.96004042,
+   "claims": [
+    "8-1-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#10",
+   "contract": "steadfi.testnet",
+   "id": 10,
+   "positionId": 8,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "bought_back",
+   "openedAtMs": 1793805677125,
+   "topUp": "31.578563984649122808",
+   "asset": "LINK",
+   "topUpUsd": 863.98951062,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "31.578563984649122808"
+    }
+   ],
+   "premiumUsd": 12.95984265,
+   "claims": [
+    "8-0-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#9",
+   "contract": "steadfi.testnet",
+   "id": 9,
+   "positionId": 7,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "settled",
+   "openedAtMs": 1793804371181,
+   "topUp": "41.551386001347524585",
+   "asset": "LINK",
+   "topUpUsd": 864.00082779,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "41.551386001347524585"
+    }
+   ],
+   "premiumUsd": 12.96001241,
+   "claims": [
+    "7-1-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#8",
+   "contract": "steadfi.testnet",
+   "id": 8,
+   "positionId": 7,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "bought_back",
+   "openedAtMs": 1793804292876,
+   "topUp": "31.578694257309941521",
+   "asset": "LINK",
+   "topUpUsd": 863.99307488,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "31.578694257309941521"
+    }
+   ],
+   "premiumUsd": 12.95989612,
+   "claims": [
+    "7-0-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#7",
+   "contract": "steadfi.testnet",
+   "id": 7,
+   "positionId": 6,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "settled",
+   "openedAtMs": 1793803533613,
+   "topUp": "41.551405052595879617",
+   "asset": "LINK",
+   "topUpUsd": 864.00117698,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "41.551405052595879617"
+    }
+   ],
+   "premiumUsd": 12.96001765,
+   "claims": [
+    "6-1-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#6",
+   "contract": "steadfi.testnet",
+   "id": 6,
+   "positionId": 6,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "bought_back",
+   "openedAtMs": 1793803456615,
+   "topUp": "31.578686707967836258",
+   "asset": "LINK",
+   "topUpUsd": 863.99286833,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "31.578686707967836258"
+    }
+   ],
+   "premiumUsd": 12.95989302,
+   "claims": [
+    "6-0-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#5",
+   "contract": "steadfi.testnet",
+   "id": 5,
+   "positionId": 5,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "settling",
+   "openedAtMs": 1793802803202,
+   "topUp": "41.551471096814035347",
+   "asset": "LINK",
+   "topUpUsd": 864.00174002,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "41.551471096814035347"
+    }
+   ],
+   "premiumUsd": 12.9600261,
+   "claims": [
+    "5-1-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#4",
+   "contract": "steadfi.testnet",
+   "id": 4,
+   "positionId": 5,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "bought_back",
+   "openedAtMs": 1793802699608,
+   "topUp": "31.57868437134502924",
+   "asset": "LINK",
+   "topUpUsd": 863.9928044,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "31.57868437134502924"
+    }
+   ],
+   "premiumUsd": 12.95989206,
+   "claims": [
+    "5-0-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#3",
+   "contract": "steadfi.testnet",
+   "id": 3,
+   "positionId": 2,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "settled",
+   "openedAtMs": 1793801509672,
+   "topUp": "41.551396798906948406",
+   "asset": "LINK",
+   "topUpUsd": 864.00078181,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "41.551396798906948406"
+    }
+   ],
+   "premiumUsd": 12.96001172,
+   "claims": [
+    "2-1-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#2",
+   "contract": "steadfi.testnet",
+   "id": 2,
+   "positionId": 2,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "bought_back",
+   "openedAtMs": 1793801418543,
+   "topUp": "31.578638532894736843",
+   "asset": "LINK",
+   "topUpUsd": 863.99155026,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "31.578638532894736843"
+    }
+   ],
+   "premiumUsd": 12.95987325,
+   "claims": [
+    "2-0-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#1",
+   "contract": "steadfi.testnet",
+   "id": 1,
+   "positionId": 1,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "settled",
+   "openedAtMs": 1793800920349,
+   "topUp": "31.578678201754385965",
+   "asset": "LINK",
+   "topUpUsd": 863.9926356,
+   "capBps": 1041,
+   "bids": 3,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "31.578678201754385965"
+    }
+   ],
+   "premiumUsd": 12.95988953,
+   "claims": [
+    "1-0-0"
+   ]
+  },
+  {
+   "key": "steadfi.testnet#0",
+   "contract": "steadfi.testnet",
+   "id": 0,
+   "positionId": 0,
+   "pair": "LINK/DAI",
+   "chain": "local fork",
+   "state": "settled",
+   "openedAtMs": 1793800698000,
+   "topUp": "31.578694260964912281",
+   "asset": "LINK",
+   "topUpUsd": 863.99307498,
+   "capBps": 1041,
+   "bids": 2,
+   "winners": [
+    {
+     "steward": "deep",
+     "bps": 150,
+     "share": "31.578694260964912281"
+    }
+   ],
+   "premiumUsd": 12.95989612,
+   "claims": [
+    "0-0-0"
+   ]
+  }
+ ],
+ "claims": [
+  {
+   "token": "4-2-0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 11,
+   "positionId": 4,
+   "owner": "hedged",
+   "share": "30",
+   "premium": "0.189",
+   "owed": "30.189",
+   "asset": "LINK",
+   "bps": 63,
+   "status": "bought_back",
+   "expiresAtMs": 1794298688812
+  },
+  {
+   "token": "4-2-1",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 11,
+   "positionId": 4,
+   "owner": "deep",
+   "share": "30",
+   "premium": "0.45",
+   "owed": "30.45",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1794298688812
+  },
+  {
+   "token": "4-2-2",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 11,
+   "positionId": 4,
+   "owner": "patient",
+   "share": "30",
+   "premium": "0.804",
+   "owed": "30.804",
+   "asset": "LINK",
+   "bps": 268,
+   "status": "bought_back",
+   "expiresAtMs": 1794298688812
+  },
+  {
+   "token": "4-2-3",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 11,
+   "positionId": 4,
+   "owner": "swift",
+   "share": "20.843362359",
+   "premium": "0.83373449436",
+   "owed": "21.67709685336",
+   "asset": "LINK",
+   "bps": 400,
+   "status": "bought_back",
+   "expiresAtMs": 1794298688812
+  },
+  {
+   "token": "14-0-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 19,
+   "positionId": 14,
+   "owner": "patient",
+   "share": "15",
+   "premium": "0.402",
+   "owed": "15.402",
+   "asset": "LINK",
+   "bps": 268,
+   "status": "bought_back",
+   "expiresAtMs": 1794202681677
+  },
+  {
+   "token": "14-0-1",
+   "contract": "steadfi.testnet",
+   "rescueId": 19,
+   "positionId": 14,
+   "owner": "pool",
+   "share": "12.63147626432748538",
+   "premium": "0.378944287929824561",
+   "owed": "13.010420552257309941",
+   "asset": "LINK",
+   "bps": 300,
+   "status": "bought_back",
+   "expiresAtMs": 1794202681677
+  },
+  {
+   "token": "14-0-2",
+   "contract": "steadfi.testnet",
+   "rescueId": 19,
+   "positionId": 14,
+   "owner": "swift",
+   "share": "3.947214396491228071",
+   "premium": "0.157888575859649122",
+   "owed": "4.105102972350877193",
+   "asset": "LINK",
+   "bps": 400,
+   "status": "bought_back",
+   "expiresAtMs": 1794202681677
+  },
+  {
+   "token": "13-1-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 18,
+   "positionId": 13,
+   "owner": "hedged",
+   "share": "41.551117707595333477",
+   "premium": "0.2617720415578506",
+   "owed": "41.812889749153184077",
+   "asset": "LINK",
+   "bps": 63,
+   "status": "settled",
+   "expiresAtMs": 1794125815145
+  },
+  {
+   "token": "13-0-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 17,
+   "positionId": 13,
+   "owner": "hedged",
+   "share": "31.578686475146198831",
+   "premium": "0.198945724793421052",
+   "owed": "31.777632199939619883",
+   "asset": "LINK",
+   "bps": 63,
+   "status": "bought_back",
+   "expiresAtMs": 1794125691038
+  },
+  {
+   "token": "4-1-0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 10,
+   "positionId": 4,
+   "owner": "deep",
+   "share": "25",
+   "premium": "0.375",
+   "owed": "25.375",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1794118220987
+  },
+  {
+   "token": "4-1-1",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 10,
+   "positionId": 4,
+   "owner": "hedged",
+   "share": "25",
+   "premium": "0.375",
+   "owed": "25.375",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1794118220987
+  },
+  {
+   "token": "4-1-2",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 10,
+   "positionId": 4,
+   "owner": "patient",
+   "share": "25",
+   "premium": "0.67",
+   "owed": "25.67",
+   "asset": "LINK",
+   "bps": 268,
+   "status": "bought_back",
+   "expiresAtMs": 1794118220987
+  },
+  {
+   "token": "4-1-3",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 10,
+   "positionId": 4,
+   "owner": "swift",
+   "share": "8.104743016",
+   "premium": "0.32418972064",
+   "owed": "8.42893273664",
+   "asset": "LINK",
+   "bps": 400,
+   "status": "bought_back",
+   "expiresAtMs": 1794118220987
+  },
+  {
+   "token": "4-0-0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 9,
+   "positionId": 4,
+   "owner": "deep",
+   "share": "25",
+   "premium": "0.375",
+   "owed": "25.375",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1794117721402
+  },
+  {
+   "token": "4-0-1",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 9,
+   "positionId": 4,
+   "owner": "hedged",
+   "share": "25",
+   "premium": "0.375",
+   "owed": "25.375",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1794117721402
+  },
+  {
+   "token": "4-0-2",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 9,
+   "positionId": 4,
+   "owner": "patient",
+   "share": "13.157618673333333334",
+   "premium": "0.352624180445333333",
+   "owed": "13.510242853778666667",
+   "asset": "LINK",
+   "bps": 268,
+   "status": "bought_back",
+   "expiresAtMs": 1794117721402
+  },
+  {
+   "token": "15-1-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 21,
+   "positionId": 15,
+   "owner": "deep",
+   "share": "41.551570283918269534",
+   "premium": "0.623273554258774043",
+   "owed": "42.174843838177043577",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "settled",
+   "expiresAtMs": 1794116883755
+  },
+  {
+   "token": "15-0-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 20,
+   "positionId": 15,
+   "owner": "deep",
+   "share": "31.578673615497076024",
+   "premium": "0.47368010423245614",
+   "owed": "32.052353719729532164",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1794116764019
+  },
+  {
+   "token": "12-1-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 16,
+   "positionId": 12,
+   "owner": "deep",
+   "share": "63.150913358666666667",
+   "premium": "0.94726370038",
+   "owed": "64.098177059046666667",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1794061429094
+  },
+  {
+   "token": "3-5-0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 8,
+   "positionId": 3,
+   "owner": "hedged",
+   "share": "0.00865215",
+   "premium": "0.00008652",
+   "owed": "0.00873867",
+   "asset": "WBTC",
+   "bps": 100,
+   "status": "bought_back",
+   "expiresAtMs": 1794040977884
+  },
+  {
+   "token": "3-4-0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 7,
+   "positionId": 3,
+   "owner": "hedged",
+   "share": "0.01276346",
+   "premium": "0.00012763",
+   "owed": "0.01289109",
+   "asset": "WBTC",
+   "bps": 100,
+   "status": "settled",
+   "expiresAtMs": 1794040318652
+  },
+  {
+   "token": "3-3-0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 6,
+   "positionId": 3,
+   "owner": "deep",
+   "share": "0.01891655",
+   "premium": "0.00028374",
+   "owed": "0.01920029",
+   "asset": "WBTC",
+   "bps": 150,
+   "status": "settled",
+   "expiresAtMs": 1794033603277
+  },
+  {
+   "token": "3-1-0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 4,
+   "positionId": 3,
+   "owner": "deep",
+   "share": "0.02130732",
+   "premium": "0.0003196",
+   "owed": "0.02162692",
+   "asset": "WBTC",
+   "bps": 150,
+   "status": "settled",
+   "expiresAtMs": 1794027524783
+  },
+  {
+   "token": "3-0-0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 3,
+   "positionId": 3,
+   "owner": "deep",
+   "share": "0.03157923",
+   "premium": "0.00047368",
+   "owed": "0.03205291",
+   "asset": "WBTC",
+   "bps": 150,
+   "status": "settled",
+   "expiresAtMs": 1794005837260
+  },
+  {
+   "token": "2-0-0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 2,
+   "positionId": 2,
+   "owner": "deep",
+   "share": "63.156877087",
+   "premium": "0.947353156305",
+   "owed": "64.104230243305",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "settled",
+   "expiresAtMs": 1793991376561
+  },
+  {
+   "token": "11-0-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 14,
+   "positionId": 11,
+   "owner": "deep",
+   "share": "20",
+   "premium": "0.3",
+   "owed": "20.3",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1793982099261
+  },
+  {
+   "token": "11-0-1",
+   "contract": "steadfi.testnet",
+   "rescueId": 14,
+   "positionId": 11,
+   "owner": "patient",
+   "share": "11.578682358918128655",
+   "premium": "0.310308687219005847",
+   "owed": "11.888991046137134502",
+   "asset": "LINK",
+   "bps": 268,
+   "status": "bought_back",
+   "expiresAtMs": 1793982099261
+  },
+  {
+   "token": "9-0-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 12,
+   "positionId": 9,
+   "owner": "deep",
+   "share": "63.157414839",
+   "premium": "0.947361222585",
+   "owed": "64.104776061585",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1793981306914
+  },
+  {
+   "token": "1-1-0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 1,
+   "positionId": 1,
+   "owner": "deep",
+   "share": "42.623940284333333334",
+   "premium": "0.639359104265",
+   "owed": "43.263299388598333334",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1793960947720
+  },
+  {
+   "token": "1-0-0",
+   "contract": "sepolia-demo.steadfi.testnet",
+   "rescueId": 0,
+   "positionId": 1,
+   "owner": "deep",
+   "share": "63.157091942",
+   "premium": "0.94735637913",
+   "owed": "64.10444832113",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "settled",
+   "expiresAtMs": 1793959905632
+  },
+  {
+   "token": "8-1-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 11,
+   "positionId": 8,
+   "owner": "deep",
+   "share": "41.55157838468242776",
+   "premium": "0.623273675770236416",
+   "owed": "42.174852060452664176",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "settled",
+   "expiresAtMs": 1793805936077
+  },
+  {
+   "token": "8-0-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 10,
+   "positionId": 8,
+   "owner": "deep",
+   "share": "31.578563984649122808",
+   "premium": "0.473678459769736842",
+   "owed": "32.05224244441885965",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1793805821896
+  },
+  {
+   "token": "7-1-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 9,
+   "positionId": 7,
+   "owner": "deep",
+   "share": "41.551386001347524585",
+   "premium": "0.623270790020212868",
+   "owed": "42.174656791367737453",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "settled",
+   "expiresAtMs": 1793804517776
+  },
+  {
+   "token": "7-0-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 8,
+   "positionId": 7,
+   "owner": "deep",
+   "share": "31.578694257309941521",
+   "premium": "0.473680413859649122",
+   "owed": "32.052374671169590643",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1793804440097
+  },
+  {
+   "token": "6-1-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 7,
+   "positionId": 6,
+   "owner": "deep",
+   "share": "41.551405052595879617",
+   "premium": "0.623271075788938194",
+   "owed": "42.174676128384817811",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "settled",
+   "expiresAtMs": 1793803680773
+  },
+  {
+   "token": "6-0-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 6,
+   "positionId": 6,
+   "owner": "deep",
+   "share": "31.578686707967836258",
+   "premium": "0.473680300619517543",
+   "owed": "32.052367008587353801",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1793803603538
+  },
+  {
+   "token": "5-1-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 5,
+   "positionId": 5,
+   "owner": "deep",
+   "share": "41.551471096814035347",
+   "premium": "0.62327206645221053",
+   "owed": "42.174743163266245877",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "open",
+   "expiresAtMs": 1793802952406
+  },
+  {
+   "token": "5-0-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 4,
+   "positionId": 5,
+   "owner": "deep",
+   "share": "31.57868437134502924",
+   "premium": "0.473680265570175438",
+   "owed": "32.052364636915204678",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1793802855008
+  },
+  {
+   "token": "2-1-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 3,
+   "positionId": 2,
+   "owner": "deep",
+   "share": "41.551396798906948406",
+   "premium": "0.623270951983604226",
+   "owed": "42.174667750890552632",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "settled",
+   "expiresAtMs": 1793801656132
+  },
+  {
+   "token": "2-0-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 2,
+   "positionId": 2,
+   "owner": "deep",
+   "share": "31.578638532894736843",
+   "premium": "0.473679577993421052",
+   "owed": "32.052318110888157895",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "bought_back",
+   "expiresAtMs": 1793801565067
+  },
+  {
+   "token": "1-0-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 1,
+   "positionId": 1,
+   "owner": "deep",
+   "share": "31.578678201754385965",
+   "premium": "0.473680173026315789",
+   "owed": "32.052358374780701754",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "settled",
+   "expiresAtMs": 1793801067425
+  },
+  {
+   "token": "0-0-0",
+   "contract": "steadfi.testnet",
+   "rescueId": 0,
+   "positionId": 0,
+   "owner": "deep",
+   "share": "31.578694260964912281",
+   "premium": "0.473680413914473684",
+   "owed": "32.052374674879385965",
+   "asset": "LINK",
+   "bps": 150,
+   "status": "settled",
+   "expiresAtMs": 1793800906337
+  }
+ ],
+ "stewards": [
+  {
+   "name": "deep",
+   "account": "deep.steadfi.testnet",
+   "contracts": [
+    "sepolia-demo.steadfi.testnet",
+    "steadfi.testnet"
+   ],
+   "bids": 33,
+   "wins": 26,
+   "claimsOpen": 1,
+   "claimsTotal": 26,
+   "premiumUsd": 423.12922432999994,
+   "lastWinAtMs": 1794298351793
+  },
+  {
+   "name": "hedged",
+   "account": "hedged.steadfi.testnet",
+   "contracts": [
+    "sepolia-demo.steadfi.testnet",
+    "steadfi.testnet"
+   ],
+   "bids": 8,
+   "wins": 7,
+   "claimsOpen": 0,
+   "claimsTotal": 7,
+   "premiumUsd": 51.90532453,
+   "lastWinAtMs": 1794298351793
+  },
+  {
+   "name": "patient",
+   "account": "patient.steadfi.testnet",
+   "contracts": [
+    "sepolia-demo.steadfi.testnet",
+    "steadfi.testnet"
+   ],
+   "bids": 27,
+   "wins": 5,
+   "claimsOpen": 0,
+   "claimsTotal": 5,
+   "premiumUsd": 74.28749109,
+   "lastWinAtMs": 1794298351793
+  },
+  {
+   "name": "swift",
+   "account": "swift.steadfi.testnet",
+   "contracts": [
+    "sepolia-demo.steadfi.testnet",
+    "steadfi.testnet"
+   ],
+   "bids": 33,
+   "wins": 3,
+   "claimsOpen": 0,
+   "claimsTotal": 3,
+   "premiumUsd": 39.057557870000004,
+   "lastWinAtMs": 1794298351793
+  },
+  {
+   "name": "pool",
+   "account": "pool.steadfi.testnet",
+   "contracts": [
+    "sepolia-demo.steadfi.testnet",
+    "steadfi.testnet"
+   ],
+   "bids": 3,
+   "wins": 1,
+   "claimsOpen": 0,
+   "claimsTotal": 1,
+   "premiumUsd": 10.36791571,
+   "lastWinAtMs": 1794116213567
+  }
+ ]
+}

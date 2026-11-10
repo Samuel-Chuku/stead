@@ -213,3 +213,15 @@
   .st-result-hist { display: none; }
 }
 .st-unit--mid { margin: 0 6px; }
+/* pooled rescue: one small lockout tag per claim */
+.st-claim-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--st-space-12); }
+.st-claim-sect .st-claim-grid + .st-buyback { margin-top: var(--st-space-8); }
+/* the Proofs page's table has a RESCUE column: its own phone card layout */
+@media (max-width: 620px) {
+  .st-proofs.st-proofs--multi:not(.st-values-table) tr[data-kind]:not([hidden]) { grid-template-columns: auto 1fr auto; grid-template-areas: "time rescue trust" "step step step" "ev ev where"; }
+  .st-proofs.st-proofs--multi:not(.st-values-table) td:nth-child(2) { grid-area: rescue; font-size: 13px; }
+  .st-proofs.st-proofs--multi:not(.st-values-table) td:nth-child(3) { grid-area: step; font-size: 14px; }
+  .st-proofs.st-proofs--multi:not(.st-values-table) td:nth-child(4) { grid-area: ev; font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+  .st-proofs.st-proofs--multi:not(.st-values-table) td:nth-child(5) { grid-area: where; justify-self: end; }
+  .st-proofs.st-proofs--multi:not(.st-values-table) td:nth-child(6) { grid-area: trust; justify-self: end; }
+}

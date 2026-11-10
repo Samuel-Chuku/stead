@@ -1,0 +1,41 @@
+/* List pages: Overview, Positions, Rescues, Claims, Stewards (tables reuse the proofs table) */
+.st-list + .st-list { margin-top: var(--st-space-16); }
+.st-list-sub { max-width: 70ch; line-height: 1.5; margin: 6px 0 0; }
+.st-list-src { font-family: var(--st-font-head); font-weight: 600; font-size: 13px; color: var(--st-quiet); margin: 0; white-space: nowrap; }
+.st-list-table { min-width: 860px; }
+.st-list-table td { vertical-align: top; }
+.st-list-meta { display: block; font-size: 12px; color: var(--st-quiet); margin-top: 3px; }
+.st-list-table .st-num { font-size: 18px; }
+.st-list-hf { font-size: 22px !important; margin-right: 6px; }
+.st-list-hf.is-below { color: var(--st-exposure-ink); }
+.st-list-table .st-evidence { vertical-align: middle; }
+.st-list-win { display: inline-flex; align-items: center; gap: 6px; margin: 0 10px 4px 0; white-space: nowrap; }
+.st-list-stewards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--st-space-16); }
+.st-list-steward { padding: 16px; display: flex; flex-direction: column; gap: 10px; background: var(--st-inset); }
+.st-list-steward-head { display: flex; align-items: center; gap: 12px; }
+.st-list-steward-name { font-size: 20px; margin: 0; }
+.st-list-steward-body { margin: 0; line-height: 1.5; }
+.st-list-kv { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; border-top: var(--st-hairline); padding-top: 10px; }
+.st-list-kv dt { white-space: nowrap; font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); }
+.st-list-kv dd { margin: 2px 0 0; font-size: 22px; }
+@media (max-width: 620px) {
+  .st-list-src { white-space: normal; }
+  .st-list-stewards { grid-template-columns: 1fr; }
+  .st-list-kv { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* list tables (same look as the proofs table, own phone layout) */
+.st-list-table { width: 100%; min-width: 860px; border-collapse: collapse; font-size: 14px; }
+.st-list-table th { text-align: left; font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); padding: 10px; border-bottom: 1.5px solid var(--st-line); }
+.st-list-table td { padding: 10px; border-bottom: var(--st-hairline); }
+.st-list-table tr[hidden] { display: none; }
+@media (max-width: 620px) {
+  .st-table-wrap:has(> .st-list-table) { overflow: visible; }
+  .st-list-table { min-width: 0; display: block; }
+  .st-list-table thead { display: none; }
+  .st-list-table tbody { display: flex; flex-direction: column; }
+  .st-list-table tr[data-chain]:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 12px; padding: 12px 0; border-bottom: var(--st-hairline); }
+  .st-list-table td { padding: 0; border: 0; min-width: 0; overflow-wrap: anywhere; }
+  .st-list-table td[data-label]:not([data-label=""])::before { content: attr(data-label); display: block; font-family: var(--st-font-head); font-weight: 600; font-size: 10px; letter-spacing: var(--st-tracking-label); color: var(--st-quiet); margin-bottom: 2px; }
+  .st-list-table td:empty { display: none; }
+  .st-list-win { margin-right: 6px; }
+}

@@ -2,10 +2,51 @@
 // for the cost chart, the same position run along a real price path (labelled as such).
 import type { CostPath } from "../../../stewards/src/costpath";
 import type { Evidence, RescueEvent, RescueLog, StewardId } from "../../../stewards/src/rescuelog";
-import { CODE } from "../board/model";
+import { CODE, fmtAmt } from "../board/model";
 import { icon } from "../icons";
 
 type Ev<K extends RescueEvent["kind"]> = Extract<RescueEvent, { kind: K }>;
+export type ProofKind = "readings" | "auction" | "topup" | "claim" | "payouts";
+export type ProofRow = { t: number; step: string; kind: ProofKind; ev: Evidence };
+/** Every step of a recorded rescue that carries a record on a chain, newest first. */
+export function proofRows(log: RescueLog): ProofRow[] {
+  const KIND: Partial<Record<RescueEvent["kind"], ProofKind>> = {
+    TRIGGER: "readings", READING: "readings", BID: "auction", AUCTION_CLOSE: "auction", TOPUP_SENT: "topup", TOPUP_CONFIRMED: "topup",
+    CLAIM_MINTED: "claim", PAYMENT_IN: "claim", ESCROW_PROVEN: "claim", BUYBACK: "claim", BOUGHT_BACK: "claim", PAYOUT: "payouts",
+  };
+  const trigger = all(log, "TRIGGER")[0];
+  const win = all(log, "AUCTION_CLOSE")[0]?.winners[0];
+  const pay = all(log, "PAYMENT_IN")[0];
+  const rows: ProofRow[] = [];
+  for (const e of log.events) {
+    if (!("evidence" in e)) continue;
+    const ev = (e as any).evidence as Evidence;
+    const label: Record<string, string> = {
+      TRIGGER: `Health ${trigger.hf.toFixed(3)}, below ${log.params.triggerHf.toFixed(2)}: auction opens`,
+      AUCTION_CLOSE: `Auction closed${win ? `: ${win.steward} wins at ${win.bps} bps` : ""}`,
+      TOPUP_CONFIRMED: "Top-up proven in the position",
+      CLAIM_MINTED: e.kind === "CLAIM_MINTED" ? `Claim ${e.claim} minted to ${e.holder}` : "",
+      PAYMENT_IN: `Borrower pays ${pay?.amount ?? ""} ${pay?.asset ?? ""} into the position`,
+      ESCROW_PROVEN: "Payment proven in the position",
+      BUYBACK: e.kind === "BUYBACK" ? `Buy-back committed: ${e.amount} ${e.asset}` : "",
+      BOUGHT_BACK: "Claim closed, withdrawals unlocked",
+    };
+    let step = label[e.kind];
+    if (e.kind === "BID") step = `${e.steward} bids ${e.bps} bps`;
+    if (e.kind === "TOPUP_SENT") step = `${e.steward} supplies ${e.amount} ${e.asset}`;
+    if (e.kind === "READING") step = `Health ${e.hf.toFixed(3)}`;
+    if (e.kind === "PAYOUT") step = e.purpose === "buyback" ? `${e.amount} ${e.asset} paid to the claim owner` : `${e.amount} ${e.asset} refunded to the borrower`;
+    const kind = KIND[e.kind];
+    if (!step || !kind) continue;
+    if (rows.some((r) => r.ev.tx === ev.tx && r.step === step)) continue;
+    rows.push({ t: e.t, step, kind, ev });
+    const transfer = (e as any).transfer as Evidence | undefined;
+    if (transfer) rows.push({ t: e.t, step: `${step}: the transfer`, kind, ev: transfer });
+  }
+  rows.sort((a, b) => b.t - a.t); // newest first
+  return rows;
+}
+
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const usd = (n: number, d = 2) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 const clock = (log: RescueLog, t: number) => new Date(log.openedAtMs + t * 1000).toISOString().slice(11, 19);
@@ -22,8 +63,9 @@ export async function mountRescue(root: HTMLElement, replayUrl: string) {
     const r = await fetch(replayUrl);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     log = await r.json();
+    // the cost chart's price path exists only for some recordings: without one, the page has no chart
     const p = await fetch(replayUrl.replace(/\.json$/, "-path.json"));
-    if (p.ok) path = await p.json();
+    if (p.ok && (p.headers.get("content-type") ?? "").includes("json")) path = await p.json().catch(() => null);
   } catch (e) {
     root.innerHTML = `<section class="st-error" role="alert"><h2>Rescue not loaded</h2><p>The recorded rescue could not be read (${esc(String((e as Error).message))}). Reload the page to try again.</p></section>`;
     return () => {};
@@ -54,16 +96,24 @@ export function render(log: RescueLog, path: CostPath | null): string {
   const refund = payouts.find((p) => p.purpose === "refund");
   const after = log.events.find((e) => e.kind === "READING" && e.hf >= log.params.triggerHf) as Ev<"READING"> | undefined;
   const win = close?.winners[0];
+  // a pooled rescue: several stewards share the top-up, each with its own claim and payout
+  const winners = close?.winners ?? [];
+  const pooled = winners.length > 1;
+  const claims = all(log, "CLAIM_MINTED");
+  const toOwners = payouts.filter((p) => p.purpose === "buyback");
+  const sum = (xs: { amount: string }[]) => xs.reduce((a, x) => a + Number(x.amount), 0);
+  const bpsLo = Math.min(...winners.map((w) => w.bps)), bpsHi = Math.max(...winners.map((w) => w.bps));
+  const bpsRange = bpsLo === bpsHi ? `${bpsLo}` : `${bpsLo}–${bpsHi}`;
   const price = log.atOpen?.priceUsd ?? 0;
-  const premiumUsd = claim ? Number(claim.premium) * price : 0;
+  const premiumUsd = claims.reduce((a, c) => a + Number(c.premium) * price, 0);
   const bids = all(log, "BID");
   const outcome = log.outcome === "bought back" ? "BOUGHT BACK" : log.outcome === "settled" ? "SETTLED" : log.outcome === "liquidated" ? "LIQUIDATED" : "OPEN";
 
   // ---------- header + KPIs ----------
   const kpis = `
     <dl class="st-kpis">
-      <div><dt>TOP-UP</dt><dd>${num(open.topUp.amount, m.collateral)}</dd><dd class="st-kpi-sub">${usd(open.topUp.usd)} at the trigger</dd></div>
-      <div><dt>WINNING PREMIUM</dt><dd>${num(String(win?.bps ?? "—"), "bps")}</dd><dd class="st-kpi-sub">${win ? `${win.steward}, ${usd(premiumUsd)}` : ""}</dd></div>
+      <div><dt>TOP-UP</dt><dd>${num(fmtAmt(open.topUp.amount), m.collateral)}</dd><dd class="st-kpi-sub">${usd(open.topUp.usd)} at the trigger</dd></div>
+      <div><dt>${pooled ? "WINNING PREMIUMS" : "WINNING PREMIUM"}</dt><dd>${num(win ? bpsRange : "—", "bps")}</dd><dd class="st-kpi-sub">${pooled ? `${winners.length} stewards, ${usd(premiumUsd)} in all` : win ? `${win.steward}, ${usd(premiumUsd)}` : ""}</dd></div>
       <div><dt>PREMIUM CAP</dt><dd>${num(open.capBps.toLocaleString("en-US"), "bps")}</dd><dd class="st-kpi-sub">below Aave's liquidation penalty</dd></div>
       <div><dt>BACK ABOVE TRIGGER</dt><dd>${num(after ? fmtDur(after.t) : "—")}</dd><dd class="st-kpi-sub">trigger to proven top-up</dd></div>
       <div><dt>HEALTH FACTOR</dt><dd>${num(trigger.hf.toFixed(2))}<span class="st-unit st-unit--mid">to</span>${num(after ? after.hf.toFixed(2) : "—")}</dd><dd class="st-kpi-sub">proven readings</dd></div>
@@ -73,10 +123,10 @@ export function render(log: RescueLog, path: CostPath | null): string {
   const steps: { title: string; t?: number; body: string; state: "done" | "pending" }[] = [
     { title: "Trigger", t: trigger.t, body: `HF ${trigger.hf.toFixed(3)}, ${trigger.evidence.rpcs} RPCs agree`, state: "done" },
     { title: "Auction", t: open.t, body: `${bids.length} bids in ${open.durationS} s`, state: "done" },
-    { title: "Won", t: close?.t, body: win ? `${win.steward} at ${win.bps} bps` : "no cover", state: close ? "done" : "pending" },
-    { title: "Top-up", t: proven?.t ?? sent?.t, body: sent ? `${sent.amount} ${sent.asset}, proven` : "waiting", state: proven ? "done" : "pending" },
-    { title: "Claim", t: claim?.t, body: claim ? `${claim.claim} to ${claim.holder}` : "", state: claim ? "done" : "pending" },
-    { title: "Buy-back", t: bought?.t, body: toOwner ? `${toOwner.amount} ${toOwner.asset} to the owner` : buyback ? "committed" : "window open", state: bought ? "done" : "pending" },
+    { title: "Won", t: close?.t, body: pooled ? `${winners.length} stewards, ${bpsRange} bps` : win ? `${win.steward} at ${win.bps} bps` : "no cover", state: close ? "done" : "pending" },
+    { title: "Top-up", t: proven?.t ?? sent?.t, body: proven ? `${fmtAmt(open.topUp.amount)} ${m.collateral}, proven` : sent ? `${sent.amount} ${sent.asset} sent` : "waiting", state: proven ? "done" : "pending" },
+    { title: pooled ? "Claims" : "Claim", t: claim?.t, body: pooled ? `${claims.length} claims, one per steward` : claim ? `${claim.claim} to ${claim.holder}` : "", state: claim ? "done" : "pending" },
+    { title: "Buy-back", t: bought?.t, body: pooled && toOwners.length ? `${fmtAmt(sum(toOwners))} ${toOwners[0].asset} to ${toOwners.length} owners` : toOwner ? `${toOwner.amount} ${toOwner.asset} to the owner` : buyback ? "committed" : "window open", state: bought ? "done" : "pending" },
     { title: "Settle", body: bought ? "Not needed: bought back" : "If the window ends", state: "pending" },
   ];
   const timeline = `
@@ -102,7 +152,39 @@ export function render(log: RescueLog, path: CostPath | null): string {
     </section>`;
 
   // ---------- claim + buy-back ----------
-  const claimBlock = claim
+  // pooled: one small lockout tag per claim, each paid exactly what it was owed
+  const ownerPaid = (c: Ev<"CLAIM_MINTED">) => toOwners.find((p) => p.claim === c.claim) ?? null;
+  const pooledTags = `<div class="st-claim-grid">${claims
+    .map((c) => {
+      const paid = ownerPaid(c);
+      const share = winners.find((w) => w.steward === c.holder);
+      const pct = share ? Math.round((Number(share.amount) / Number(open.topUp.amount)) * 100) : null;
+      return `<div class="st-tag st-cut st-cut--l${bought ? " is-closed" : ""}">
+        <div class="st-tag-top">${tile(c.holder, 22)}<span class="st-tag-title">CLAIM${pct !== null ? ` · ${pct}%` : ""}</span></div>
+        <div class="st-tag-lines">Owed ${fmtAmt(c.owed)} + ${fmtAmt(c.premium)} ${c.asset} premium<br>${c.holder}.steadfi.testnet · token ${esc(c.claim)}${paid ? `<br>Paid ${fmtAmt(paid.amount)} ${paid.asset}` : ""}</div>
+      </div>`;
+    })
+    .join("")}</div>`;
+  const buybacks = all(log, "BUYBACK");
+  const buyTotal = buybacks.length ? `${fmtAmt(sum(buybacks))} ${buybacks[0].asset}` : "";
+  const claimBlock = claim && pooled
+    ? `
+    <section class="st-panel st-sect st-claim-sect" aria-labelledby="claim-h">
+      <div class="st-label">CLAIMS · ${claims.length} STEWARDS</div>
+      <h2 class="st-panel-title" id="claim-h">One claim per steward, filled from the lowest premium up</h2>
+      ${pooledTags}
+      <div class="st-buyback">
+        <span class="st-chip st-chip--${bought ? "rescued" : "open"}">${outcome}</span>
+        <p class="st-buyback-text">${
+          bought && toOwners.length
+            ? `The borrower paid ${pay ? fmtAmt(pay.amount) + " " + pay.asset : "the buy-back"} into the position. Once the payment was proven, the contract paid each of the ${toOwners.length} claim owners exactly what its claim was owed, ${fmtAmt(sum(toOwners))} ${toOwners[0].asset} in all${refund ? `, and refunded ${fmtAmt(refund.amount)} ${refund.asset} to the borrower` : ""}. The claims are burned and withdrawals are unlocked.`
+            : "The borrower can buy the claims back until the window ends; after that they settle."
+        }</p>
+        <button type="button" class="st-push st-cut" aria-disabled="true" disabled><span class="st-lamp" aria-hidden="true"></span>BUY BACK FOR ${esc(buyTotal)}</button>
+        <span class="st-disabled-reason">${bought ? `Bought back at ${clock(log, bought.t)} UTC · claims closed` : "Replay: buy-back opens from a borrower's own position"}</span>
+      </div>
+    </section>`
+    : claim
     ? `
     <section class="st-panel st-sect st-claim-sect" aria-labelledby="claim-h">
       <div class="st-label">CLAIM</div>
@@ -134,39 +216,8 @@ export function render(log: RescueLog, path: CostPath | null): string {
 
   // ---------- proofs ----------
   // Newest first, 7 per page; filterable by kind and by chain (wired in wireProofs).
-  type Kind = "readings" | "auction" | "topup" | "claim" | "payouts";
-  const KIND: Partial<Record<RescueEvent["kind"], Kind>> = {
-    TRIGGER: "readings", READING: "readings", BID: "auction", AUCTION_CLOSE: "auction", TOPUP_SENT: "topup", TOPUP_CONFIRMED: "topup",
-    CLAIM_MINTED: "claim", PAYMENT_IN: "claim", ESCROW_PROVEN: "claim", BUYBACK: "claim", BOUGHT_BACK: "claim", PAYOUT: "payouts",
-  };
-  const rows: { t: number; step: string; kind: Kind; ev: Evidence }[] = [];
-  for (const e of log.events) {
-    if (!("evidence" in e)) continue;
-    const ev = (e as any).evidence as Evidence;
-    const label: Record<string, string> = {
-      TRIGGER: `Health ${trigger.hf.toFixed(3)}, below ${log.params.triggerHf.toFixed(2)}: auction opens`,
-      AUCTION_CLOSE: `Auction closed${win ? `: ${win.steward} wins at ${win.bps} bps` : ""}`,
-      TOPUP_CONFIRMED: "Top-up proven in the position",
-      CLAIM_MINTED: `Claim ${claim?.claim ?? ""} minted to ${claim?.holder ?? ""}`,
-      PAYMENT_IN: `Borrower pays ${pay?.amount ?? ""} ${pay?.asset ?? ""} into the position`,
-      ESCROW_PROVEN: "Payment proven in the position",
-      BUYBACK: `Buy-back committed: ${buyback?.amount ?? ""} ${buyback?.asset ?? ""}`,
-      BOUGHT_BACK: "Claim closed, withdrawals unlocked",
-    };
-    let step = label[e.kind];
-    if (e.kind === "BID") step = `${e.steward} bids ${e.bps} bps`;
-    if (e.kind === "TOPUP_SENT") step = `${e.steward} supplies ${e.amount} ${e.asset}`;
-    if (e.kind === "READING") step = `Health ${e.hf.toFixed(3)}`;
-    if (e.kind === "PAYOUT") step = e.purpose === "buyback" ? `${e.amount} ${e.asset} paid to the claim owner` : `${e.amount} ${e.asset} refunded to the borrower`;
-    const kind = KIND[e.kind];
-    if (!step || !kind) continue;
-    if (rows.some((r) => r.ev.tx === ev.tx && r.step === step)) continue;
-    rows.push({ t: e.t, step, kind, ev });
-    const transfer = (e as any).transfer as Evidence | undefined;
-    if (transfer) rows.push({ t: e.t, step: `${step}: the transfer`, kind, ev: transfer });
-  }
-  rows.sort((a, b) => b.t - a.t); // newest first
-  const kinds: { id: "all" | Kind; label: string }[] = [
+  const rows = proofRows(log);
+  const kinds: { id: "all" | ProofKind; label: string }[] = [
     { id: "all", label: "ALL" }, { id: "readings", label: "READINGS" }, { id: "auction", label: "AUCTION" },
     { id: "topup", label: "TOP-UP" }, { id: "claim", label: "CLAIM & BUY-BACK" }, { id: "payouts", label: "PAYOUTS" },
   ];
@@ -415,4 +466,68 @@ export function costChartSection(log: RescueLog, p: CostPath): string {
   const open = all(log, "AUCTION_OPEN")[0];
   const premiumUsd = claim ? Number(claim.premium) * (log.atOpen?.priceUsd ?? 0) : 0;
   return chart(log, p, premiumUsd, claim, open.capBps);
+}
+
+/** The Proofs page: every record behind every published recording, newest first, one table with
+ *  the same filters and paging as a rescue page, plus the rescue each record belongs to. */
+export async function mountProofs(root: HTMLElement, replays: { id: string; url: string }[]) {
+  root.innerHTML = `<section class="st-panel st-page"><div class="st-label">PROOFS</div><p class="st-empty">Loading the recorded rescues…</p></section>`;
+  let logs: RescueLog[];
+  try {
+    logs = await Promise.all(replays.map(async (r) => {
+      const x = await fetch(r.url);
+      if (!x.ok) throw new Error(`HTTP ${x.status}`);
+      return x.json();
+    }));
+  } catch (e) {
+    root.innerHTML = `<section class="st-error" role="alert"><h2>Proofs not loaded</h2><p>The recorded rescues could not be read (${esc(String((e as Error).message))}). Reload the page to try again.</p></section>`;
+    return () => {};
+  }
+  const rows = logs
+    .flatMap((log, i) => proofRows(log).map((r) => ({ ...r, log, page: replays[i].id, at: log.openedAtMs + r.t * 1000 })))
+    .sort((a, b) => b.at - a.at);
+  const kinds: { id: "all" | ProofKind; label: string }[] = [
+    { id: "all", label: "ALL" }, { id: "readings", label: "READINGS" }, { id: "auction", label: "AUCTION" },
+    { id: "topup", label: "TOP-UP" }, { id: "claim", label: "CLAIM & BUY-BACK" }, { id: "payouts", label: "PAYOUTS" },
+  ];
+  const count = (k: string) => (k === "all" ? rows.length : rows.filter((r) => r.kind === k).length);
+  const chainOf = (ev: Evidence) => (ev.chain === "sepolia" || ev.chain === "ethereum" ? "evm" : "near");
+  root.innerHTML = `
+    <section class="st-panel st-sect" aria-labelledby="proofs-h" data-proofs>
+      <div class="st-sect-head">
+        <div><div class="st-label">PROOFS</div><h1 class="st-page-title" id="proofs-h">Every step, linked to its record</h1>
+        <p class="st-list-sub">Each verified reading, bid, top-up, claim and payment behind the ${logs.length} recorded rescues, newest first. A PROVEN reading is an OutLayer proof that several Sepolia RPCs agreed on the block.</p></div>
+        <p class="st-proof-count" data-proof-count aria-live="polite"></p>
+      </div>
+      <div class="st-filters">
+        <div class="st-filter-group" role="group" aria-label="Kind of record">
+          ${kinds.filter((k) => count(k.id) > 0).map((k) => `<button type="button" class="st-filter" data-kind="${k.id}" aria-pressed="${k.id === "all"}">${k.label} <span class="st-seg-count">${count(k.id)}</span></button>`).join("")}
+        </div>
+        <div class="st-filter-group st-filter-group--chains" role="group" aria-label="Chain">
+          <button type="button" class="st-filter" data-chain="all" aria-pressed="true">ALL CHAINS</button>
+          <button type="button" class="st-filter" data-chain="near" aria-pressed="false">${icon("near", 14)}NEAR</button>
+          <button type="button" class="st-filter" data-chain="evm" aria-pressed="false">${icon("ethereum", 14)}SEPOLIA</button>
+        </div>
+      </div>
+      <div class="st-table-wrap">
+        <table class="st-proofs st-proofs--multi">
+          <thead><tr><th>TIME (UTC)</th><th>RESCUE</th><th>STEP</th><th>EVIDENCE</th><th>WHERE</th><th>TRUST</th></tr></thead>
+          <tbody>
+            ${rows
+              .map(
+                (r) => `<tr data-kind="${r.kind}" data-chain="${chainOf(r.ev)}"><td class="st-mono">${new Date(r.at).toISOString().slice(5, 19).replace("T", " ")}</td><td><a class="st-textlink" href="?rescue=${r.page}#/rescues">#${r.log.rescueId}</a></td><td class="st-proof-step">${esc(r.step)}</td><td class="st-mono">${esc(shortId(r.ev.tx))}${r.ev.block ? ` · block ${r.ev.block.toLocaleString("en-US")}` : ""}</td><td><a class="st-textlink st-extlink" href="${r.ev.url}" target="_blank" rel="noopener" aria-label="${r.ev.chain === "sepolia" ? "Etherscan" : "NearBlocks"}: ${esc(r.step)} (opens in a new tab)">${r.ev.chain === "sepolia" ? "Etherscan" : "NearBlocks"}${icon("external", 14)}</a></td><td>${chip(r.ev)}</td></tr>`,
+              )
+              .join("")}
+            <tr class="st-proof-empty" data-proof-empty hidden><td colspan="6">No record of this kind on this chain.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="st-pager">
+        <button type="button" class="st-secondary st-cut" data-page="prev">Previous</button>
+        <span class="st-pager-pos" data-page-pos></span>
+        <button type="button" class="st-secondary st-cut" data-page="next">Next</button>
+      </div>
+    </section>`;
+  wireProofs(root);
+  return () => {};
 }
