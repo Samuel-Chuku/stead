@@ -56,14 +56,14 @@ describe("adjust (network stubbed)", () => {
   });
   const ctx = { steward: "test", role: "test", current: DEFAULTS.deep, recent: [], prices: [] };
 
-  function stub(proposal: object, signRight: boolean) {
+  function stub(proposal: object, signRight: boolean, reason = "adjust spread, margin, top-up, share and delay") {
     let reqBody = "";
     let respBody = "";
     vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
       if (url.includes("/chat/completions")) {
         reqBody = init.body as string;
         const model = JSON.parse(reqBody).model;
-        respBody = JSON.stringify({ id: "chat-x", model, choices: [{ message: { content: JSON.stringify({ settings: proposal, reason: "adjust spread, margin, top-up, share and delay" }) } }] });
+        respBody = JSON.stringify({ id: "chat-x", model, choices: [{ message: { content: JSON.stringify({ settings: proposal, reason }) } }] });
         return new Response(respBody, { status: 200 });
       }
       const model = MODELS[0];
@@ -72,12 +72,23 @@ describe("adjust (network stubbed)", () => {
     });
   }
 
-  it("a verified answer is applied, clamped to bounds", async () => {
+  it("a verified but ungrounded, out-of-range answer is rejected by the guard: settings kept, proposal logged", async () => {
     process.env.NEAR_AI_API_KEY = "test";
     stub({ ...DEFAULTS.deep, spreadBps: 99_999 }, true);
     const r = await adjust(ctx);
     expect(r.verified).toBe(true);
-    expect(r.applied.spreadBps).toBe(BOUNDS.spreadBps[1]);
+    expect(r.rejected).toBeTruthy();
+    expect(r.applied).toEqual(DEFAULTS.deep);
+    expect((r.proposed as { spreadBps: number }).spreadBps).toBe(99_999);
+  });
+  it("a verified, grounded, one-step answer is applied", async () => {
+    process.env.NEAR_AI_API_KEY = "test";
+    const lost = { ...ctx, steward: "deep", recent: [{ rescue: 12, outcome: "bid", bps: 150 }] };
+    stub({ ...DEFAULTS.deep, spreadBps: 130 }, true, "Lower spreadBps to 130: outbid on rescue 12 at 150 bps.");
+    const r = await adjust(lost);
+    expect(r.verified).toBe(true);
+    expect(r.rejected).toBeUndefined();
+    expect(r.applied.spreadBps).toBe(130);
   });
   it("an answer whose signature doesn't cover the exact response is never applied", async () => {
     process.env.NEAR_AI_API_KEY = "test";
@@ -142,7 +153,7 @@ describe("any provider (OpenAI-compatible), require_signature", () => {
     expect(aiWarning()).toMatch(/never applied/);
   });
 
-  it("with the signature requirement off, any provider applies, clamped and labelled UNVERIFIED", async () => {
+  it("with the signature requirement off, any provider's answer is considered, labelled UNVERIFIED, and still guarded", async () => {
     process.env.AI_BASE_URL = "https://api.example.com/v1";
     process.env.AI_API_KEY = "k";
     process.env.AI_MODEL = "some-model";
@@ -151,7 +162,9 @@ describe("any provider (OpenAI-compatible), require_signature", () => {
     const r = await adjust(ctx);
     expect(r.verified).toBe(false);
     expect(r.applied_unverified).toBe(true);
-    expect(r.applied.spreadBps).toBe(BOUNDS.spreadBps[1]);
+    // unsigned answers still go through the guard: this one is ungrounded and far out of range
+    expect(r.rejected).toBeTruthy();
+    expect(r.applied).toEqual(DEFAULTS.deep);
     expect(aiWarning()).toMatch(/UNVERIFIED/);
   });
 
@@ -188,7 +201,7 @@ describe("any provider (OpenAI-compatible), require_signature", () => {
     const calls = other({ ...DEFAULTS.deep, bidDelayS: 20 }, { rejectSchema: true, text: true });
     const r = await adjust(ctx);
     expect(calls.map((c) => c.body?.response_format?.type)).toEqual(["json_schema", "json_object"]);
-    expect(r.applied.bidDelayS).toBe(20);
+    expect((r.proposed as { bidDelayS: number }).bidDelayS).toBe(20); // read out of the prose
   });
 
   it("parseAnswer finds the object in prose and rejects garbage", () => {

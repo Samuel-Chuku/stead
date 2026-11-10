@@ -16,6 +16,9 @@ export const DEMO = {
   triggerHfBps: 11_400,
   /** Collateral at rest, in USD: the top-up to 1.50 is then about $570, which one steward covers. */
   collateralUsd: 1_800,
+  /** The pooled demo's collateral at rest: a top-up of about $1,900, more than any one steward's
+   *  capacity (25 LINK each on the demo stack), so three stewards share it. */
+  collateralUsdPooled: 6_000,
   /** Budget pacing spreads the test funds until this date (the hosted demo stays up through judging). */
   endMs: Date.UTC(2026, 10, 25),
   /** Sepolia gas for one demo run, everyone's transactions (measured ~1.9 M on a pooled rescue). */
@@ -26,7 +29,12 @@ export const DEMO = {
 
 // ── who may start ────────────────────────────────────────────────────────────────────────────
 
+/** What a demo slot shows: one steward covering the top-up, or several sharing it. */
+export type DemoKind = "single" | "pooled";
+export const DEMO_KINDS: DemoKind[] = ["single", "pooled"];
+
 export interface SlotState {
+  kind?: DemoKind;
   /** null when free. */
   run: null | { id: string; token: string; startedAt: number; step: Step; rescueId: number | null; error: string | null; endedAt: number | null };
 }
@@ -41,7 +49,9 @@ export interface GateState {
   day: string;
   startsToday: number;
 }
-export const freshGate = (slots: number = DEMO.slots): GateState => ({ slots: Array.from({ length: slots }, () => ({ run: null })), lastStartAt: 0, visitors: {}, tokens: {}, day: "", startsToday: 0 });
+/** Slot i runs DEMO_KINDS[i]: slot 0 single, slot 1 pooled. */
+export const freshGate = (slots: number = DEMO.slots): GateState => ({ slots: Array.from({ length: slots }, (_, i) => ({ kind: DEMO_KINDS[i] ?? "single", run: null })), lastStartAt: 0, visitors: {}, tokens: {}, day: "", startsToday: 0 });
+const kindOf = (g: GateState, i: number): DemoKind => g.slots[i].kind ?? DEMO_KINDS[i] ?? "single";
 
 export interface Budget {
   /** Runs today's allowance still permits (the allowance minus starts so far). */
@@ -57,7 +67,7 @@ const nextDay = (ms: number) => Date.parse(dayOf(ms)) + 86_400_000;
 
 /** Decide a start. Pure: the caller stores `g` afterwards. Order: a repeated token answers with its
  *  run; then funds, slots, spacing, the visitor. A refusal says when a start is next possible. */
-export function admit(g: GateState, now: number, visitor: string, token: string, budget: Budget): Admit {
+export function admit(g: GateState, now: number, visitor: string, token: string, budget: Budget, kind: DemoKind = "single"): Admit {
   const known = g.tokens[token];
   if (known) {
     const slot = g.slots.findIndex((s) => s.run?.id === known);
@@ -69,7 +79,8 @@ export function admit(g: GateState, now: number, visitor: string, token: string,
     g.startsToday = 0;
   }
   if (budget.leftToday <= 0) return { ok: false, reason: "over_allowance", nextAt: nextDay(now) };
-  const free = g.slots.findIndex((s) => s.run === null);
+  // the slot that runs this kind of demo (one each)
+  const free = g.slots.findIndex((s, i) => kindOf(g, i) === kind && s.run === null);
   if (free < 0) {
     // a slot frees when its run ends (including the off-screen reset): no fixed time to promise
     return { ok: false, reason: "busy", nextAt: null };
@@ -258,7 +269,7 @@ export interface HttpOut {
 export const TOKEN_RE = /^[A-Za-z0-9_-]{8,64}$/;
 export const MAX_BODY = 1024;
 const REFUSAL_TEXT: Record<Refusal, string> = {
-  busy: "Two demo rescues are running. Watch them live; the next one can start when one finishes.",
+  busy: "That demo is already running. Watch it live; it can start again when it finishes.",
   too_soon: "A demo rescue started less than 2 minutes ago.",
   visitor_wait: "You started a demo rescue recently. One start per visitor every 10 minutes.",
   over_allowance: "Today's demo runs are used up; the test funds are paced to last through judging.",
@@ -276,15 +287,18 @@ export function route(req: HttpIn, d: { allowedOrigins: string[]; now: number; g
   if (!req.origin || !d.allowedOrigins.includes(req.origin)) return { status: 403, json: { error: "origin not allowed" } };
   if (req.body.length > MAX_BODY) return { status: 400, json: { error: "body too large" } };
   let token: unknown;
+  let kind: unknown;
   try {
     const b = JSON.parse(req.body) as Record<string, unknown>;
-    if (!b || typeof b !== "object" || Array.isArray(b) || Object.keys(b).some((k) => k !== "token")) throw new Error();
+    if (!b || typeof b !== "object" || Array.isArray(b) || Object.keys(b).some((k) => k !== "token" && k !== "kind")) throw new Error();
     token = b.token;
+    kind = b.kind ?? "single";
   } catch {
-    return { status: 400, json: { error: "body must be {\"token\": \"…\"}" } };
+    return { status: 400, json: { error: "body must be {\"token\": \"…\", \"kind\": \"single\" | \"pooled\"}" } };
   }
   if (typeof token !== "string" || !TOKEN_RE.test(token)) return { status: 400, json: { error: "bad token" } };
-  const a = admit(d.gate, d.now, req.visitor, token, d.budget());
+  if (kind !== "single" && kind !== "pooled") return { status: 400, json: { error: "bad kind" } };
+  const a = admit(d.gate, d.now, req.visitor, token, d.budget(), kind);
   if (!a.ok) return { status: 429, json: { started: false, reason: a.reason, message: REFUSAL_TEXT[a.reason], nextAt: a.nextAt } };
   if (!a.repeat) {
     d.save();

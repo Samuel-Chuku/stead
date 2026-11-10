@@ -43,11 +43,13 @@ export function screenFor(feed: LiveFeed | null, lastOkMs: number | null, starte
 
 // ── DEMO: a visitor starts a real testnet rescue on a demo borrower's position ──
 
+/** One steward covering the top-up, or several sharing it (a top-up larger than any one's capacity). */
+export type DemoKind = "single" | "pooled";
 export type DemoStep = "trigger" | "reading" | "auction" | "topup" | "buyback" | "payouts" | "settling" | "reset" | "done" | "stopped";
 export type DemoRunView = { runId: string; startedAt: number; step: DemoStep; stepText: string; rescueId: number | null; error: string | null };
 export type DemoStatus = {
   generated: number;
-  slots: { slot: number; positionId: number | null; run: DemoRunView | null }[];
+  slots: { slot: number; kind?: DemoKind; positionId: number | null; run: DemoRunView | null }[];
   free: number;
   nextStartAt: number | null;
   paused: boolean;
@@ -66,12 +68,14 @@ export const DEMO_STEPS: { id: DemoStep; title: string }[] = [
 const STEP_ORDER: DemoStep[] = ["trigger", "reading", "auction", "topup", "buyback", "settling", "payouts", "reset", "done"];
 
 /** Whether the START button is live, and the reason line when it isn't. */
-export function startState(st: DemoStatus | null, nowMs: number, mineRunning: boolean): { can: boolean; reason: string } {
+export function startState(st: DemoStatus | null, nowMs: number, mineRunning: boolean, kind: DemoKind = "single"): { can: boolean; reason: string } {
   if (!st) return { can: false, reason: "Demo runner not answering." };
   if (st.paused) return { can: false, reason: "Demo paused: refilling test funds. Recorded rescues play meanwhile." };
   if (mineRunning) return { can: false, reason: "Your demo rescue is running below." };
   if (st.leftToday <= 0) return { can: false, reason: "Today's demo runs are used up; the test funds are paced to last through judging." };
-  if (!st.free) return { can: false, reason: "Two demo rescues are running. Watch them below; the next one can start when one finishes." };
+  const slot = st.slots.find((x, i) => (x.kind ?? (i === 1 ? "pooled" : "single")) === kind);
+  if (!slot) return { can: false, reason: "Not offered right now." };
+  if (slot.run) return { can: false, reason: `Running now${slot.run.rescueId !== null ? ` (rescue ${slot.run.rescueId})` : ""}. Watch it below; it can start again when it finishes.` };
   if (st.nextStartAt !== null && st.nextStartAt > nowMs) return { can: false, reason: `Next start possible at ${hhmm(st.nextStartAt)}.` };
   return { can: true, reason: "" };
 }
@@ -182,13 +186,13 @@ export function mountLive(root: HTMLElement, onMode: (m: BoardMode) => void, mod
     demoTimer = window.setTimeout(pollDemo, 3000);
   }
 
-  async function start() {
+  async function start(kind: DemoKind) {
     if (sending) return;
     sending = true;
     refusal = null;
     renderDemo(true);
     try {
-      const r = await fetch(`${feedUrl()}/demo/start`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: newToken() }), signal: AbortSignal.timeout(10_000) });
+      const r = await fetch(`${feedUrl()}/demo/start`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: newToken(), kind }), signal: AbortSignal.timeout(10_000) });
       const j = await r.json().catch(() => ({}));
       if (r.ok && j.runId) {
         mine = j.runId;
@@ -206,9 +210,8 @@ export function mountLive(root: HTMLElement, onMode: (m: BoardMode) => void, mod
     const now = Date.now();
     const own = status?.slots.find((s) => s.run?.runId === mine)?.run ?? null;
     const ended = status?.recent.find((r) => r.runId === mine) ?? null;
-    const gate = startState(status, now, !!own);
-    const free = status ? `${status.slots.length} demo slots · ${status.free} free` : "demo runner not answering";
-    const key = JSON.stringify([gate, free, own?.step, own?.rescueId, own?.error, ended?.outcome, sending, refusal]);
+    const gates = { single: startState(status, now, !!own, "single"), pooled: startState(status, now, !!own, "pooled") };
+    const key = JSON.stringify([gates, own?.step, own?.rescueId, own?.error, ended?.outcome, sending, refusal]);
     if (key === demoKey && !force) return;
     demoKey = key;
     const idx = own ? stepIndex(own.step) : -1;
@@ -226,17 +229,25 @@ export function mountLive(root: HTMLElement, onMode: (m: BoardMode) => void, mod
         <div>
           <div class="st-label">DEMO · NEAR TESTNET AND SEPOLIA</div>
           <h2 class="st-demo-title">Start a real rescue</h2>
-          <p class="st-demo-body">A demo borrower borrows on Aave Sepolia until its health factor falls below 1.15. The keeper's proven reading opens a real auction; the stewards bid, top up, and are paid back. About 4 minutes, all on testnets.</p>
+          <p class="st-demo-body">A demo borrower borrows on Aave Sepolia until its health factor falls below 1.15. The keeper's proven reading opens a real auction; the stewards bid, top up, and are paid back, all on testnets. Pick one steward covering the top-up (about 5 minutes) or a pooled rescue, a top-up too large for any one steward, shared from the lowest premium up (about 9 minutes).</p>
         </div>
         <div class="st-demo-go">
-          <button type="button" class="st-push st-cut" data-demo-start${gate.can && !sending ? "" : ' aria-disabled="true"'}><span class="st-lamp" aria-hidden="true"></span>${sending ? "SENDING…" : "START A DEMO RESCUE"}</button>
-          <p class="st-demo-reason" role="status">${esc(refusal ?? (gate.can ? `${free} · next start possible now` : `${free} · ${gate.reason}`))}</p>
+          ${(["single", "pooled"] as DemoKind[])
+            .map((k) => {
+              const g = gates[k];
+              return `<div class="st-demo-choice"><button type="button" class="st-push st-cut" data-demo-start="${k}"${g.can && !sending ? "" : ' aria-disabled="true"'}><span class="st-lamp" aria-hidden="true"></span>${sending ? "SENDING…" : k === "single" ? "ONE STEWARD" : "POOLED RESCUE"}</button>
+              <p class="st-demo-reason" role="status">${esc(g.can ? (k === "single" ? "One steward covers the top-up · ready" : "Several stewards share it · ready") : g.reason)}</p></div>`;
+            })
+            .join("")}
+          ${refusal ? `<p class="st-demo-reason st-demo-refusal" role="alert">${esc(refusal)}</p>` : ""}
         </div>
       </div>
       ${stepper}`;
-    ctl.querySelector("[data-demo-start]")!.addEventListener("click", () => {
-      if (gate.can && !sending) void start();
-    });
+    for (const b of ctl.querySelectorAll<HTMLButtonElement>("[data-demo-start]"))
+      b.addEventListener("click", () => {
+        const k = b.dataset.demoStart as DemoKind;
+        if (gates[k].can && !sending) void start(k);
+      });
   }
 
   function render(s: LiveScreen) {

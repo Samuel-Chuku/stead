@@ -13,9 +13,10 @@ import { existsSync, readFileSync, renameSync, writeFileSync, mkdirSync } from "
 import { dirname, join } from "node:path";
 import type { Address, Hex } from "viem";
 import { cfg, env, nearKey, REPO, STEWARDS, stewardAccount } from "../src/config.js";
-import { pub, wallet } from "../src/fork.js";
+import { pub, wallet, price, E8 } from "../src/fork.js";
+import { marketAssets } from "../src/market.js";
 import { view } from "../src/near.js";
-import { DEMO, STEP_TEXT, allowancePerDay, checkSigners, freshGate, refuelPlan, route, visitorOf, MAX_BODY, type Budget, type GateState, type Step } from "../src/demogate.js";
+import { DEMO, DEMO_KINDS, STEP_TEXT, allowancePerDay, checkSigners, freshGate, refuelPlan, route, visitorOf, MAX_BODY, type Budget, type GateState, type Step } from "../src/demogate.js";
 import { DemoRun, type DemoSlot } from "../src/demorun.js";
 import { scrub } from "../src/chainread.js";
 import { sleep } from "../src/log.js";
@@ -64,6 +65,25 @@ if (process.argv.includes("--prepare")) {
   process.exit(0);
 }
 for (const s of saved.slots) if (s.positionId === null || !s.restUnits) throw new Error(`${s.account} has no demo position yet: run with --prepare first`);
+
+// the pooled slot rests larger: its top-up is more than any one steward's capacity. A slot whose
+// resting size is off by more than 5 % is re-sized here; its next run's reset supplies the difference.
+{
+  const A = await marketAssets();
+  const px = await price(A.collateral);
+  saved.gate.slots.forEach((g, i) => {
+    g.kind ??= DEMO_KINDS[i] ?? "single";
+    const usd = g.kind === "pooled" ? DEMO.collateralUsdPooled : DEMO.collateralUsd;
+    const want = (BigInt(usd) * E8 * 10n ** BigInt(A.cDec)) / px;
+    const have = BigInt(saved.slots[i].restUnits!);
+    const off = have > want ? have - want : want - have;
+    if (off * 20n > want) {
+      say(`[slot ${i}] ${g.kind}: resting collateral ${have} → ${want} units ($${usd})`);
+      saved.slots[i].restUnits = want.toString();
+    }
+  });
+  save();
+}
 
 // ── budget and refuel (refreshed every minute; a start never waits on the chain) ──
 let budget: Budget = { leftToday: 0, canPayOne: false };
@@ -154,11 +174,12 @@ function status() {
     generated: now,
     slots: saved.gate.slots.map((s, i) => ({
       slot: i,
+      kind: s.kind ?? DEMO_KINDS[i] ?? "single",
       positionId: saved.slots[i].positionId,
       run: s.run && { runId: s.run.id, startedAt: s.run.startedAt, step: s.run.step, stepText: STEP_TEXT[s.run.step], rescueId: s.run.rescueId, error: s.run.error },
     })),
     free,
-    nextStartAt: free ? Math.max(now, saved.gate.lastStartAt + DEMO.gapMs) : null,
+    nextStartAt: Math.max(now, saved.gate.lastStartAt + DEMO.gapMs),
     paused: !budget.canPayOne,
     leftToday: Math.max(0, budget.leftToday),
     recent: recent.filter((r) => now - r.endedAt < 30 * 60_000),

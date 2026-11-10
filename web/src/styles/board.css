@@ -412,3 +412,9 @@
 .st-crown-pop-row { display: flex; justify-content: space-between; gap: 14px; }
 .st-crown-pop-row > span:first-child { opacity: .7; }
 .st-row:has(.st-crown-wrap:hover, .st-crown-wrap:focus-within, .st-crown-wrap.is-open) { z-index: 10; overflow: visible; }
+/* DEMO: two choices, each with its own status line */
+.st-demo-go { gap: var(--st-space-12); }
+.st-demo-choice { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.st-demo-choice .st-push { min-width: 230px; justify-content: center; }
+.st-demo-refusal { color: var(--st-ink); }
+@media (max-width: 620px) { .st-demo-choice { align-items: stretch; } .st-demo-choice .st-push { min-width: 0; width: 100%; } }

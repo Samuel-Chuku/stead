@@ -116,6 +116,18 @@ services:
     volumes:
       - /opt/stead/state-mainnet:/app/state
     mem_limit: 384m
+  # the site (usestead.xyz and app.usestead.xyz): the built front end (web/dist), served read-only
+  web:
+    image: nginx:1.31.7-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
+    restart: always
+    volumes:
+      - /opt/stead/web:/usr/share/nginx/html:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 64m
   tunnel:
     image: cloudflare/cloudflared:2026.10.3@sha256:faa8e0a1475f137c910be6025f43c8e4092fdd35461b31e19fd1390657a1ff39
     command: ["tunnel", "--no-autoupdate", "run"]

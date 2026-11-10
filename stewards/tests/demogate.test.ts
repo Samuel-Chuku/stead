@@ -8,28 +8,34 @@ const OPEN: Budget = { leftToday: 100, canPayOne: true };
 const MIN = 60_000;
 
 describe("who may start a demo rescue", () => {
-  it("a third start while two run is refused as busy", () => {
+  it("one slot per kind: single runs on slot 0, pooled on slot 1; a second start of a running kind is busy", () => {
     const g = freshGate();
-    expect(admit(g, T0, "a", "token-aaaa", OPEN).ok).toBe(true);
-    expect(admit(g, T0 + 2 * MIN, "b", "token-bbbb", OPEN).ok).toBe(true);
-    const r = admit(g, T0 + 5 * MIN, "c", "token-cccc", OPEN);
-    expect(r).toEqual({ ok: false, reason: "busy", nextAt: null });
+    expect(g.slots.map((x) => x.kind)).toEqual(["single", "pooled"]);
+    expect(admit(g, T0, "a", "token-aaaa", OPEN, "single")).toMatchObject({ ok: true, slot: 0 });
+    expect(admit(g, T0 + 2 * MIN, "b", "token-bbbb", OPEN, "pooled")).toMatchObject({ ok: true, slot: 1 });
+    expect(admit(g, T0 + 5 * MIN, "c", "token-cccc", OPEN, "single")).toEqual({ ok: false, reason: "busy", nextAt: null });
+    expect(admit(g, T0 + 5 * MIN, "c", "token-cccc", OPEN, "pooled")).toEqual({ ok: false, reason: "busy", nextAt: null });
+    // a pooled start while only the single demo runs takes the pooled slot
+    const h = freshGate();
+    admit(h, T0, "a", "token-aaaa", OPEN, "single");
+    expect(admit(h, T0 + 3 * MIN, "b", "token-bbbb", OPEN, "single")).toMatchObject({ ok: false, reason: "busy" });
+    expect(admit(h, T0 + 3 * MIN, "b", "token-bbbb", OPEN, "pooled")).toMatchObject({ ok: true, slot: 1 });
   });
 
   it("a start within 2 minutes of the last one is refused with the time it becomes possible", () => {
     const g = freshGate();
-    admit(g, T0, "a", "token-aaaa", OPEN);
-    const r = admit(g, T0 + 90_000, "b", "token-bbbb", OPEN);
+    admit(g, T0, "a", "token-aaaa", OPEN, "single");
+    const r = admit(g, T0 + 90_000, "b", "token-bbbb", OPEN, "pooled");
     expect(r).toEqual({ ok: false, reason: "too_soon", nextAt: T0 + DEMO.gapMs });
-    expect(admit(g, T0 + DEMO.gapMs, "b", "token-bbbb", OPEN).ok).toBe(true);
+    expect(admit(g, T0 + DEMO.gapMs, "b", "token-bbbb", OPEN, "pooled").ok).toBe(true);
   });
 
   it("the same visitor can't start twice in 10 minutes (so one visitor can't hold both slots)", () => {
     const g = freshGate();
-    admit(g, T0, "1.2.3.4", "token-aaaa", OPEN);
-    const r = admit(g, T0 + 3 * MIN, "1.2.3.4", "token-bbbb", OPEN);
+    admit(g, T0, "1.2.3.4", "token-aaaa", OPEN, "single");
+    const r = admit(g, T0 + 3 * MIN, "1.2.3.4", "token-bbbb", OPEN, "pooled");
     expect(r).toEqual({ ok: false, reason: "visitor_wait", nextAt: T0 + DEMO.perVisitorMs });
-    expect(admit(g, T0 + 3 * MIN, "5.6.7.8", "token-cccc", OPEN).ok).toBe(true);
+    expect(admit(g, T0 + 3 * MIN, "5.6.7.8", "token-cccc", OPEN, "pooled").ok).toBe(true);
   });
 
   it("the same token twice starts one run, and the repeat gets that run back", () => {
@@ -170,8 +176,10 @@ describe("HTTP", () => {
     expect(route(post('{"token":"token-aaaa"}'), d)).toMatchObject({ status: 202, json: { started: true, slot: 0 } });
     expect(route(post('{"token":"token-aaaa"}'), d).status).toBe(200);
     expect(started.length).toBe(1);
-    const r = route({ ...post('{"token":"token-bbbb"}'), visitor: "w" }, d);
+    const r = route({ ...post('{"token":"token-bbbb","kind":"pooled"}'), visitor: "w" }, d);
     expect(r.status).toBe(429);
     expect(r.json).toMatchObject({ started: false, reason: "too_soon", nextAt: T0 + DEMO.gapMs });
+    // the kind is checked: anything but single or pooled is a bad request
+    expect(route({ ...post('{"token":"token-cccc","kind":"triple"}'), visitor: "x" }, d).status).toBe(400);
   });
 });

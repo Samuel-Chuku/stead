@@ -1,7 +1,9 @@
 // A steward bot: watches auctions, bids by its strategy, tops up when it wins, settles its
 // claims when they expire (or early), and takes over stalled settlements.
 import { type Address, type Hex } from "viem";
-import { cfg, env, hasEnv, stewardAccount, type StewardName } from "./config.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { cfg, env, hasEnv, REPO, stewardAccount, type StewardName } from "./config.js";
 import { call, view, viewReport, NEAR, TGAS } from "./near.js";
 import { wallet, write, ensureTokens, fundEth, poolAbi, erc20Abi, MAX, pub, price } from "./fork.js";
 import { strategies, type AuctionView } from "./strategy.js";
@@ -17,7 +19,17 @@ import { nowNs, settlementRepayUnits, type Rescue, type Position, type Params, t
 
 const TAKEOVER_AFTER_NS = 180n * 1_000_000_000n;
 const TOPUP_MARGIN_NS = 30n * 1_000_000_000n; // a top-up needs this long left to land before the deadline
-const AI_EVERY_MS = 5 * 60_000;
+/** The time of the steward's last logged AI request (logs/ai-<name>.jsonl), or 0. */
+function lastAiAsk(name: string): number {
+  try {
+    const lines = readFileSync(join(REPO, "stewards", "logs", `ai-${name}.jsonl`), "utf8").trim().split("\n");
+    return Date.parse(JSON.parse(lines[lines.length - 1]).at) || 0;
+  } catch {
+    return 0;
+  }
+}
+/** How often a steward may ask the model: every 6 hours unless AI_EVERY_HOURS says otherwise. */
+const AI_EVERY_MS = Math.max(1, Number(process.env.AI_EVERY_HOURS ?? 6)) * 3_600_000;
 const ROLES: Record<StewardName, string> = {
   swift: "bids first at a fixed spread, whatever the margin",
   patient: "bids late; takes thin margins the others skip, priced for the risk",
@@ -53,6 +65,7 @@ export class Steward {
   settings: RiskSettings;
   private recent: AiContext["recent"] = [];
   private prices: AiContext["prices"] = [];
+  /** When this steward last asked the model, from its own log (so a restart doesn't ask again early). */
   private lastAi = 0;
   private aiBusy = false;
 
@@ -68,6 +81,7 @@ export class Steward {
     this.evm = wallet(key as Hex);
     const cap = pick(`STEWARD_${N}_CAPACITY`, "STEWARD_CAPACITY");
     if (cap) this.capacity = Number(cap); // turned into units once the market's decimals are known
+    this.lastAi = lastAiAsk(name);
     const own = process.env.STEWARD_SETTINGS;
     this.settings = own ? clamp(JSON.parse(own), DEFAULTS[name]) : { ...DEFAULTS[name] };
   }
@@ -118,6 +132,10 @@ export class Steward {
       .then((r) => {
         if (!r.verified && !r.applied_unverified) {
           log(this.name, `[ai] not applied (${r.error}): keeping settings · ${r.model} @ ${r.provider}`);
+          return;
+        }
+        if (r.rejected) {
+          log(this.name, `[ai] rejected: ${r.rejected}; keeping settings · proposed ${JSON.stringify(r.proposed ?? {})}: "${r.reason ?? ""}"`);
           return;
         }
         this.settings = r.applied;
@@ -378,7 +396,7 @@ export class Steward {
     }
     if (aiEnabled()) {
       const c = aiConfig();
-      log(this.name, `[ai] tuning on: ${c.models.join(" → ")} @ ${c.host}, every ${AI_EVERY_MS / 60_000} min`);
+      log(this.name, `[ai] tuning on: ${c.models.join(" → ")} @ ${c.host}, every ${AI_EVERY_MS / 3_600_000} h, each proposal checked against the steward's own data`);
       const w = aiWarning();
       if (w) log(this.name, `[ai] ${w}`);
     }

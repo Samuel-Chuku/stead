@@ -73,10 +73,11 @@ describe("DEMO board", () => {
     ...over,
   });
 
-  it("START is offered only when a slot is free, the 2-minute spacing has passed, funds allow, and the visitor has no run going", () => {
-    expect(startState(st(), now, false).can).toBe(true);
-    expect(startState(st({ free: 0 }), now, false)).toMatchObject({ can: false, reason: expect.stringContaining("Two demo rescues are running") });
-    expect(startState(st({ nextStartAt: now + 60_000 }), now, false)).toMatchObject({ can: false, reason: expect.stringContaining("Next start possible at") });
+  it("START is offered per kind only when that kind's slot is free, the 2-minute spacing has passed, funds allow, and the visitor has no run going", () => {
+    // slot 0 (single) runs rescue 31; slot 1 (pooled) is free
+    expect(startState(st(), now, false, "pooled").can).toBe(true);
+    expect(startState(st(), now, false, "single")).toMatchObject({ can: false, reason: expect.stringContaining("Running now (rescue 31)") });
+    expect(startState(st({ nextStartAt: now + 60_000 }), now, false, "pooled")).toMatchObject({ can: false, reason: expect.stringContaining("Next start possible at") });
     expect(startState(st({ paused: true }), now, false)).toMatchObject({ can: false, reason: expect.stringContaining("Demo paused") });
     expect(startState(st({ leftToday: 0 }), now, false).can).toBe(false);
     expect(startState(st(), now, true)).toMatchObject({ can: false, reason: "Your demo rescue is running below." });

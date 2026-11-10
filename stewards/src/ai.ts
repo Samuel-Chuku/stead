@@ -15,6 +15,8 @@ import { join } from "node:path";
 import { recoverMessageAddress, type Hex } from "viem";
 import { env, hasEnv, REPO } from "./config.js";
 import { BOUNDS, clamp, type RiskSettings } from "./risk.js";
+import { judge } from "./aiguard.js";
+import type { StewardName } from "./config.js";
 
 export const NEAR_AI_BASE = "https://cloud-api.near.ai/v1";
 /** NEAR AI defaults: the cheapest TEE-hosted model, then a fallback. */
@@ -103,6 +105,9 @@ export interface AiRecord {
   applied_unverified?: boolean;
   error?: string;
   verify_url?: string;
+  /** The guard's verdict on the reasoning (aiguard.ts); a rejected proposal keeps the settings. */
+  judged?: string;
+  rejected?: string;
   /** Settings the model returned changed without naming them in its reason: not applied. */
   dropped?: string[];
 }
@@ -270,6 +275,15 @@ async function ask(model: string, c: AiContext, conf: AiConfig): Promise<AiRecor
   } else if (!conf.requireSignature) {
     rec.applied = clampChanged(keep, c.current);
     rec.applied_unverified = true;
+  }
+  // the reasoning must hold up against the steward's own data, or nothing changes
+  if (rec.verified || rec.applied_unverified) {
+    const v = judge({ steward: c.steward as StewardName, recent: c.recent, prices: c.prices }, c.current, rec.applied, rec.reason ?? "");
+    rec.judged = v.why;
+    if (!v.ok) {
+      rec.rejected = v.why;
+      rec.applied = c.current;
+    }
   }
   return rec;
 }

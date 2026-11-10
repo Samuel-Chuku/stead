@@ -80,7 +80,8 @@ function setTheme(t: Theme) {
 // ───────────────────────────── markup ─────────────────────────────
 
 /** The homepage is the empty route; every app route has a name. */
-const isHome = () => !NAV.some((n) => n.id === location.hash.replace(/^#\/?/, ""));
+/** The landing page: the site root on usestead.xyz. On app.usestead.xyz the root opens the app. */
+const isHome = () => !location.hostname.startsWith("app.") && !NAV.some((n) => n.id === location.hash.replace(/^#\/?/, ""));
 const route = (): Route => {
   const r = location.hash.replace(/^#\/?/, "") as Route;
   return NAV.some((n) => n.id === r) ? r : "live";
