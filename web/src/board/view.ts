@@ -133,7 +133,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: { onTogg
 
     ${pooled ? poolMarkup(log) : ""}
     <section class="st-journal" aria-label="Journal">
-      <div class="st-journal-head">JOURNAL · REPLAY OF A RECORDED RESCUE · ${esc(log.label.toUpperCase())}</div>
+      <div class="st-journal-head">JOURNAL · REPLAY OF A RECORDED RESCUE, ON LOOP · ${esc(log.label.toUpperCase())}</div>
       <div class="st-journal-lines" data-journal data-theme="dark"></div>
     </section>
   </div>`;

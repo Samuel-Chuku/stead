@@ -5,6 +5,7 @@ import { boardAt, duration } from "./model";
 import { mountBoard, type ReplayChoice } from "./view";
 
 const LEAD_IN = -3; // seconds of calm before the trigger
+const HOLD_S = 6; // seconds the final state stays up before the replay loops
 
 export async function mountReplay(root: HTMLElement, url: string, choice?: { replays: ReplayChoice[]; current: string; onPick: (id: string) => void }) {
   root.innerHTML = `<section class="st-panel st-page"><div class="st-label">LIVE AUCTIONS</div><p class="st-empty">Loading the recorded rescue…</p></section>`;
@@ -35,14 +36,16 @@ export async function mountReplay(root: HTMLElement, url: string, choice?: { rep
     ...(choice ?? {}),
   });
 
+  // A recorded rescue can't change, so the replay loops: hold the final state, then start over
+  // from just before the trigger. (LIVE mode follows real events instead and never loops.)
   function frame(now: number) {
-    t = Math.min(end, tAtAnchor + (now - anchor) / 1000);
+    const raw = tAtAnchor + (now - anchor) / 1000;
+    if (raw >= end + HOLD_S) {
+      anchor = now;
+      tAtAnchor = LEAD_IN;
+      t = LEAD_IN;
+    } else t = Math.min(end, raw);
     view.update(boardAt(log, t));
-    if (t >= end) {
-      playing = false;
-      view.setPlaying(false, true);
-      return;
-    }
     raf = requestAnimationFrame(frame);
   }
   function play() {
