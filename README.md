@@ -30,6 +30,24 @@ Sepolia); a **read-only** view applies Stead's formulas to real Aave positions o
 | A verified rescue | position [`0x98deab0b…5b34`](https://sepolia.etherscan.io/address/0x98deab0b3751f5421aa3c32ac6b8dca0010e5b34) on Sepolia ([the run](#recorded-runs)) |
 | Evidence | [`evidence/README.md`](evidence/README.md): replays on real 2026 prices, stress tests, every recorded run re-read on chain |
 
+### Try it
+
+- **[app.usestead.xyz](https://app.usestead.xyz)**: the live board. **LIVE** follows any open rescue on
+  the testnet contracts, 6 s behind the chain. **DEMO** starts a real rescue from the page: a demo
+  borrower borrows below 1.15 on Aave Sepolia, the keeper's proven reading opens the auction, and the
+  stewards bid, top up and are paid back. Pick **one steward** (about 5 minutes) or a **pooled rescue**,
+  a top-up larger than any one steward's capacity, shared from the lowest premium up (about 9 minutes).
+  **REPLAY** plays recorded rescues 8, 10 and 11.
+- **Rescues, Positions, Claims, Stewards, Proofs**: every record read from the contracts, every step
+  linked to its transaction.
+- **On mainnet**: real Aave V3 liquidations on Ethereum in the last 24 hours, each beside what a Stead
+  rescue would have cost the same borrower. Read-only, public RPCs.
+- The read-only feeds behind the site: `https://live.usestead.xyz/live.json` (open rescues),
+  `/records.json` (the list pages), `/mainnet.json` (the mainnet panel), `/demo/status`.
+
+Demo runs are limited to one of each kind at a time, two minutes apart, one per visitor every ten
+minutes, and paced so the test funds last through judging.
+
 ### Which contract is which
 
 All four run the same source. The size cap and the borrower allow-list are owner settings,

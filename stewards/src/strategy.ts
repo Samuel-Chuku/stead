@@ -107,3 +107,43 @@ export const strategies: Record<StewardName, (a: AuctionView, s?: RiskSettings) 
     };
   },
 };
+
+// ── undercutting: re-bidding lower inside an auction (only some stewards) ──
+
+/** Stewards that re-bid when outbid. patient prices late, hedged at its hedge cost, pool joins
+ *  coalitions: they keep one bid. */
+export const UNDERCUTTERS: ReadonlySet<StewardName> = new Set<StewardName>(["deep", "swift"]);
+export const UNDERCUT = {
+  /** How far below the best bid a re-bid goes. */
+  stepBps: 5,
+  /** Never below this share of the steward's own spread (deep 150 → 105, swift 400 → 280). */
+  floorFraction: 0.7,
+  /** Re-bids per auction, at most. */
+  maxRebids: 3,
+  /** No re-bid this close to the close: a bid must land before the auction ends. */
+  cutoffS: 5,
+} as const;
+
+export interface StandingBid {
+  steward: string;
+  premium_bps: number;
+  seq: number;
+}
+
+/** A lower premium to re-bid at, or null to stay. Re-bids only when another standing bid ranks
+ *  ahead of this steward's (lower premium, or the same premium placed earlier). */
+export function undercut(name: StewardName, me: string, bids: StandingBid[], a: { capBps: number; closesAtNs: bigint; nowNs: bigint }, s: RiskSettings, rebids: number): { bps: number; why: string } | null {
+  if (!UNDERCUTTERS.has(name)) return null;
+  if (rebids >= UNDERCUT.maxRebids) return null;
+  if (Number(a.closesAtNs - a.nowNs) / 1e9 < UNDERCUT.cutoffS) return null;
+  const mine = bids.find((b) => b.steward === me);
+  if (!mine) return null;
+  const ahead = bids.filter((b) => b.steward !== me && (b.premium_bps < mine.premium_bps || (b.premium_bps === mine.premium_bps && b.seq < mine.seq)));
+  if (!ahead.length) return null;
+  const best = Math.min(...ahead.map((b) => b.premium_bps));
+  const floor = Math.max(BOUNDS.spreadBps[0], Math.ceil(s.spreadBps * UNDERCUT.floorFraction));
+  if (floor > a.capBps) return null; // the cap is under its floor: it never prices below its floor
+  const bps = Math.max(floor, best - UNDERCUT.stepBps); // ≤ the cap: the best standing bid is under it
+  if (bps >= mine.premium_bps) return null; // at its floor already: stays where it is
+  return { bps, why: `outbid at ${best} bps: re-bids ${bps} bps (floor ${floor}, re-bid ${rebids + 1} of ${UNDERCUT.maxRebids})` };
+}

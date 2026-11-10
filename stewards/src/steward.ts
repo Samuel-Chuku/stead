@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { cfg, env, hasEnv, REPO, stewardAccount, type StewardName } from "./config.js";
 import { call, view, viewReport, NEAR, TGAS } from "./near.js";
 import { wallet, write, ensureTokens, fundEth, poolAbi, erc20Abi, MAX, pub, price } from "./fork.js";
-import { strategies, type AuctionView } from "./strategy.js";
+import { strategies, undercut, type AuctionView } from "./strategy.js";
 import { sourceCapital } from "./intents.js";
 import { DEFAULTS, clamp, type RiskSettings } from "./risk.js";
 import { marketAssets, units } from "./market.js";
@@ -152,6 +152,24 @@ export class Steward {
       .finally(() => (this.aiBusy = false));
   }
 
+  /** Outbid while the auction is open: re-bid one step below the best, never under the floor, at
+   *  most three times, never in the last 5 s. Same amount; the bond is kept (no new deposit). */
+  private async maybeUndercut(r: Rescue) {
+    const mine = r.bids.find((b) => b.steward === this.account);
+    if (!mine) return;
+    const n = this.rebids.get(r.id) ?? 0;
+    const d = undercut(this.name, this.account, r.bids, { capBps: r.cap_bps, closesAtNs: BigInt(r.closes_at), nowNs: nowNs() }, this.settings, n);
+    if (!d) return;
+    this.rebids.set(r.id, n + 1);
+    this.remember({ rescue: r.id, outcome: "bid", bps: d.bps });
+    try {
+      const c = await call(this.account, "bid", { rescue_id: r.id, premium_bps: d.bps, amount_units: mine.amount_units }, { deposit: 0n, gas: 30n * TGAS });
+      log(this.name, `re-bid on auction ${r.id}: ${d.bps} bps (${d.why}) ${short(c.hash)}`);
+    } catch (e) {
+      log(this.name, `re-bid on auction ${r.id} refused: ${(e as Error).message.slice(0, 120)}`);
+    }
+  }
+
   private note(rid: number, msg: string) {
     if (this.seen.get(rid) !== msg) {
       this.seen.set(rid, msg);
@@ -256,8 +274,11 @@ export class Steward {
     }
   }
 
+  /** Re-bids made per auction (undercutting stewards only). */
+  private rebids = new Map<number, number>();
+
   private async onAuction(r: Rescue, params: Params) {
-    if (this.bid.has(r.id) || r.bids.some((b) => b.steward === this.account)) return;
+    if (this.bid.has(r.id) || r.bids.some((b) => b.steward === this.account)) return this.maybeUndercut(r);
     const [nh, pos, market] = await Promise.all([
       view<[string, string, string] | null>("get_net_health", { position_id: r.position_id }),
       view<Position>("get_position", { position_id: r.position_id }),
