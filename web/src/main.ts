@@ -7,6 +7,7 @@ import type { BoardMode } from "./board/view";
 import { mountProofs, mountRescue } from "./rescue/page";
 import { mountHome } from "./home/page";
 import { loadRecords, mountList } from "./lists/pages";
+import { mountMainnet } from "./mainnet/page";
 import { bindCrowns } from "./crown";
 
 /** The recorded rescue the live board replays: a real auction on Sepolia, rebuilt from the chains. */
@@ -37,11 +38,12 @@ function setBoardMode(m: BoardMode) {
   fill("live");
 }
 
-type Route = "overview" | "live" | "rescues" | "positions" | "stewards" | "claims" | "proofs";
+type Route = "overview" | "live" | "mainnet" | "rescues" | "positions" | "stewards" | "claims" | "proofs";
 
 const NAV: { id: Route; label: string; icon: IconName }[] = [
   { id: "overview", label: "Overview", icon: "overview" },
   { id: "live", label: "Live auctions", icon: "live" },
+  { id: "mainnet", label: "On mainnet", icon: "ethereum" },
   { id: "rescues", label: "Rescues", icon: "rescues" },
   { id: "positions", label: "Positions", icon: "positions" },
   { id: "stewards", label: "Stewards", icon: "stewards" },
@@ -53,6 +55,7 @@ const NAV: { id: Route; label: string; icon: IconName }[] = [
 const PAGES: Record<Route, { label: string; title: string; body: string }> = {
   overview: { label: "OVERVIEW", title: "Overview", body: "Totals across every rescue, read from the contract. Built after the live board." },
   live: { label: "LIVE AUCTIONS", title: "Live auctions", body: "The live board replays a recorded rescue from its event log: annunciator, health gauge, flip clock, bid ladder, stewards and journal. It is the next step." },
+  mainnet: { label: "MAINNET", title: "On mainnet", body: "" },
   rescues: { label: "RESCUES", title: "Rescues", body: "Each rescue with its timeline, cost chart, auction results, claims and proofs." },
   positions: { label: "POSITIONS", title: "Positions", body: "Protected positions and their health factors, each with its evidence mark." },
   stewards: { label: "STEWARDS", title: "Stewards", body: "The five example strategies, their bids and their claims. Anyone can register a steward." },
@@ -195,6 +198,8 @@ function fill(r: Route) {
     void mountRescue(content, (REPLAYS.find((x) => x.id === id) ?? REPLAYS[REPLAYS.length - 1]).url);
   } else if (r === "overview" || r === "positions" || r === "rescues" || r === "claims" || r === "stewards") {
     unmount = mountList(content, r, REPLAYS.map((x) => ({ id: x.id, contract: "sepolia-demo.steadfi.testnet", rescueId: Number(x.id) })));
+  } else if (r === "mainnet") {
+    unmount = mountMainnet(content);
   } else if (r === "proofs") {
     void mountProofs(content, REPLAYS);
   } else content.innerHTML = page(r);

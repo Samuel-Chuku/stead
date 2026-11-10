@@ -45,7 +45,7 @@ const STATE: Record<string, [string, "open" | "done" | "bad" | "quiet"]> = {
   empty: ["Empty", "quiet"],
   "window ended": ["Window ended", "open"],
 };
-const state = (s: string) => {
+export const state = (s: string) => {
   const [t, k] = STATE[s] ?? [s, "quiet"];
   return `<span class="st-state st-state--${k}"><span class="st-state-dot" aria-hidden="true"></span>${t}</span>`;
 };
@@ -85,7 +85,7 @@ export function pageOf<T>(rows: T[], page: number, size = PAGE_SIZE): { rows: T[
 
 // ── page parts ──
 
-function head(label: string, title: string, sub: string, live: boolean, generated: string) {
+export function head(label: string, title: string, sub: string, live: boolean, generated: string) {
   return `<header class="st-list-head">
       <div class="st-label">${label}</div>
       <h1 class="st-page-title">${title}</h1>
@@ -101,13 +101,14 @@ const chainSelect = (c: Record<"real" | "fork" | "all", number>) =>
     : "";
 const counts = (rows: { chain: string }[]) => ({ real: byChain(rows, "real").length, fork: byChain(rows, "fork").length, all: rows.length });
 /** One item: a summary line of cells that opens to a details list. */
-type Item = { chain: string; cells: string[]; details: [string, string][] };
+/** `group` is what the page's dropdown filters on ("real" / "fork" by default, from the chain). */
+export type Item = { chain: string; group?: string; cells: string[]; details: [string, string][] };
 const itemHtml = (it: Item) => `
-    <li data-chain="${it.chain === "local fork" ? "fork" : "real"}"><details class="st-item">
+    <li data-chain="${it.group ?? (it.chain === "local fork" ? "fork" : "real")}"><details class="st-item">
       <summary>${it.cells.map((c) => `<span class="st-item-cell">${c}</span>`).join("")}<span class="st-item-caret" aria-hidden="true"></span></summary>
       <dl class="st-item-details">${it.details.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
     </details></li>`;
-const list = (cls: string, cols: string[], items: Item[], empty: string, paged = true) => `
+export const list = (cls: string, cols: string[], items: Item[], empty: string, paged = true) => `
     <div class="st-items-head ${cls}" aria-hidden="true">${cols.map((c) => `<span>${c}</span>`).join("")}<span></span></div>
     <ul class="st-items ${cls}" data-items>${items.map(itemHtml).join("")}</ul>
     <p class="st-empty" data-items-empty hidden>${empty}</p>
@@ -271,7 +272,7 @@ function overviewPage(rec: Records, live: boolean, recorded: Recorded[]) {
 }
 
 /** The chain dropdown and the pager: ten visible items at a time. */
-function wire(root: HTMLElement, signal: AbortSignal) {
+export function wire(root: HTMLElement, signal: AbortSignal) {
   for (const sect of root.querySelectorAll<HTMLElement>("[data-list]")) {
     const items = [...sect.querySelectorAll<HTMLLIElement>("[data-items] > li")];
     const select = sect.querySelector<HTMLSelectElement>("[data-chain-select]");

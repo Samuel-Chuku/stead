@@ -7,7 +7,7 @@ RUN npm ci --ignore-scripts && npm cache clean --force
 COPY fork/addresses.sh /app/fork/addresses.sh
 COPY stewards/tsconfig.json ./
 COPY stewards/src ./src
-COPY stewards/scripts/keeper.ts stewards/scripts/steward.ts stewards/scripts/live-feed.ts stewards/scripts/demo-runner.ts stewards/scripts/demo-keys.ts ./scripts/
+COPY stewards/scripts/keeper.ts stewards/scripts/steward.ts stewards/scripts/live-feed.ts stewards/scripts/demo-runner.ts stewards/scripts/demo-keys.ts stewards/scripts/mainnet-panel.ts ./scripts/
 RUN mkdir -p /app/stewards/logs && chown node:node /app/stewards/logs
 USER node
 ENTRYPOINT ["/app/stewards/node_modules/.bin/tsx"]

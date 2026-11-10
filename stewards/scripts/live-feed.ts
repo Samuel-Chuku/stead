@@ -438,6 +438,17 @@ function passToRunner(req: IncomingMessage, res: ServerResponse, path: string) {
   });
 }
 
+/** The mainnet panel feed's address inside the stack (stewards/scripts/mainnet-panel.ts --serve). */
+const MAINNET_PANEL = process.env.MAINNET_PANEL_URL ?? "";
+async function passMainnet(res: ServerResponse, headers: Record<string, string>) {
+  try {
+    const r = await fetch(`${MAINNET_PANEL}/mainnet.json`, { signal: AbortSignal.timeout(10_000) });
+    res.writeHead(r.status, { ...headers, "cache-control": "public, max-age=60" }).end(await r.text());
+  } catch {
+    res.writeHead(502, headers).end('{"error":"mainnet panel not answering"}');
+  }
+}
+
 /** The list pages' data (positions, rescues, claims, stewards), re-read every 2 minutes; the last
  *  good copy keeps being served if a read fails. */
 let records: string | null = null;
@@ -474,6 +485,8 @@ if (port) {
       if (!s) return void res.writeHead(503, headers).end(JSON.stringify({ error: "first cycle still running", lastError }));
       return void res.writeHead(200, headers).end(JSON.stringify(s));
     }
+    // the read-only mainnet panel feed sits behind this address too (GET only)
+    if (path === "/mainnet.json" && MAINNET_PANEL) return void passMainnet(res, headers);
     if (path === "/records.json") {
       if (!records) return void res.writeHead(503, headers).end(JSON.stringify({ error: "first read still running" }));
       return void res.writeHead(200, { ...headers, "cache-control": "public, max-age=30" }).end(records);

@@ -76,3 +76,7 @@
 .st-item-more { font-size: 12px; font-weight: 600; color: var(--st-quiet); align-self: center; margin-left: 4px; white-space: nowrap; }
 .st-item-winner { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
 .st-item-winner .st-crown { margin-left: 0; }
+.st-items--mainnet { --cols: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.3fr) 16px; }
+.st-item-note { white-space: normal; }
+.st-list-note { margin: 0; font-size: 12px; color: var(--st-quiet); }
+.st-item-hf-below { color: var(--st-exposure-ink); }

@@ -79,6 +79,7 @@ services:
     environment:
       STEAD_EVM: sepolia
       DEMO_RUNNER_URL: http://demo-runner:8789
+      MAINNET_PANEL_URL: http://mainnet-panel:8787
     # only the testnet node URL (QUICKNODE_NEAR_TESTNET_URL): no keys
     volumes:
       - /opt/stead/secrets-live/.env:/app/.env:ro
@@ -104,6 +105,17 @@ services:
       - /opt/stead/state-demo:/app/state
       - /opt/stead/logs-demo:/app/stewards/logs
     mem_limit: 256m
+  # read-only: real Aave V3 positions and liquidations on Ethereum mainnet, public RPCs only, no keys;
+  # served at /mainnet.json through live-feed
+  mainnet-panel:
+    <<: *bot
+    image: stead-live:local
+    command: ["scripts/mainnet-panel.ts", "--serve", "8787", "--host", "0.0.0.0", "--every", "300", "--out", "/app/state/mainnet-panel.json", "--state", "/app/state/mainnet-panel-state.json"]
+    environment:
+      STEAD_EVM: sepolia
+    volumes:
+      - /opt/stead/state-mainnet:/app/state
+    mem_limit: 384m
   tunnel:
     image: cloudflare/cloudflared:2026.10.3@sha256:faa8e0a1475f137c910be6025f43c8e4092fdd35461b31e19fd1390657a1ff39
     command: ["tunnel", "--no-autoupdate", "run"]

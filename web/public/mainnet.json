@@ -1,0 +1,4660 @@
+{
+ "generated": "2026-11-10T16:22:59.533Z",
+ "chain": "ethereum",
+ "readOnly": true,
+ "source": "Aave V3 Ethereum mainnet, public reads only; Stead's figures use the contract's formulas and the stewards' real strategies",
+ "block": 26385678,
+ "blockTime": "2026-11-10T16:22:47.000Z",
+ "params": {
+  "trigger": 1.15,
+  "target": 1.5,
+  "early": 1.1
+ },
+ "coverage": {
+  "borrowers": 2843,
+  "fromBlock": 26325748,
+  "toBlock": 26385678
+ },
+ "summary": {
+  "nearTrigger": 397,
+  "belowTrigger": 175,
+  "debtNearTriggerUsd": 180400230.84419852,
+  "triggers24h": 31,
+  "liquidations24h": 45,
+  "dust24h": 1,
+  "unpriced": 0,
+  "bonusPaid24hUsd": 116349.32610036587,
+  "compared24h": 39,
+  "steadPremium24hUsd": 28734.22792722296,
+  "saved24hUsd": 87359.51473210227
+ },
+ "positions": [
+  {
+   "address": "0x5aC88D99758AcdC8d7149c58c42dfBe2f6eE91a5",
+   "hf": 1.005889705589253,
+   "debtUsd": 20144.56281414,
+   "collateralUsd": 23839.06865687,
+   "ltBps": 8500,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 23839.068656877957
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.005855220066898759,
+   "atTrigger": {
+    "topupUsd": 11710.159838671181,
+    "capBps": 430,
+    "liquidationCostUsd": 503.6140703535,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.102 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.104 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.109 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 468.40639354684726,
+     "savedUsd": 35.20767680665273
+    }
+   }
+  },
+  {
+   "address": "0x90b7c98a7289cD0e1A2b332bc7dA2Ac0c45c1b47",
+   "hf": 1.0099963440922697,
+   "debtUsd": 2894.46752506,
+   "collateralUsd": 3480.24002191,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 3480.2401538373015
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.009897406214132265,
+   "atTrigger": {
+    "topupUsd": 1688.4519871257144,
+    "capBps": 428,
+    "liquidationCostUsd": 72.3616881265,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.097 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.100 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.105 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 67.53807948502858,
+     "savedUsd": 4.823608641471424
+    }
+   }
+  },
+  {
+   "address": "0x92561D51c73D545a24D0525d0c616d83562FfcC2",
+   "hf": 1.0122956128397462,
+   "debtUsd": 2847.68956329,
+   "collateralUsd": 3643.07589886,
+   "ltBps": 7912,
+   "bonusBps": 652,
+   "collateral": [
+    {
+     "symbol": "AAVE",
+     "usd": 2218.501292434235
+    },
+    {
+     "symbol": "WETH",
+     "usd": 1424.5746141468353
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.012146267042740466,
+   "atTrigger": {
+    "topupUsd": 1755.728884930445,
+    "capBps": 528,
+    "liquidationCostUsd": 92.834679763254,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.095 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.098 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.102 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 70.22915539721781,
+     "savedUsd": 22.605524366036192
+    }
+   }
+  },
+  {
+   "address": "0xc020c6d9952eEcEc43208D3716fA0e7B8532274e",
+   "hf": 1.0129052338193836,
+   "debtUsd": 158522.4258601,
+   "collateralUsd": 189803.81714332,
+   "ltBps": 8459,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 113298.8431051782
+    },
+    {
+     "symbol": "WETH",
+     "usd": 76504.97610970718
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.012740810678528613,
+   "atTrigger": {
+    "topupUsd": 91297.54092518694,
+    "capBps": 434,
+    "liquidationCostUsd": 3963.0606465025,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.094 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.097 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.102 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 3651.901637007478,
+     "savedUsd": 311.159009495022
+    }
+   }
+  },
+  {
+   "address": "0x1FbcadCc4c250cF1f6da6b360263A6EBC3967aA9",
+   "hf": 1.0132515854561237,
+   "debtUsd": 29666.63350429,
+   "collateralUsd": 35375.36786253,
+   "ltBps": 8497,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 34445.44288424449
+    },
+    {
+     "symbol": "WETH",
+     "usd": 929.925003472191
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.01307827754363533,
+   "atTrigger": {
+    "topupUsd": 16995.998803864015,
+    "capBps": 436,
+    "liquidationCostUsd": 741.66583760725,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.094 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.097 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.101 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 679.8399521545606,
+     "savedUsd": 61.82588545268936
+    }
+   }
+  },
+  {
+   "address": "0xE7FF69467255600fd11C559cA442a1bd3d80e738",
+   "hf": 1.0136858711720587,
+   "debtUsd": 17264.5226089,
+   "collateralUsd": 20589.17957785,
+   "ltBps": 8500,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 20589.17957785224
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.013501096899214526,
+   "atTrigger": {
+    "topupUsd": 9877.625026091173,
+    "capBps": 436,
+    "liquidationCostUsd": 431.6130652225,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.094 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.096 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.101 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 395.10500104364695,
+     "savedUsd": 36.50806417885303
+    }
+   }
+  },
+  {
+   "address": "0x4a4FfCeeBC80782400F2DDf1878DD4b2d33661ba",
+   "hf": 1.015950958960541,
+   "debtUsd": 158283.14859003,
+   "collateralUsd": 190085.92637413,
+   "ltBps": 8459,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 113573.84430656259
+    },
+    {
+     "symbol": "WETH",
+     "usd": 76512.0841393185
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.015700520600778978,
+   "atTrigger": {
+    "topupUsd": 90591.13106179028,
+    "capBps": 436,
+    "liquidationCostUsd": 3957.0787147507504,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.091 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.094 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.099 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 3623.6452424716117,
+     "savedUsd": 333.43347227913864
+    }
+   }
+  },
+  {
+   "address": "0x682Ef980b9732fc7606D2632339fE2D8Fedf1A88",
+   "hf": 1.0190736600146038,
+   "debtUsd": 1347.79689054,
+   "collateralUsd": 1656.34175964,
+   "ltBps": 8292,
+   "bonusBps": 598,
+   "collateral": [
+    {
+     "symbol": "wstETH",
+     "usd": 1114.411901098375
+    },
+    {
+     "symbol": "WBTC",
+     "usd": 242.00336690587716
+    },
+    {
+     "symbol": "cbBTC",
+     "usd": 204.54488638607998
+    },
+    {
+     "symbol": "WETH",
+     "usd": 95.38140050978699
+    },
+    {
+     "symbol": "USDT",
+     "usd": 0.00012784128
+    },
+    {
+     "symbol": "USDC",
+     "usd": 0.00007898306714
+    },
+    {
+     "symbol": "cbETH",
+     "usd": 1.5382422162417804e-8
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.01871666471521838,
+   "atTrigger": {
+    "topupUsd": 781.7857558086253,
+    "capBps": 515,
+    "liquidationCostUsd": 40.299127027146,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.088 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.091 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.095 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 31.27143023234501,
+     "savedUsd": 9.027696794800988
+    }
+   }
+  },
+  {
+   "address": "0x16aD6C9de6902cCD1f04B21715c0A4eE323F10C5",
+   "hf": 1.0245909534942756,
+   "debtUsd": 180950.34560477,
+   "collateralUsd": 218969.46191241,
+   "ltBps": 8466,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 146573.91318856803
+    },
+    {
+     "symbol": "WETH",
+     "usd": 72395.55107614513
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.024000752115183488,
+   "atTrigger": {
+    "topupUsd": 101637.10365238445,
+    "capBps": 445,
+    "liquidationCostUsd": 4523.75864011925,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.083 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.085 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.090 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 4065.484146095378,
+     "savedUsd": 458.2744940238722
+    }
+   }
+  },
+  {
+   "address": "0xc18c2c1BB11405B47c9301A58Cdb9bc8563aF5dD",
+   "hf": 1.0246420612525795,
+   "debtUsd": 6596.02975583,
+   "collateralUsd": 7951.25826482,
+   "ltBps": 8500,
+   "bonusBps": 750,
+   "collateral": [
+    {
+     "symbol": "cbBTC",
+     "usd": 7951.25826482016
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.02404943363583545,
+   "atTrigger": {
+    "topupUsd": 3688.794245468235,
+    "capBps": 670,
+    "liquidationCostUsd": 247.351115843625,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.082 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.085 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.090 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 147.5517698187294,
+     "savedUsd": 99.79934602489558
+    }
+   }
+  },
+  {
+   "address": "0xC5bF64EF4Ba1D1C0e63F4D84B849a0A810F708c4",
+   "hf": 1.0250186052622785,
+   "debtUsd": 818996.84935406,
+   "collateralUsd": 987631.77439894,
+   "ltBps": 8500,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 987631.7743989463
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.024407952337486383,
+   "atTrigger": {
+    "topupUsd": 457656.78328469547,
+    "capBps": 447,
+    "liquidationCostUsd": 20474.921233851503,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.082 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.084 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.089 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 18306.27133138782,
+     "savedUsd": 2168.6499024636832
+    }
+   }
+  },
+  {
+   "address": "0xeD93858f8ad687AfA05a9A880C181B059b83044C",
+   "hf": 1.0257852847231637,
+   "debtUsd": 104630.48584274,
+   "collateralUsd": 127771.91989395,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 127771.92058591451
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.0251371170040936,
+   "atTrigger": {
+    "topupUsd": 59068.233396657146,
+    "capBps": 442,
+    "liquidationCostUsd": 2615.7621460685,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.081 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.084 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.088 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 2362.729335866286,
+     "savedUsd": 253.03281020221402
+    }
+   }
+  },
+  {
+   "address": "0x2b0AF182BeFa3339F6F40d9428a0FFc3951ad55b",
+   "hf": 1.0318442376893608,
+   "debtUsd": 7103.84607021,
+   "collateralUsd": 8726.26503926,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 8726.265370049117
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.030861477465504494,
+   "atTrigger": {
+    "topupUsd": 3959.1743718292873,
+    "capBps": 448,
+    "liquidationCostUsd": 177.59615175525002,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.075 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.078 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.082 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 158.3669748731715,
+     "savedUsd": 19.22917688207852
+    }
+   }
+  },
+  {
+   "address": "0xA3a99899C27BB96d82211EE50A47763Af36f3A83",
+   "hf": 1.0324806668257775,
+   "debtUsd": 1666.3166265,
+   "collateralUsd": 2042.14612867,
+   "ltBps": 8424,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 1538.450778123068
+    },
+    {
+     "symbol": "WBTC",
+     "usd": 503.6953588803706
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.03145886201010906,
+   "atTrigger": {
+    "topupUsd": 924.9418814795727,
+    "capBps": 450,
+    "liquidationCostUsd": 41.6579156625,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.075 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.077 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.082 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 36.997675259182905,
+     "savedUsd": 4.660240403317097
+    }
+   }
+  },
+  {
+   "address": "0xCB954495438B23E792de53F1352caFe20E14521a",
+   "hf": 1.03351500087129,
+   "debtUsd": 1151202.92072321,
+   "collateralUsd": 1416453.3130802,
+   "ltBps": 8399,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 1414688.559754375
+    },
+    {
+     "symbol": "wstETH",
+     "usd": 1764.7686447171377
+    },
+    {
+     "symbol": "rETH",
+     "usd": 0.000003885488592616875
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.03242817070195936,
+   "atTrigger": {
+    "topupUsd": 639510.9458611207,
+    "capBps": 450,
+    "liquidationCostUsd": 28780.073018080253,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.074 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.076 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.081 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 25580.437834444827,
+     "savedUsd": 3199.635183635426
+    }
+   }
+  },
+  {
+   "address": "0x53DB19930BB0A817Cb633248401FE0C1e6f38B04",
+   "hf": 1.035523745830841,
+   "debtUsd": 849152.35604682,
+   "collateralUsd": 1034491.09237022,
+   "ltBps": 8500,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 1034491.0923702228
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.03430510017164212,
+   "atTrigger": {
+    "topupUsd": 464013.0653594623,
+    "capBps": 457,
+    "liquidationCostUsd": 21228.808901170498,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.071 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.074 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.078 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 18560.52261437849,
+     "savedUsd": 2668.2862867920085
+    }
+   }
+  },
+  {
+   "address": "0x4F0aa63D1473Ee4c90B4B815D1F88646c2ECb9f9",
+   "hf": 1.035604065795535,
+   "debtUsd": 9496.3581292,
+   "collateralUsd": 11569.961281,
+   "ltBps": 8500,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 11569.961281008696
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.03437999808178094,
+   "atTrigger": {
+    "topupUsd": 5188.317770529411,
+    "capBps": 457,
+    "liquidationCostUsd": 237.40895323,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.071 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.074 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.078 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 207.53271082117644,
+     "savedUsd": 29.876242408823572
+    }
+   }
+  },
+  {
+   "address": "0x8123febbF72212faf324DFB8a9200A0FFbe97545",
+   "hf": 1.036639478633994,
+   "debtUsd": 27197.29916615,
+   "collateralUsd": 33169.16944453,
+   "ltBps": 8500,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 33169.16944453097
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.03534447547982145,
+   "atTrigger": {
+    "topupUsd": 14826.064378087642,
+    "capBps": 458,
+    "liquidationCostUsd": 679.93247915375,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.070 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.073 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.077 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 593.0425751235057,
+     "savedUsd": 86.88990403024434
+    }
+   }
+  },
+  {
+   "address": "0x02864be954583456c866130f845595Ed70F955b2",
+   "hf": 1.0376275339277485,
+   "debtUsd": 3652.49204073,
+   "collateralUsd": 4511.81705613,
+   "ltBps": 8399,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 4511.816874369377
+    },
+    {
+     "symbol": "USDC",
+     "usd": 0.00030393484064
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.036263044972714265,
+   "atTrigger": {
+    "topupUsd": 2011.2667170513314,
+    "capBps": 454,
+    "liquidationCostUsd": 91.31230101825,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.069 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.072 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.076 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 80.45066868205325,
+     "savedUsd": 10.861632336196749
+    }
+   }
+  },
+  {
+   "address": "0xCa989c0f16EE71988DA91D042b3f4B8579D5fBD9",
+   "hf": 1.0385967078269376,
+   "debtUsd": 34445.99206116,
+   "collateralUsd": 42589.87375304,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 42589.87513687818
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.037162362961551954,
+   "atTrigger": {
+    "topupUsd": 18920.826356174286,
+    "capBps": 455,
+    "liquidationCostUsd": 861.1498015290001,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.068 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.071 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.075 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 756.8330542469715,
+     "savedUsd": 104.31674728202859
+    }
+   }
+  },
+  {
+   "address": "0x8548cBce7AC0De2E3A2470a9C0B9Ba218af8697C",
+   "hf": 1.0399266954286273,
+   "debtUsd": 6995.07452261,
+   "collateralUsd": 8659.95801497,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 8659.95834324469
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.03839375948722101,
+   "atTrigger": {
+    "topupUsd": 3831.246489690715,
+    "capBps": 456,
+    "liquidationCostUsd": 174.87686306524998,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.067 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.069 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.074 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 153.2498595876286,
+     "savedUsd": 21.627003477621372
+    }
+   }
+  },
+  {
+   "address": "0xcBd8D7401972D5E9a6d7d8201eA7B3F984BF6D6F",
+   "hf": 1.040688799742543,
+   "debtUsd": 413540.56347082,
+   "collateralUsd": 512335.50040892,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 511814.27597150864
+    },
+    {
+     "symbol": "WBTC",
+     "usd": 521.2299809762276
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.03909795104224145,
+   "atTrigger": {
+    "topupUsd": 226129.79150325863,
+    "capBps": 457,
+    "liquidationCostUsd": 10338.5140867705,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.066 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.069 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.073 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 9045.191660130346,
+     "savedUsd": 1293.322426640154
+    }
+   }
+  },
+  {
+   "address": "0xC2Dc142198C1767815BD1E32603742605B28e16a",
+   "hf": 1.0408495380178677,
+   "debtUsd": 6376.12553467,
+   "collateralUsd": 7900.69918703,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 7900.699443746623
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.03924634303595809,
+   "atTrigger": {
+    "topupUsd": 3485.2392677378584,
+    "capBps": 457,
+    "liquidationCostUsd": 159.40313836675,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.066 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.068 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.073 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 139.40957070951433,
+     "savedUsd": 19.993567657235673
+    }
+   }
+  },
+  {
+   "address": "0x5BfeA9592f7A16974a4bd45e4A9D2226A404fC28",
+   "hf": 1.0425241073649603,
+   "debtUsd": 15348.95304238,
+   "collateralUsd": 18920.66792747,
+   "ltBps": 8457,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 10829.251041917083
+    },
+    {
+     "symbol": "WETH",
+     "usd": 8091.417017024531
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.040789567420596584,
+   "atTrigger": {
+    "topupUsd": 8303.441761036564,
+    "capBps": 462,
+    "liquidationCostUsd": 383.7238260595,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.064 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.067 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.071 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 332.13767044146255,
+     "savedUsd": 51.58615561803748
+    }
+   }
+  },
+  {
+   "address": "0x2E0055234Ff209359F0B1d9885FA2B52aa5783af",
+   "hf": 1.0425775552504712,
+   "debtUsd": 21540.01177808,
+   "collateralUsd": 26420.15625842,
+   "ltBps": 8500,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 26420.156258422503
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04083874147879796,
+   "atTrigger": {
+    "topupUsd": 11591.62923230941,
+    "capBps": 464,
+    "liquidationCostUsd": 538.5002944519999,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.064 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.067 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.071 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 463.6651692923764,
+     "savedUsd": 74.83512515962354
+    }
+   }
+  },
+  {
+   "address": "0xccC4e8Ad313dF8150211B1b934725345924ab81D",
+   "hf": 1.0429785818383719,
+   "debtUsd": 4300.57745662,
+   "collateralUsd": 5339.77401999,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 5339.774077832648
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04120754019954764,
+   "atTrigger": {
+    "topupUsd": 2339.8285811171427,
+    "capBps": 459,
+    "liquidationCostUsd": 107.51443641549999,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.064 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.066 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.071 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 93.5931432446857,
+     "savedUsd": 13.92129317081428
+    }
+   }
+  },
+  {
+   "address": "0x341C23862f92C889847b5A3df69180A0eA43aA4A",
+   "hf": 1.0433053673597497,
+   "debtUsd": 33893.60728076,
+   "collateralUsd": 42096.88380381,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 42096.88403179271
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04150785447346139,
+   "atTrigger": {
+    "topupUsd": 18427.414911832857,
+    "capBps": 459,
+    "liquidationCostUsd": 847.3401820189999,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.064 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.066 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.070 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 737.0965964733142,
+     "savedUsd": 110.24358554568573
+    }
+   }
+  },
+  {
+   "address": "0xA572Ef226bF0C6D5A34f3BaED4Bb69A46A843F27",
+   "hf": 1.0438511316995682,
+   "debtUsd": 283480.61647362,
+   "collateralUsd": 348131.24978927,
+   "ltBps": 8500,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 348131.2505201854
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.042008989948759345,
+   "atTrigger": {
+    "topupUsd": 152128.66163476527,
+    "capBps": 465,
+    "liquidationCostUsd": 7087.0154118405,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.063 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.065 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.070 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 6085.1464653906105,
+     "savedUsd": 1001.8689464498893
+    }
+   }
+  },
+  {
+   "address": "0x91365821696A9c99585a9CDD55650D5D77Ca6695",
+   "hf": 1.0438558088563572,
+   "debtUsd": 139081.25323016,
+   "collateralUsd": 170800.91069097,
+   "ltBps": 8500,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 170800.91069097604
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04201328237508717,
+   "atTrigger": {
+    "topupUsd": 74636.59500931235,
+    "capBps": 465,
+    "liquidationCostUsd": 3477.031330754,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.063 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.065 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.070 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 2985.463800372494,
+     "savedUsd": 491.567530381506
+    }
+   }
+  },
+  {
+   "address": "0xe67112647B7aEA8b7490F27e1c75208868138df2",
+   "hf": 1.0445891208580957,
+   "debtUsd": 21323213.84179673,
+   "collateralUsd": 26516663.33437098,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 26516663.47797445
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04268579862431199,
+   "atTrigger": {
+    "topupUsd": 11560504.24026604,
+    "capBps": 461,
+    "liquidationCostUsd": 533080.3460449183,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.062 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.065 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.069 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 462420.16961064155,
+     "savedUsd": 70660.17643427674
+    }
+   }
+  },
+  {
+   "address": "0xEeca8Ebba2dC484F72064c0386ac097995b5cB8C",
+   "hf": 1.0450683076077945,
+   "debtUsd": 257141.69835034,
+   "collateralUsd": 318442.50254963,
+   "ltBps": 8438,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 194548.766733768
+    },
+    {
+     "symbol": "WBTC",
+     "usd": 123893.73686946598
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04312474819082179,
+   "atTrigger": {
+    "topupUsd": 138671.20629785757,
+    "capBps": 463,
+    "liquidationCostUsd": 6428.5424587585,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.062 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.064 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.069 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 5546.848251914303,
+     "savedUsd": 881.6942068441977
+    }
+   }
+  },
+  {
+   "address": "0x06Dae03a7e93d51B19Db51b56646F9DF0B7693cB",
+   "hf": 1.0454725221736632,
+   "debtUsd": 38365.85108951,
+   "collateralUsd": 47750.52750463,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 47750.52828042701
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.043494708095359935,
+   "atTrigger": {
+    "topupUsd": 20759.920869495,
+    "capBps": 462,
+    "liquidationCostUsd": 959.1462772377498,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.061 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.064 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.068 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 830.3968347798,
+     "savedUsd": 128.74944245794984
+    }
+   }
+  },
+  {
+   "address": "0xfe7A590b782E95611445b6f3ca32BA5728Dc68bF",
+   "hf": 1.0464449189678064,
+   "debtUsd": 119019.52833723,
+   "collateralUsd": 148270.69129338,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 148270.69450527584
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.044383529535045985,
+   "atTrigger": {
+    "topupUsd": 64264.18073738791,
+    "capBps": 463,
+    "liquidationCostUsd": 2975.48820843075,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.060 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.063 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.067 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 2570.5672294955166,
+     "savedUsd": 404.9209789352335
+    }
+   }
+  },
+  {
+   "address": "0xB48b6f2267d5c3bFC696B2218E8cA2CCD32228A4",
+   "hf": 1.046889993469287,
+   "debtUsd": 1634132.31784471,
+   "collateralUsd": 2012655.02632733,
+   "ltBps": 8499,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 2012654.9441442082
+    },
+    {
+     "symbol": "WETH",
+     "usd": 0.08218313061141724
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.044789800038013916,
+   "atTrigger": {
+    "topupUsd": 871447.1936598041,
+    "capBps": 468,
+    "liquidationCostUsd": 40853.307946117755,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.060 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.062 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.067 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 34857.88774639216,
+     "savedUsd": 5995.420199725595
+    }
+   }
+  },
+  {
+   "address": "0x887fE8085ba6F998A5E4f040718516bd062DA3DA",
+   "hf": 1.047863037488011,
+   "debtUsd": 3678.23531391,
+   "collateralUsd": 4588.43679929,
+   "ltBps": 8399,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 4588.435543967576
+    },
+    {
+     "symbol": "USDT",
+     "usd": 0.00109663848
+    },
+    {
+     "symbol": "USDC",
+     "usd": 0.00025594512896
+    },
+    {
+     "symbol": "PYUSD",
+     "usd": 0.00002700059373
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04567680677309749,
+   "atTrigger": {
+    "topupUsd": 1980.6225778560893,
+    "capBps": 464,
+    "liquidationCostUsd": 91.95588284775,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.059 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.061 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.066 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 79.22490311424357,
+     "savedUsd": 12.73097973350643
+    }
+   }
+  },
+  {
+   "address": "0xE7ef13FdDfDBb299d2F1cAac9d7234877A74a432",
+   "hf": 1.0487928739046048,
+   "debtUsd": 6931.93956093,
+   "collateralUsd": 8654.9629646,
+   "ltBps": 8399,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 8654.961925240108
+    },
+    {
+     "symbol": "USDC",
+     "usd": 0.00127372693084
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04652288847363284,
+   "atTrigger": {
+    "topupUsd": 3724.974339120681,
+    "capBps": 465,
+    "liquidationCostUsd": 173.29848902325,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.058 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.060 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.065 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 148.99897356482725,
+     "savedUsd": 24.299515458422746
+    }
+   }
+  },
+  {
+   "address": "0x8F0af161cede899F3A23f15038655a4F59DDdf3C",
+   "hf": 1.0496896225345367,
+   "debtUsd": 154545.77748831,
+   "collateralUsd": 190949.02255847,
+   "ltBps": 8495,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 182791.9886895817
+    },
+    {
+     "symbol": "WETH",
+     "usd": 8157.034045596058
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.047337442866738244,
+   "atTrigger": {
+    "topupUsd": 81939.3426357207,
+    "capBps": 471,
+    "liquidationCostUsd": 3863.6444372077503,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.057 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.059 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.064 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 3277.5737054288284,
+     "savedUsd": 586.070731778922
+    }
+   }
+  },
+  {
+   "address": "0x72d1FAEa2Ae41DaC6b43d1c5dAdEb763255B0A88",
+   "hf": 1.0498427662511827,
+   "debtUsd": 119644.20416351,
+   "collateralUsd": 148613.69077405,
+   "ltBps": 8451,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 77210.2014746875
+    },
+    {
+     "symbol": "WETH",
+     "usd": 71403.49084573677
+    },
+    {
+     "symbol": "wstETH",
+     "usd": 4.173233426476387e-7
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.047476410614479936,
+   "atTrigger": {
+    "topupUsd": 63747.338980138884,
+    "capBps": 469,
+    "liquidationCostUsd": 2991.10510408775,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.057 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.059 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.064 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 2549.893559205555,
+     "savedUsd": 441.2115448821951
+    }
+   }
+  },
+  {
+   "address": "0x391A19CA9cF71d30d60B1667A7643aD116f02eCc",
+   "hf": 1.0499750911025254,
+   "debtUsd": 2485.05972065,
+   "collateralUsd": 3102.54113761,
+   "ltBps": 8410,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 2790.9160535027186
+    },
+    {
+     "symbol": "WBTC",
+     "usd": 311.62509923170774
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04759645397877876,
+   "atTrigger": {
+    "topupUsd": 1329.7889230023666,
+    "capBps": 467,
+    "liquidationCostUsd": 62.12649301625,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.057 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.059 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.064 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 53.19155692009466,
+     "savedUsd": 8.93493609615534
+    }
+   }
+  },
+  {
+   "address": "0xeD1aB35b1D885B561b516DFEFBE925B7aA93Ad99",
+   "hf": 1.050154281358893,
+   "debtUsd": 128550.46663378,
+   "collateralUsd": 160711.69393589,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 160711.69741729373
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04775896480086128,
+   "atTrigger": {
+    "topupUsd": 68842.71076728858,
+    "capBps": 466,
+    "liquidationCostUsd": 3213.7616658445,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.057 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.059 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.063 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 2753.708430691543,
+     "savedUsd": 460.05323515295686
+    }
+   }
+  },
+  {
+   "address": "0xA05fC13F94e6aa27e7Db3C6A59E9509aA09f36CF",
+   "hf": 1.0503456426196764,
+   "debtUsd": 357964.93191326,
+   "collateralUsd": 445873.37594336,
+   "ltBps": 8432,
+   "bonusBps": 522,
+   "collateral": [
+    {
+     "symbol": "WBTC",
+     "usd": 345691.27240622754
+    },
+    {
+     "symbol": "wstETH",
+     "usd": 100182.10353734928
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04793245249640765,
+   "atTrigger": {
+    "topupUsd": 190923.8226689386,
+    "capBps": 489,
+    "liquidationCostUsd": 9342.884722936087,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.056 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.059 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.063 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 7636.952906757544,
+     "savedUsd": 1705.9318161785432
+    }
+   }
+  },
+  {
+   "address": "0x25d9bbb4Eccbf3A5e6d6BBCE9813302E508f321D",
+   "hf": 1.0505009421122065,
+   "debtUsd": 149142.98155575,
+   "collateralUsd": 186517.66980207,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 186517.67485246542
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.048073200211192546,
+   "atTrigger": {
+    "topupUsd": 79809.08297605504,
+    "capBps": 467,
+    "liquidationCostUsd": 3728.5745388937503,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.056 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.058 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.063 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 3192.3633190422015,
+     "savedUsd": 536.2112198515488
+    }
+   }
+  },
+  {
+   "address": "0x35483C79D8521844b602f32Da8E07B1ff955E454",
+   "hf": 1.050762561816414,
+   "debtUsd": 3159.34588376,
+   "collateralUsd": 3952.05041971,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 3952.0483339862735
+    },
+    {
+     "symbol": "WBTC",
+     "usd": 0.0021927414042338996
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.048310211708211925,
+   "atTrigger": {
+    "topupUsd": 1689.6386584328575,
+    "capBps": 467,
+    "liquidationCostUsd": 78.983647094,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.056 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.058 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.063 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 67.5855463373143,
+     "savedUsd": 11.398100756685707
+    }
+   }
+  },
+  {
+   "address": "0xABc8C17E2260e1164261636BcE0Ab32Ad504d928",
+   "hf": 1.0514578019483,
+   "debtUsd": 124731.48189824,
+   "collateralUsd": 156130.82117914,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 156130.8220246904
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04893948368917067,
+   "atTrigger": {
+    "topupUsd": 66603.96792486002,
+    "capBps": 468,
+    "liquidationCostUsd": 3118.287047456,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.055 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.058 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.062 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 2664.1587169944005,
+     "savedUsd": 454.1283304615995
+    }
+   }
+  },
+  {
+   "address": "0xBedA2328534708868726118dbE0a073A1BAe0A7d",
+   "hf": 1.0517480125954228,
+   "debtUsd": 25890.58529424,
+   "collateralUsd": 32417.10908113,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 32417.109432255187
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.049201911461399406,
+   "atTrigger": {
+    "topupUsd": 13816.078944298573,
+    "capBps": 468,
+    "liquidationCostUsd": 647.264632356,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.055 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.057 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.062 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 552.6431577719429,
+     "savedUsd": 94.62147458405707
+    }
+   }
+  },
+  {
+   "address": "0x9984A1D407BC6AC53B404AaBF66b80b99d96BB47",
+   "hf": 1.052296744113648,
+   "debtUsd": 33370.96095941,
+   "collateralUsd": 41804.94472087,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 41804.94562647074
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.04969771540792667,
+   "atTrigger": {
+    "topupUsd": 17786.056992362137,
+    "capBps": 469,
+    "liquidationCostUsd": 834.2740239852499,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.054 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.057 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.061 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 711.4422796944855,
+     "savedUsd": 122.83174429076439
+    }
+   }
+  },
+  {
+   "address": "0xEbaEA2Eb91d2c2A10E3D7dA528bae36312d627f0",
+   "hf": 1.0526860914082832,
+   "debtUsd": 6254.34398792,
+   "collateralUsd": 7837.92967496,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 7837.92984474986
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.050049194948324716,
+   "atTrigger": {
+    "topupUsd": 3330.5417320399993,
+    "capBps": 469,
+    "liquidationCostUsd": 156.35859969799998,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.054 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.056 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.061 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 133.2216692816,
+     "savedUsd": 23.13693041639999
+    }
+   }
+  },
+  {
+   "address": "0x19a1989B0b0D3F019E09D4Ba3d0900CD29D35dFB",
+   "hf": 1.0541311301435052,
+   "debtUsd": 167264.37083793,
+   "collateralUsd": 209903.07173431,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 209903.07668700966
+    },
+    {
+     "symbol": "WBTC",
+     "usd": 0.0007309138014113
+    },
+    {
+     "symbol": "AAVE",
+     "usd": 1.2322109e-16
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.051351419757555195,
+   "atTrigger": {
+    "topupUsd": 88783.30476199358,
+    "capBps": 470,
+    "liquidationCostUsd": 4181.60927094825,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.053 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.055 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.059 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 3551.3321904797435,
+     "savedUsd": 630.2770804685065
+    }
+   }
+  },
+  {
+   "address": "0xC8097D434B46888a14be77DfC836D86971E3c40f",
+   "hf": 1.054422720498356,
+   "debtUsd": 13375.87428674,
+   "collateralUsd": 16737.57754565,
+   "ltBps": 8426,
+   "bonusBps": 566,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 12311.516133439818
+    },
+    {
+     "symbol": "cbBTC",
+     "usd": 4426.06161224256
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.05161375930199419,
+   "atTrigger": {
+    "topupUsd": 7074.209102949571,
+    "capBps": 535,
+    "liquidationCostUsd": 378.537242314742,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.052 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.055 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.059 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 282.96836411798284,
+     "savedUsd": 95.56887819675916
+    }
+   }
+  },
+  {
+   "address": "0xa0e78c625f0c7B07671b41AeD7408Bc69c960B8E",
+   "hf": 1.0544289282205996,
+   "debtUsd": 54086.8103124,
+   "collateralUsd": 67893.68741497,
+   "ltBps": 8400,
+   "bonusBps": 500,
+   "collateral": [
+    {
+     "symbol": "WETH",
+     "usd": 67893.68962098761
+    }
+   ],
+   "dropToTrigger": 0,
+   "dropToLiquidation": 0.05161934272085189,
+   "atTrigger": {
+    "topupUsd": 28689.902428601432,
+    "capBps": 471,
+    "liquidationCostUsd": 1352.17025781,
+    "bids": [
+     {
+      "steward": "deep",
+      "bps": null,
+      "why": "skips: margin -0.052 < 0.03 above early settlement"
+     },
+     {
+      "steward": "patient",
+      "bps": null,
+      "why": "skips: margin -0.054 < 0"
+     },
+     {
+      "steward": "swift",
+      "bps": 400,
+      "why": "first in at a fixed 400 bps"
+     },
+     {
+      "steward": "pool",
+      "bps": null,
+      "why": "skips: margin -0.059 < 0.03"
+     }
+    ],
+    "winner": {
+     "steward": "swift",
+     "bps": 400,
+     "premiumUsd": 1147.5960971440572,
+     "savedUsd": 204.57416066594283
+    }
+   }
+  }
+ ],
+ "triggers": [
+  {
+   "address": "0xd16951a29c18763befa8e93fcb1c73b0986619d4",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1569667824990277,
+   "hf": 1.1283167184796816,
+   "debtUsd": 52185.70942161,
+   "collateralUsd": 72243.13115044,
+   "stead": {
+    "topupUsd": 22411.040855906147,
+    "capUsd": 1304.64273554025,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 336.1656128385922
+    }
+   }
+  },
+  {
+   "address": "0xfd0b94905d0d9cbc7f5ddb4bab9f81b22619407e",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1697548635950878,
+   "hf": 1.100462501495783,
+   "debtUsd": 593272.12584734,
+   "collateralUsd": 777230.62820042,
+   "stead": {
+    "topupUsd": 247226.150787676,
+    "capUsd": 14831.8031461835,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 3708.3922618151396
+    }
+   }
+  },
+  {
+   "address": "0x0d5d73f6b9eb76c9447f7925464ef61c1fbccd20",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1609109117976022,
+   "hf": 1.1363780644354018,
+   "debtUsd": 23494.97201407,
+   "collateralUsd": 35130.48792278,
+   "stead": {
+    "topupUsd": 10820.052901216455,
+    "capUsd": 587.37430035175,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 162.30079351824682
+    }
+   }
+  },
+  {
+   "address": "0x7b225af090ae0b53deed6999a7a1b38015798a34",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1609735027795751,
+   "hf": 1.1439093399459281,
+   "debtUsd": 653175.59136293,
+   "collateralUsd": 880073.11176203,
+   "stead": {
+    "topupUsd": 269303.16524564207,
+    "capUsd": 16329.389784073252,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 4039.547478684631
+    }
+   }
+  },
+  {
+   "address": "0xa8e7bbc6595addff2f0508ebd70295f17d28c048",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1528623157063935,
+   "hf": 1.1292040166908526,
+   "debtUsd": 81907.77172343,
+   "collateralUsd": 109336.33487817,
+   "stead": {
+    "topupUsd": 33890.19990920971,
+    "capUsd": 2047.6942930857501,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 508.3529986381456
+    }
+   }
+  },
+  {
+   "address": "0xa8f080c37b2cf6d9ae3847f5b49cae0eed01f208",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1661724004551897,
+   "hf": 1.1289023550929116,
+   "debtUsd": 21556.21360478,
+   "collateralUsd": 28970.07179205,
+   "stead": {
+    "topupUsd": 8981.755668658334,
+    "capUsd": 538.9053401195,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 134.726335029875
+    }
+   }
+  },
+  {
+   "address": "0xebb8e2c3b9eecdf71b1339b93791a583ef4fd80e",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1598539142342954,
+   "hf": 1.1228520722424744,
+   "debtUsd": 15088.08923664,
+   "collateralUsd": 20660.60032383,
+   "stead": {
+    "topupUsd": 6440.038088809761,
+    "capUsd": 377.202230916,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 96.60057133214642
+    }
+   }
+  },
+  {
+   "address": "0x2237366431924fdf52e6b310928176b2b749666f",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1526602655803173,
+   "hf": 1.136685968016473,
+   "debtUsd": 47677.56269236,
+   "collateralUsd": 63806.90837939,
+   "stead": {
+    "topupUsd": 19648.118382580957,
+    "capUsd": 1191.939067309,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 294.72177573871437
+    }
+   }
+  },
+  {
+   "address": "0xb5c98c0d2861d39c538aff4e87cee946ffa1adf4",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1610973220904939,
+   "hf": 1.1410056400727537,
+   "debtUsd": 13699505.02402662,
+   "collateralUsd": 19661138.53742729,
+   "stead": {
+    "topupUsd": 6031228.626929961,
+    "capUsd": 342487.62560066546,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 90468.42940394941
+    }
+   }
+  },
+  {
+   "address": "0x1f1de251ee59f4272ac21ffda2bd4dfc40c81912",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1701935694991268,
+   "hf": 1.1403186542223478,
+   "debtUsd": 384455.05640793,
+   "collateralUsd": 521906.27682389,
+   "stead": {
+    "topupUsd": 160189.6068366376,
+    "capUsd": 9611.376410198249,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 2402.844102549564
+    }
+   }
+  },
+  {
+   "address": "0xa4111b4d0058904d3682f83da5805761ca19be07",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.193740201358505,
+   "hf": 1.109536533670399,
+   "debtUsd": 37266.14507719,
+   "collateralUsd": 49223.98741929,
+   "stead": {
+    "topupUsd": 15527.56044882918,
+    "capUsd": 931.65362692975,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 232.91340673243766
+    }
+   }
+  },
+  {
+   "address": "0xa05fc13f94e6aa27e7db3c6a59e9509aa09f36cf",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1748841031885917,
+   "hf": 1.0503456426196764,
+   "debtUsd": 357964.93191326,
+   "collateralUsd": 445873.37594336,
+   "stead": {
+    "topupUsd": 148586.01300953643,
+    "capUsd": 8949.1232978315,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 2228.7901951430467
+    }
+   }
+  },
+  {
+   "address": "0xcd9d098594b78ee61e2f6921461ac17f16b28827",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1501635310229452,
+   "hf": 1.1355555056649693,
+   "debtUsd": 5893776.96117752,
+   "collateralUsd": 7875579.41160373,
+   "stead": {
+    "topupUsd": 2427420.494718914,
+    "capUsd": 147344.42402943803,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 36411.30742078371
+    }
+   }
+  },
+  {
+   "address": "0xa572ef226bf0c6d5a34f3baed4bb69a46a843f27",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.185814885233966,
+   "hf": 1.0438511316995682,
+   "debtUsd": 283480.61647362,
+   "collateralUsd": 348131.24978927,
+   "stead": {
+    "topupUsd": 116727.31266560819,
+    "capUsd": 7087.0154118405,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 1750.9096899841227
+    }
+   }
+  },
+  {
+   "address": "0x91365821696a9c99585a9cdd55650d5d77ca6695",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1858148664930188,
+   "hf": 1.0438558088563572,
+   "debtUsd": 139081.25323016,
+   "collateralUsd": 170800.91069097,
+   "stead": {
+    "topupUsd": 57268.75133006592,
+    "capUsd": 3477.031330754,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 859.0312699509888
+    }
+   }
+  },
+  {
+   "address": "0x8f0af161cede899f3a23f15038655a4f59dddf3c",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.207229439266683,
+   "hf": 1.0496896225345367,
+   "debtUsd": 154545.77748831,
+   "collateralUsd": 190949.02255847,
+   "stead": {
+    "topupUsd": 63673.9518786445,
+    "capUsd": 3863.6444372077503,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 955.1092781796675
+    }
+   }
+  },
+  {
+   "address": "0x57354e7567331d2974de08ac283d7f5663ecca93",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1502427850981936,
+   "hf": 1.1401714332331008,
+   "debtUsd": 119647.89679106,
+   "collateralUsd": 166370.17903449,
+   "stead": {
+    "topupUsd": 51075.4529538615,
+    "capUsd": 2991.1974197765,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 766.1317943079225
+    }
+   }
+  },
+  {
+   "address": "0x47f588a4e57a6d4d576a71f9ecf20bf04469aa7c",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1642132023721254,
+   "hf": 1.1268466079177855,
+   "debtUsd": 3349.46275846,
+   "collateralUsd": 4493.25089014,
+   "stead": {
+    "topupUsd": 1395.609482691666,
+    "capUsd": 83.7365689615,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 20.93414224037499
+    }
+   }
+  },
+  {
+   "address": "0xf6c6066e32111634f9c4930aed64529346ae7700",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.177841294554882,
+   "hf": 1.1400181698521388,
+   "debtUsd": 1199812.87295883,
+   "collateralUsd": 1628343.42332805,
+   "stead": {
+    "topupUsd": 499922.03039951297,
+    "capUsd": 29995.321823970753,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 7498.830455992695
+    }
+   }
+  },
+  {
+   "address": "0xaacc4c22e382f23a60508efc3e2bf25129ef247f",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1690220077472282,
+   "hf": 1.147619504745074,
+   "debtUsd": 243843.93375425,
+   "collateralUsd": 330363.7583888,
+   "stead": {
+    "topupUsd": 100761.9560967976,
+    "capUsd": 6096.09834385625,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 1511.4293414519639
+    }
+   }
+  },
+  {
+   "address": "0xbf097df59b69bac6f7464bbc9649dd02d66e097a",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1841049488042372,
+   "hf": 1.1460806840925895,
+   "debtUsd": 4997.61960182,
+   "collateralUsd": 6818.66106201,
+   "stead": {
+    "topupUsd": 2082.3415007583344,
+    "capUsd": 124.94049004549998,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 31.235122511375014
+    }
+   }
+  },
+  {
+   "address": "0xd6d1a4ef519fc078139dedff88ad6843210de849",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1686839880333209,
+   "hf": 1.1393402725404334,
+   "debtUsd": 380017.66706387,
+   "collateralUsd": 519410.99672732,
+   "stead": {
+    "topupUsd": 159575.50506581226,
+    "capUsd": 9500.44167659675,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 2393.632575987184
+    }
+   }
+  },
+  {
+   "address": "0x2aec304f392cb2086e5201989afbfd9838bf7111",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 2.5354238773107243,
+   "hf": 1.0922380224769914,
+   "debtUsd": 108564.60520719,
+   "collateralUsd": 139503.98788529,
+   "stead": {
+    "topupUsd": 44703.072732372355,
+    "capUsd": 2714.1151301797504,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 670.5460909855852
+    }
+   }
+  },
+  {
+   "address": "0x2447350e0aacb6a4050a008d72aabd02dc112739",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1594236466519618,
+   "hf": 1.133172980477207,
+   "debtUsd": 139987.11100674,
+   "collateralUsd": 190537.18172279,
+   "stead": {
+    "topupUsd": 58853.4400628937,
+    "capUsd": 3499.6777751684995,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 882.8016009434056
+    }
+   }
+  },
+  {
+   "address": "0xba739c509dd29584138413c22a693f6d49bd224c",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1518927229258946,
+   "hf": 1.1149028650333086,
+   "debtUsd": 45816.30753105,
+   "collateralUsd": 60810.39587097,
+   "stead": {
+    "topupUsd": 19090.128137937507,
+    "capUsd": 1145.40768827625,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 286.3519220690626
+    }
+   }
+  },
+  {
+   "address": "0x3253e6fd8c10b62e3d15ebf743851f367b55ee9a",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.163104490770973,
+   "hf": 1.1257545978788042,
+   "debtUsd": 324766.60361741,
+   "collateralUsd": 435247.02054736,
+   "stead": {
+    "topupUsd": 135319.4181739209,
+    "capUsd": 8119.16509043525,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 2029.7912726088132
+    }
+   }
+  },
+  {
+   "address": "0x187a2f53544271d0b81f4b59449e036e36b80c9d",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.312460317699495,
+   "hf": 1.0849472583521496,
+   "debtUsd": 1704.72118173,
+   "collateralUsd": 2201.82449092,
+   "stead": {
+    "topupUsd": 710.3004923875005,
+    "capUsd": 42.618029543249996,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 10.654507385812508
+    }
+   }
+  },
+  {
+   "address": "0xca989c0f16ee71988da91d042b3f4b8579d5fbd9",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.807733256762337,
+   "hf": 1.0385967078269376,
+   "debtUsd": 34445.99206116,
+   "collateralUsd": 42589.87375304,
+   "stead": {
+    "topupUsd": 14352.496692150002,
+    "capUsd": 861.1498015290001,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 215.28745038225003
+    }
+   }
+  },
+  {
+   "address": "0x8be46b25d59616e594f0a9e20147fb14c1b989d9",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1974055705277442,
+   "hf": 1.143377687899646,
+   "debtUsd": 950025.99371841,
+   "collateralUsd": 1324681.12670818,
+   "stead": {
+    "topupUsd": 405498.89975785813,
+    "capUsd": 23750.64984296025,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 6082.483496367871
+    }
+   }
+  },
+  {
+   "address": "0x8548cbce7ac0de2e3a2470a9c0b9ba218af8697c",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.8807414659168185,
+   "hf": 1.0399266954286273,
+   "debtUsd": 6995.07452261,
+   "collateralUsd": 8659.95801497,
+   "stead": {
+    "topupUsd": 2914.6143844208345,
+    "capUsd": 174.87686306524998,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 43.71921576631252
+    }
+   }
+  },
+  {
+   "address": "0xc29d869939ed2500924ffe21494c985c38a50b3e",
+   "at": "2026-11-10T16:22:47.000Z",
+   "block": 26385678,
+   "hfBefore": 1.1515831102141212,
+   "hf": 1.1146031946815582,
+   "debtUsd": 1446506.9973168,
+   "collateralUsd": 1919382.52421254,
+   "stead": {
+    "topupUsd": 602711.2488820001,
+    "capUsd": 36162.67493292,
+    "winner": {
+     "steward": "deep",
+     "bps": 150,
+     "premiumUsd": 9040.668733230003
+    }
+   }
+  }
+ ],
+ "liquidations": [
+  {
+   "tx": "0x1b67ed8160930c011368396fe24fcbf323850bd9fd312b9b0c7817e27f9e81d2",
+   "block": 26385492,
+   "logIndex": 94,
+   "at": "2026-11-10T15:45:11.000Z",
+   "user": "0xD9e758C92F7034014bB8D60C12a3578aBc12989F",
+   "liquidator": "0x36331E299247E5D0D3261e1d9852f6E0cFFEe95C",
+   "collateral": {
+    "asset": "0xB0F70C0bD6FD87dbEb7C10dC692a2a6106817072",
+    "symbol": "BTC.b",
+    "units": "2839151",
+    "usd": 2080.2590545776197
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "1939679979",
+    "usd": 1937.27477582604
+   },
+   "bonusPaidUsd": 142.98427875157972,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 3925.31338236,
+    "topupUsd": 1761.3585690076916,
+    "capUsd": 147.1992518385,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 26.420378535115375,
+    "savedUsd": 116.56390021646435
+   }
+  },
+  {
+   "tx": "0x1f2a3de32de70b33fd50ba460ec98acabe64c05a54095385ecea8eb80fd56ac1",
+   "block": 26385492,
+   "logIndex": 34,
+   "at": "2026-11-10T15:45:11.000Z",
+   "user": "0xb35f0d1D18865717d562fad636790871A0F00cb2",
+   "liquidator": "0x15D741Be449A179a82D30D66FB262262E6d72ec0",
+   "collateral": {
+    "asset": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+    "symbol": "WBTC",
+    "units": "18954517",
+    "usd": 13864.481079477491
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "13269378593",
+    "usd": 13252.924563544679
+   },
+   "bonusPaidUsd": 611.5565159328125,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 26505.84912709,
+    "topupUsd": 10914.17316997824,
+    "capUsd": 662.64622817725,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 163.71259754967357,
+    "savedUsd": 447.843918383139
+   }
+  },
+  {
+   "tx": "0x9fd7f6d10230475fd75068646474565bc228fe7939459d2c5f4c6b194ef36aa6",
+   "block": 26385492,
+   "logIndex": 17,
+   "at": "2026-11-10T15:45:11.000Z",
+   "user": "0xeE3D529B37D06750883800AE40084579b0685fb5",
+   "liquidator": "0x1f2F10D1C40777AE1Da742455c65828FF36Df387",
+   "collateral": {
+    "asset": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+    "symbol": "WBTC",
+    "units": "79283078",
+    "usd": 57992.442374223414
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "55446301911",
+    "usd": 55434.4175506484
+   },
+   "bonusPaidUsd": 2558.0248235750114,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 110868.83310946,
+    "topupUsd": 45678.74230525133,
+    "capUsd": 2771.7208277365,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 685.1811345787701,
+    "savedUsd": 1872.8436889962413
+   }
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 204,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0x698fa2A4e764f3EaB0cf68eF6dC90A39be09962c",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "263318591642968457",
+    "usd": 533.5806067403413
+   },
+   "debt": {
+    "asset": "0xe343167631d89B6Ffc58B88d6b7fB0228795491D",
+    "symbol": "USDG",
+    "units": "509640815",
+    "usd": 509.6820500383417
+   },
+   "bonusPaidUsd": 23.89855670199961,
+   "priceAt": "block",
+   "stead": null,
+   "steadNote": "under $1,000 of debt: too small for a Stead rescue"
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 190,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0x50873a46C41D005C5A9F0e9e1403c3307d6209Ab",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "754643873035425927",
+    "usd": 1529.186880177043
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "1461009239",
+    "usd": 1460.6960862797127
+   },
+   "bonusPaidUsd": 68.49079389733015,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 2921.39212357,
+    "topupUsd": 1217.2467181541674,
+    "capUsd": 73.03480308924999,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 18.258700772312512,
+    "savedUsd": 50.23209312501764
+   }
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 174,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0x9aa7CFE190bb5E6fcEC7E5195b16eA5Cea7c9E6A",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "1468351198466988373",
+    "usd": 2975.4212131296913
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "2845683637",
+    "usd": 2842.15498929012
+   },
+   "bonusPaidUsd": 133.26622383957147,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 5713.01770322,
+    "topupUsd": 2380.4240430083337,
+    "capUsd": 142.82544258049998,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 35.706360645125,
+    "savedUsd": 97.55986319444646
+   }
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 158,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0x8414Df89fc508f402BD031819f9B452426b5CBb3",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "3248179195458378692",
+    "usd": 6582.009326041134
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "6295013343",
+    "usd": 6287.207526454679
+   },
+   "bonusPaidUsd": 294.80179958645476,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 12574.41469536,
+    "topupUsd": 5239.339456400005,
+    "capUsd": 314.36036738399997,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 78.59009184600006,
+    "savedUsd": 216.2117077404547
+   }
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 142,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0x92d95A4cB77857E82e9e6887F0b545F5A430eC38",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "1789113303885192928",
+    "usd": 3625.4035700929976
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "3467324751",
+    "usd": 3463.02526830876
+   },
+   "bonusPaidUsd": 162.37830178423746,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 6926.18851358,
+    "topupUsd": 2885.9118806583356,
+    "capUsd": 173.1547128395,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 43.28867820987504,
+    "savedUsd": 119.08962357436243
+   }
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 128,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0x9433D258B5325C25E14E60A93bdae180d45EA3aE",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "2211848762010957270",
+    "usd": 4482.021558325447
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "4282194015",
+    "usd": 4281.276169534825
+   },
+   "bonusPaidUsd": 200.7453887906213,
+   "priceAt": "block",
+   "stead": null,
+   "steadNote": "eMode position (correlated assets): Stead doesn't take these yet"
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 114,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0x0e1A18fa0216F14F79f62E2a27E25e238F9BdA75",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "953358312944732184",
+    "usd": 1931.855642581181
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "1845725319",
+    "usd": 1845.3297062351255
+   },
+   "bonusPaidUsd": 86.52593634605546,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 3743.58848647,
+    "topupUsd": 1557.048093005942,
+    "capUsd": 93.58971216175001,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 23.35572139508913,
+    "savedUsd": 63.170214950966326
+   }
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 98,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0x699A2304EaD3d1Fe67Ab9CBEB779C0e12983aD41",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "6816931132791183656",
+    "usd": 13813.617288648344
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "13211300811",
+    "usd": 13194.918797994358
+   },
+   "bonusPaidUsd": 618.6984906539856,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 26389.83690927,
+    "topupUsd": 11001.003952173058,
+    "capUsd": 659.7459227317499,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 165.01505928259587,
+    "savedUsd": 453.6834313713897
+   }
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 84,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0xE2108b79d3B01f59D7Db64e0ebA2D931F82299aF",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "7372370473938645753",
+    "usd": 14939.142299274126
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "14273091932",
+    "usd": 14270.032637475295
+   },
+   "bonusPaidUsd": 669.1096617988314,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 28582.8727397,
+    "topupUsd": 12086.511367518426,
+    "capUsd": 714.5718184925,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 181.2976705127764,
+    "savedUsd": 487.81199128605505
+   }
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 68,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0x2FA8Fa85b6b28daA8856790AafE87501825e3e79",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "11631097559567450129",
+    "usd": 23568.89444899106
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "22541217687",
+    "usd": 22513.26657706812
+   },
+   "bonusPaidUsd": 1055.6278719229413,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 45026.53187273,
+    "topupUsd": 18761.054946970835,
+    "capUsd": 1125.6632968182498,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 281.4158242045625,
+    "savedUsd": 774.2120477183787
+   }
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 54,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0xD14f076044414C255D2E82cceB1CB00fb1bBA64c",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "67100932564120738618",
+    "usd": 135971.24337863806
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "129909068270",
+    "usd": 129881.22356030701
+   },
+   "bonusPaidUsd": 6090.019818331042,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 259762.44271756,
+    "topupUsd": 108234.35113231675,
+    "capUsd": 6494.061067939,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 1623.5152669847512,
+    "savedUsd": 4466.504551346291
+   }
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 33,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0x018DDD59693e552a267c04BFf6b54E8049420290",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+    "symbol": "wstETH",
+    "units": "168125195848633073221",
+    "usd": 425479.5155957938
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "403820976323",
+    "usd": 403320.23831235943
+   },
+   "bonusPaidUsd": 22159.27728343435,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 806640.45367422,
+    "topupUsd": 342211.10155876004,
+    "capUsd": 24199.2136102266,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 5133.166523381401,
+    "savedUsd": 17026.110760052947
+   }
+  },
+  {
+   "tx": "0xc5d9552b91d15ec481d1189ddfced52f146554dd67921d119e5c29fa60ee5bb4",
+   "block": 26385480,
+   "logIndex": 14,
+   "at": "2026-11-10T15:42:47.000Z",
+   "user": "0x0Ed0eA598e89765471e86A060bd91F4BB2dc1fB0",
+   "liquidator": "0x29452e8332912533130fb708984722d92184284F",
+   "collateral": {
+    "asset": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+    "symbol": "wstETH",
+    "units": "331625974896224776256",
+    "usd": 839255.8797960548
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "796534536544",
+    "usd": 795546.8337186854
+   },
+   "bonusPaidUsd": 43709.04607736936,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 1591093.62634368,
+    "topupUsd": 681368.859929387,
+    "capUsd": 47732.8087903104,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 10220.532898940804,
+    "savedUsd": 33488.51317842856
+   }
+  },
+  {
+   "tx": "0x296d8c6a4a2f97f16ca171a45cd5d26e20d262d2826dfe56ab0174b2ed738a10",
+   "block": 26385472,
+   "logIndex": 122,
+   "at": "2026-11-10T15:41:11.000Z",
+   "user": "0x2423c4fBAB1E035131014DB1d489C2330bfc3b0c",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "153138046210785412",
+    "usd": 311.944641580613
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "298442983",
+    "usd": 298.3790147310238
+   },
+   "bonusPaidUsd": 13.565626849589194,
+   "priceAt": "block",
+   "stead": null,
+   "steadNote": "under $1,000 of debt: too small for a Stead rescue"
+  },
+  {
+   "tx": "0x296d8c6a4a2f97f16ca171a45cd5d26e20d262d2826dfe56ab0174b2ed738a10",
+   "block": 26385472,
+   "logIndex": 111,
+   "at": "2026-11-10T15:41:11.000Z",
+   "user": "0xDE092a220313CedE58750434b66D46B5ff494CBB",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "522736020085796550",
+    "usd": 1064.8216067905885
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "1018733757",
+    "usd": 1018.5154016065246
+   },
+   "bonusPaidUsd": 46.306205184063856,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 3443.18091744,
+    "topupUsd": 1434.6587156000005,
+    "capUsd": 86.079522936,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 21.519880734000008,
+    "savedUsd": 24.786324450063848
+   }
+  },
+  {
+   "tx": "0x296d8c6a4a2f97f16ca171a45cd5d26e20d262d2826dfe56ab0174b2ed738a10",
+   "block": 26385472,
+   "logIndex": 100,
+   "at": "2026-11-10T15:41:11.000Z",
+   "user": "0xbD77C784614e95Bff7c1511aA8F4C46a2D19f134",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "3833327070877155339",
+    "usd": 7808.548357343591
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "7470577000",
+    "usd": 7468.9757565258205
+   },
+   "bonusPaidUsd": 339.57260081777076,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 14937.95151406,
+    "topupUsd": 6224.146464191672,
+    "capUsd": 373.4487878515,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 93.36219696287507,
+    "savedUsd": 246.21040385489567
+   }
+  },
+  {
+   "tx": "0x296d8c6a4a2f97f16ca171a45cd5d26e20d262d2826dfe56ab0174b2ed738a10",
+   "block": 26385472,
+   "logIndex": 89,
+   "at": "2026-11-10T15:41:11.000Z",
+   "user": "0x6544F40F825885431c943819C251D6Eb52C803E2",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "12177003440016609852",
+    "usd": 24804.750142844274
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "23731145333",
+    "usd": 23726.058799309325
+   },
+   "bonusPaidUsd": 1078.6913435349488,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 47452.11759862,
+    "topupUsd": 19771.715666091673,
+    "capUsd": 1186.3029399655002,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 296.5757349913751,
+    "savedUsd": 782.1156085435737
+   }
+  },
+  {
+   "tx": "0x296d8c6a4a2f97f16ca171a45cd5d26e20d262d2826dfe56ab0174b2ed738a10",
+   "block": 26385472,
+   "logIndex": 25,
+   "at": "2026-11-10T15:41:11.000Z",
+   "user": "0x2B5d13d0b275e91f428248370E02E3800f908324",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "46462445243051175576",
+    "usd": 94644.74170156725
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "90641293650",
+    "usd": 90528.898445874
+   },
+   "bonusPaidUsd": 4115.843255693253,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 181057.79689247,
+    "topupUsd": 76166.14051966893,
+    "capUsd": 4526.44492231175,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 1142.492107795034,
+    "savedUsd": 2973.351147898219
+   }
+  },
+  {
+   "tx": "0x56b092a7fce6f2a3023b9908093dba98159613c0c734ef02747a9f582d3f46b1",
+   "block": 26385457,
+   "logIndex": 102,
+   "at": "2026-11-10T15:38:11.000Z",
+   "user": "0xc06055360723066Ff500b0E3857c6E13784f57c0",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "7616251037851425498",
+    "usd": 15623.963965611738
+   },
+   "debt": {
+    "asset": "0xdC035D45d973E3EC169d2276DDab16f1e407384F",
+    "symbol": "USDS",
+    "units": "14921924125363352465395",
+    "usd": 14917.71614276
+   },
+   "bonusPaidUsd": 706.2478228517375,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 29835.43228552,
+    "topupUsd": 12426.991907571108,
+    "capUsd": 745.885807138,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 186.4048786135666,
+    "savedUsd": 519.842944238171
+   }
+  },
+  {
+   "tx": "0x56b092a7fce6f2a3023b9908093dba98159613c0c734ef02747a9f582d3f46b1",
+   "block": 26385457,
+   "logIndex": 29,
+   "at": "2026-11-10T15:38:11.000Z",
+   "user": "0x5De8b8Dfcf94b4f58665b450b05C39E15290878a",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "3040655706459440282",
+    "usd": 6237.595761149691
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "5963032767",
+    "usd": 5955.63860636892
+   },
+   "bonusPaidUsd": 281.9571547807709,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 11911.27721274,
+    "topupUsd": 5084.701822733263,
+    "capUsd": 297.78193031850003,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 76.27052734099894,
+    "savedUsd": 205.68662743977197
+   }
+  },
+  {
+   "tx": "0x56b092a7fce6f2a3023b9908093dba98159613c0c734ef02747a9f582d3f46b1",
+   "block": 26385457,
+   "logIndex": 18,
+   "at": "2026-11-10T15:38:11.000Z",
+   "user": "0xfcb4e71BC4b5fbbF7c558A94161dB194c2e653dE",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "12937588664809129248",
+    "usd": 26540.146601825796
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "25371917304",
+    "usd": 25340.45612654304
+   },
+   "bonusPaidUsd": 1199.6904752827577,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 50744.02526274,
+    "topupUsd": 21143.343859475004,
+    "capUsd": 1268.6006315685,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 317.15015789212504,
+    "savedUsd": 882.5403173906327
+   }
+  },
+  {
+   "tx": "0xbafbcea28d45824dc082da34c37eabb61265a0cfe5616ef3146588e7ffaaa7e4",
+   "block": 26385442,
+   "logIndex": 453,
+   "at": "2026-11-10T15:35:11.000Z",
+   "user": "0x5191bC74F0825C7b15B89215969f69aA22DF9d6e",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "3838030643325557082",
+    "usd": 7920.428697711653
+   },
+   "debt": {
+    "asset": "0x4c9EDD5852cd905f086C759E8383e09bff1E68B3",
+    "symbol": "USDe",
+    "units": "7579908030507829708838",
+    "usd": 7570.50894455
+   },
+   "bonusPaidUsd": 349.9197531616528,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 15141.0178891,
+    "topupUsd": 6308.7574537916735,
+    "capUsd": 378.5254472275,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 94.6313618068751,
+    "savedUsd": 255.2883913547777
+   }
+  },
+  {
+   "tx": "0xbafbcea28d45824dc082da34c37eabb61265a0cfe5616ef3146588e7ffaaa7e4",
+   "block": 26385442,
+   "logIndex": 372,
+   "at": "2026-11-10T15:35:11.000Z",
+   "user": "0x47324C6e0705D7cC3D1F8765025A4B64e87164FE",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "629548855832862111",
+    "usd": 1299.1810873166025
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "1243325776",
+    "usd": 1241.78405203776
+   },
+   "bonusPaidUsd": 57.39703527884262,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 1241.78401709,
+    "topupUsd": 517.4100071208334,
+    "capUsd": 31.04460042725,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 7.7611501068125,
+    "savedUsd": 49.63588517203012
+   }
+  },
+  {
+   "tx": "0xbafbcea28d45824dc082da34c37eabb61265a0cfe5616ef3146588e7ffaaa7e4",
+   "block": 26385442,
+   "logIndex": 361,
+   "at": "2026-11-10T15:35:11.000Z",
+   "user": "0x3A52bF7fa1AB8B5C8bd46C178F6fe7257e0a715F",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "44013969156017437657",
+    "usd": 90830.30772819852
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "86925266957",
+    "usd": 86817.47962597331
+   },
+   "bonusPaidUsd": 4012.828102225205,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 173634.95925295,
+    "topupUsd": 72347.8996887292,
+    "capUsd": 4340.873981323751,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 1085.218495330938,
+    "savedUsd": 2927.609606894267
+   }
+  },
+  {
+   "tx": "0xbafbcea28d45824dc082da34c37eabb61265a0cfe5616ef3146588e7ffaaa7e4",
+   "block": 26385442,
+   "logIndex": 350,
+   "at": "2026-11-10T15:35:11.000Z",
+   "user": "0x2b8eb3EA83BE534f1A3783552152f73C6E0c031F",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "92473903559116948119",
+    "usd": 190835.6205578429
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "182631080713",
+    "usd": 182404.61817291589
+   },
+   "bonusPaidUsd": 8431.002384927007,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 364809.23634584,
+    "topupUsd": 152003.84847743338,
+    "capUsd": 9120.230908645999,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 2280.0577271615007,
+    "savedUsd": 6150.944657765507
+   }
+  },
+  {
+   "tx": "0xbafbcea28d45824dc082da34c37eabb61265a0cfe5616ef3146588e7ffaaa7e4",
+   "block": 26385442,
+   "logIndex": 339,
+   "at": "2026-11-10T15:35:11.000Z",
+   "user": "0x0ECe0b16103922A4288F17832b83B3bFCdfB64f8",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "95889378734571184252",
+    "usd": 197884.03421317253
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "189376463988",
+    "usd": 189141.63717265488
+   },
+   "bonusPaidUsd": 8742.397040517651,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 378283.27434631,
+    "topupUsd": 157618.0309776293,
+    "capUsd": 9457.08185865775,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 2364.2704646644393,
+    "savedUsd": 6378.126575853212
+   }
+  },
+  {
+   "tx": "0xfda029736669f36bce81dcaaf692be0bf4ed2f319e4c3c47a2b7e2c25132ad93",
+   "block": 26384875,
+   "logIndex": 530,
+   "at": "2026-11-10T13:41:23.000Z",
+   "user": "0x3034dEec87F095D098554c85E409F7C06AdC490e",
+   "liquidator": "0x91FB67E3fF60B2Daea16952E2f087391cbDC97ce",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "2628796921879689",
+    "usd": 5.441872507983144
+   },
+   "debt": {
+    "asset": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+    "symbol": "WBTC",
+    "units": "7040",
+    "usd": 5.204438021789248
+   },
+   "bonusPaidUsd": 0.2374344861938953,
+   "priceAt": "block",
+   "stead": null,
+   "steadNote": "under $1,000 of debt: too small for a Stead rescue"
+  },
+  {
+   "tx": "0xa353c22adb10e4e4d07c0123740cb468a3dfe2f3e1190c62c50f6cac7717314c",
+   "block": 26384827,
+   "logIndex": 631,
+   "at": "2026-11-10T13:31:35.000Z",
+   "user": "0x52De03b0D9f0366581e08Fb2f7e971026BB56C38",
+   "liquidator": "0xD10162D2CF92D968Fa4f4fC2c55666604F736FD5",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "22437203194468314",
+    "usd": 46.1936847684072
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "44426962",
+    "usd": 44.41700458500694
+   },
+   "bonusPaidUsd": 1.7766801834002592,
+   "priceAt": "block",
+   "stead": null,
+   "steadNote": "under $1,000 of debt: too small for a Stead rescue"
+  },
+  {
+   "tx": "0x1817385172f9fc80e1850342e00d51656482aea1a1546cfc1bb2a7ba6ae82968",
+   "block": 26384826,
+   "logIndex": 102,
+   "at": "2026-11-10T13:31:23.000Z",
+   "user": "0x8CBB06bCa53189C04c0aB830a35b4688d1fc065F",
+   "liquidator": "0x0cAb9af0EcFC663e55bB850089eBf6Af1bBf46de",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "193974090205500381",
+    "usd": 399.3536047487669
+   },
+   "debt": {
+    "asset": "0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD",
+    "symbol": "RLUSD",
+    "units": "384024588047995553409",
+    "usd": 383.99385071996824
+   },
+   "bonusPaidUsd": 15.359754028798648,
+   "priceAt": "block",
+   "stead": null,
+   "steadNote": "under $1,000 of debt: too small for a Stead rescue"
+  },
+  {
+   "tx": "0x2064ff5200ed43c50adae38e0fd1160d23765cdb6cd05a80a35fecbd97b6aeee",
+   "block": 26384825,
+   "logIndex": 540,
+   "at": "2026-11-10T13:31:11.000Z",
+   "user": "0x77aDce25ABa76a84C493f28DF90447a108FD0265",
+   "liquidator": "0xb375500D60B51349f9860c0164837bEA6909cBe6",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "562421172603352235",
+    "usd": 1167.7685315073588
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "1113626500",
+    "usd": 1113.376902892555
+   },
+   "bonusPaidUsd": 54.39162861480372,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 2226.7537698,
+    "topupUsd": 927.8140707500006,
+    "capUsd": 55.668844244999995,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 13.917211061250008,
+    "savedUsd": 40.474417553553714
+   }
+  },
+  {
+   "tx": "0x2064ff5200ed43c50adae38e0fd1160d23765cdb6cd05a80a35fecbd97b6aeee",
+   "block": 26384825,
+   "logIndex": 504,
+   "at": "2026-11-10T13:31:11.000Z",
+   "user": "0x0016a1fD031CE93edAa6A0985437db326698335C",
+   "liquidator": "0xb375500D60B51349f9860c0164837bEA6909cBe6",
+   "collateral": {
+    "asset": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+    "symbol": "WBTC",
+    "units": "4352521",
+    "usd": 3221.05552203484
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "3077724296",
+    "usd": 3073.807460951938
+   },
+   "bonusPaidUsd": 147.24806108290204,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 6147.61477909,
+    "topupUsd": 2540.0367992934735,
+    "capUsd": 153.69036947725002,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 38.100551989402106,
+    "savedUsd": 109.14750909349993
+   }
+  },
+  {
+   "tx": "0x2064ff5200ed43c50adae38e0fd1160d23765cdb6cd05a80a35fecbd97b6aeee",
+   "block": 26384825,
+   "logIndex": 470,
+   "at": "2026-11-10T13:31:11.000Z",
+   "user": "0x9637FCa508830233323c728677f9aA1b49a9aFbd",
+   "liquidator": "0xb375500D60B51349f9860c0164837bEA6909cBe6",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "7204770196522870887",
+    "usd": 14959.43666789217
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "14280839285",
+    "usd": 14262.664917692337
+   },
+   "bonusPaidUsd": 696.7717501998341,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 28525.32916624,
+    "topupUsd": 12245.633764484242,
+    "capUsd": 713.133229156,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 183.68450646726365,
+    "savedUsd": 513.0872437325704
+   }
+  },
+  {
+   "tx": "0x2064ff5200ed43c50adae38e0fd1160d23765cdb6cd05a80a35fecbd97b6aeee",
+   "block": 26384825,
+   "logIndex": 438,
+   "at": "2026-11-10T13:31:11.000Z",
+   "user": "0xd12A16Aaa884eb84303074811001b8eB087ead3c",
+   "liquidator": "0xb375500D60B51349f9860c0164837bEA6909cBe6",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "8577829136419208812",
+    "usd": 17810.35178279416
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "17002429775",
+    "usd": 16980.791802771142
+   },
+   "bonusPaidUsd": 829.5599800230193,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 33961.5829124,
+    "topupUsd": 14150.659546833333,
+    "capUsd": 849.03957281,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 212.2598932025,
+    "savedUsd": 617.3000868205193
+   }
+  },
+  {
+   "tx": "0x2064ff5200ed43c50adae38e0fd1160d23765cdb6cd05a80a35fecbd97b6aeee",
+   "block": 26384825,
+   "logIndex": 400,
+   "at": "2026-11-10T13:31:11.000Z",
+   "user": "0xcD2E456fc74acD2CA28e554F5ba54A0a728af5F9",
+   "liquidator": "0xb375500D60B51349f9860c0164837bEA6909cBe6",
+   "collateral": {
+    "asset": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+    "symbol": "wstETH",
+    "units": "19304493309542895225",
+    "usd": 50058.84827245205
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "47373524764",
+    "usd": 47362.90693589464
+   },
+   "bonusPaidUsd": 2695.9413365574073,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 94725.81226815,
+    "topupUsd": 40162.36740624171,
+    "capUsd": 2841.7743680444996,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 602.4355110936257,
+    "savedUsd": 2093.5058254637815
+   }
+  },
+  {
+   "tx": "0xa2fac937b1a7907b0964a3d5ff5563c7cbe8f88cf15613f5c71452b0a3df5c63",
+   "block": 26384822,
+   "logIndex": 965,
+   "at": "2026-11-10T13:30:35.000Z",
+   "user": "0x99da8b0caE360DF0c2F1F855b8407EF69462E5F8",
+   "liquidator": "0xD12810B19B596347a3AFAC206d3cA65d08594b3f",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "816880995650089692",
+    "usd": 1709.2839943085376
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "1631240175",
+    "usd": 1630.8745651395773
+   },
+   "bonusPaidUsd": 78.40942916896029,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 3261.7490763,
+    "topupUsd": 1359.0621151249998,
+    "capUsd": 81.5437269075,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 20.385931726874997,
+    "savedUsd": 58.02349744208529
+   }
+  },
+  {
+   "tx": "0xa2fac937b1a7907b0964a3d5ff5563c7cbe8f88cf15613f5c71452b0a3df5c63",
+   "block": 26384822,
+   "logIndex": 953,
+   "at": "2026-11-10T13:30:35.000Z",
+   "user": "0x5c19fAf7bA5F7C680C9c4dA2DCCD3d20947CD229",
+   "liquidator": "0xD12810B19B596347a3AFAC206d3cA65d08594b3f",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "2145176734219549999",
+    "usd": 4488.678615722346
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "4283731033",
+    "usd": 4282.770920363574
+   },
+   "bonusPaidUsd": 205.9076953587719,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 8565.54169576,
+    "topupUsd": 3584.337151501675,
+    "capUsd": 214.13854239399996,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 53.765057272525134,
+    "savedUsd": 152.14263808624676
+   }
+  },
+  {
+   "tx": "0xa2fac937b1a7907b0964a3d5ff5563c7cbe8f88cf15613f5c71452b0a3df5c63",
+   "block": 26384822,
+   "logIndex": 903,
+   "at": "2026-11-10T13:30:35.000Z",
+   "user": "0xb8E5dc001Ca3097F943e7A8d4D413F00816C0191",
+   "liquidator": "0xD12810B19B596347a3AFAC206d3cA65d08594b3f",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "916159191913790786",
+    "usd": 1917.018820753263
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "1831410766",
+    "usd": 1829.0800394027576
+   },
+   "bonusPaidUsd": 87.93878135050545,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 3658.15999292,
+    "topupUsd": 1524.2333303833339,
+    "capUsd": 91.453999823,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 22.863499955750008,
+    "savedUsd": 65.07528139475545
+   }
+  },
+  {
+   "tx": "0xa2fac937b1a7907b0964a3d5ff5563c7cbe8f88cf15613f5c71452b0a3df5c63",
+   "block": 26384822,
+   "logIndex": 891,
+   "at": "2026-11-10T13:30:35.000Z",
+   "user": "0x36B60d4ED25069714E45E0EF588631197f909d0E",
+   "liquidator": "0xD12810B19B596347a3AFAC206d3cA65d08594b3f",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "4823348273566728004",
+    "usd": 10092.623095512481
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "9641918167",
+    "usd": 9629.647476263948
+   },
+   "bonusPaidUsd": 462.9756192485329,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 19259.29450011,
+    "topupUsd": 8024.706041712503,
+    "capUsd": 481.48236250275,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 120.37059062568756,
+    "savedUsd": 342.60502862284534
+   }
+  },
+  {
+   "tx": "0xa2fac937b1a7907b0964a3d5ff5563c7cbe8f88cf15613f5c71452b0a3df5c63",
+   "block": 26384822,
+   "logIndex": 879,
+   "at": "2026-11-10T13:30:35.000Z",
+   "user": "0x24A416E5c00c7b47A5f8a300984579b53919330B",
+   "liquidator": "0xD12810B19B596347a3AFAC206d3cA65d08594b3f",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "26983980128061204173",
+    "usd": 56462.673977289494
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "53941227848",
+    "usd": 53872.58008379152
+   },
+   "bonusPaidUsd": 2590.0938934979713,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 107745.1576328,
+    "topupUsd": 44893.815680333355,
+    "capUsd": 2693.62894082,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 673.4072352050003,
+    "savedUsd": 1916.686658292971
+   }
+  },
+  {
+   "tx": "0xadb7755fb27bc2ffc87005a42d16df377f0fffe6515a396302f53a0b40e1aef1",
+   "block": 26384239,
+   "logIndex": 85,
+   "at": "2026-11-10T11:33:47.000Z",
+   "user": "0xfe74380C8d703770e22a35D9792C0B673dB1AC04",
+   "liquidator": "0xe399bA00DE4ea0d1C8Ea065CDb1543739E2F7158",
+   "collateral": {
+    "asset": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+    "symbol": "WBTC",
+    "units": "1784795",
+    "usd": 1321.2188671183455
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "1269998798",
+    "usd": 1269.7141531694044
+   },
+   "bonusPaidUsd": 51.50471394894112,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 1269.71413218,
+    "topupUsd": 522.823466191765,
+    "capUsd": 31.7428533045,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 7.842351992876474,
+    "savedUsd": 43.66236195606464
+   }
+  },
+  {
+   "tx": "0x36b8103e2d5d0147f3b781ead7c8501434f7da07fb188424d6117c56259c2858",
+   "block": 26383483,
+   "logIndex": 143,
+   "at": "2026-11-10T09:02:11.000Z",
+   "user": "0x90b7c98a7289cD0e1A2b332bc7dA2Ac0c45c1b47",
+   "liquidator": "0xF28307728ad7B7449E9b020a5c24292cE5f871cA",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "1466072375756000657",
+    "usd": 3091.992800095353
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "2958050999",
+    "usd": 2954.2864649766325
+   },
+   "bonusPaidUsd": 137.7063351187203,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 5908.57307078,
+    "topupUsd": 2461.9054461583355,
+    "capUsd": 147.71432676950002,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 36.92858169237503,
+    "savedUsd": 100.77775342634526
+   }
+  },
+  {
+   "tx": "0xe5aaf2a936145caa9feb6d7bf9c2d3ae97d2095ed7fd54303ca86699e19e6c8c",
+   "block": 26381287,
+   "logIndex": 114,
+   "at": "2026-11-10T01:41:35.000Z",
+   "user": "0x9F5a8ddE46128a9833BF3022b417A44952143E95",
+   "liquidator": "0xe399bA00DE4ea0d1C8Ea065CDb1543739E2F7158",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "4040116445797476251",
+    "usd": 8581.265700213784
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "8249482273",
+    "usd": 8247.633316538153
+   },
+   "bonusPaidUsd": 333.632383675631,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 16495.26635175,
+    "topupUsd": 6873.027646562499,
+    "capUsd": 412.38165879375003,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 103.09541469843748,
+    "savedUsd": 230.5369689771935
+   }
+  },
+  {
+   "tx": "0x026dc659a5004359c5e7af0f9b80bc30337adfd2fa864ccb994df36e15cf28de",
+   "block": 26375762,
+   "logIndex": 458,
+   "at": "2026-11-09T07:13:23.000Z",
+   "user": "0x5E6460AdE7e94f6e83Def3753bd70b1cf2588590",
+   "liquidator": "0x0b79A21dd0E6b3CA18aE503e0b28F5F0B054b46D",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "290027732971411787",
+    "usd": 606.0912555316671
+   },
+   "debt": {
+    "asset": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "units": "582887293",
+    "usd": 582.7800533958339
+   },
+   "bonusPaidUsd": 23.31120213583324,
+   "priceAt": "block",
+   "stead": null,
+   "steadNote": "under $1,000 of debt: too small for a Stead rescue"
+  },
+  {
+   "tx": "0xe549e852acd2e900f6e32dcbf5aec721dc53ba517fe879868b913c377ca93be4",
+   "block": 26375761,
+   "logIndex": 343,
+   "at": "2026-11-09T07:13:11.000Z",
+   "user": "0x37AC724BCaa3927882c252539959f9b52C73953C",
+   "liquidator": "0xe399bA00DE4ea0d1C8Ea065CDb1543739E2F7158",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "1264922960666100",
+    "usd": 2.664594875532262
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "2544961",
+    "usd": 2.54172889953
+   },
+   "bonusPaidUsd": 0.12286597600226212,
+   "priceAt": "block",
+   "stead": null,
+   "steadNote": "under $1,000 of debt: too small for a Stead rescue"
+  },
+  {
+   "tx": "0xe549e852acd2e900f6e32dcbf5aec721dc53ba517fe879868b913c377ca93be4",
+   "block": 26375761,
+   "logIndex": 281,
+   "at": "2026-11-09T07:13:11.000Z",
+   "user": "0x99a81892D39Fe2D2e0234F91d14Dc20e194C109F",
+   "liquidator": "0xe399bA00DE4ea0d1C8Ea065CDb1543739E2F7158",
+   "collateral": {
+    "asset": "0xae78736Cd615f374D3085123A210448E74Fc6393",
+    "symbol": "rETH",
+    "units": "1001366365652402229",
+    "usd": 2479.471278215493
+   },
+   "debt": {
+    "asset": "0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f",
+    "symbol": "GHO",
+    "units": "2304212753320000000000",
+    "usd": 2304.21275332
+   },
+   "bonusPaidUsd": 175.25852489549288,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 4608.42550664,
+    "topupUsd": 2041.7075029417729,
+    "capUsd": 172.815956499,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 30.625612544126593,
+    "savedUsd": 144.6329123513663
+   }
+  },
+  {
+   "tx": "0xe549e852acd2e900f6e32dcbf5aec721dc53ba517fe879868b913c377ca93be4",
+   "block": 26375761,
+   "logIndex": 140,
+   "at": "2026-11-09T07:13:11.000Z",
+   "user": "0x552B42287c4fE1e913ea9a159B69bD7E9B81ec76",
+   "liquidator": "0xe399bA00DE4ea0d1C8Ea065CDb1543739E2F7158",
+   "collateral": {
+    "asset": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+    "symbol": "wstETH",
+    "units": "31884161917179858382",
+    "usd": 83871.76078662524
+   },
+   "debt": {
+    "asset": "0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c",
+    "symbol": "EURC",
+    "units": "71291586741",
+    "usd": 79393.66597684963
+   },
+   "bonusPaidUsd": 4478.0948097756045,
+   "priceAt": "block",
+   "stead": {
+    "debtUsd": 158787.33195578,
+    "topupUsd": 66573.5100437506,
+    "capUsd": 4763.6199586734,
+    "steward": "deep",
+    "bps": 150,
+    "premiumUsd": 998.602650656259,
+    "savedUsd": 3479.4921591193456
+   }
+  },
+  {
+   "tx": "0x129021911e922a83af2ddc9bc26e704fa7919e06007e3faa3a2bf993bc3a365e",
+   "block": 26373044,
+   "logIndex": 354,
+   "at": "2026-11-08T22:07:47.000Z",
+   "user": "0x24672D1170992055b111BAf45877Dc9545B6AA11",
+   "liquidator": "0x91FB67E3fF60B2Daea16952E2f087391cbDC97ce",
+   "collateral": {
+    "asset": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "units": "2212605514309076",
+    "usd": 4.6758107291687985
+   },
+   "debt": {
+    "asset": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "units": "4501689",
+    "usd": 4.49597185497
+   },
+   "bonusPaidUsd": 0.17983887419879885,
+   "priceAt": "block",
+   "stead": null,
+   "steadNote": "under $1,000 of debt: too small for a Stead rescue"
+  }
+ ]
+}
