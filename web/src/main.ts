@@ -7,6 +7,7 @@ import type { BoardMode } from "./board/view";
 import { mountProofs, mountRescue } from "./rescue/page";
 import { mountHome } from "./home/page";
 import { loadRecords, mountList } from "./lists/pages";
+import { bindCrowns } from "./crown";
 
 /** The recorded rescue the live board replays: a real auction on Sepolia, rebuilt from the chains. */
 const REPLAY_URL = "/replays/sepolia-demo-rescue-8.json";
@@ -277,6 +278,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (m) => {
 });
 window.addEventListener("hashchange", onRoute);
 
+bindCrowns();
 render();
 // Screenshot/testing aid: ?drawer=open opens the drawer on load.
 if (new URLSearchParams(location.search).get("drawer") === "open") setDrawer(true);

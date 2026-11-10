@@ -4,6 +4,7 @@ import type { CostPath } from "../../../stewards/src/costpath";
 import type { Evidence, RescueEvent, RescueLog, StewardId } from "../../../stewards/src/rescuelog";
 import { CODE, fmtAmt } from "../board/model";
 import { icon } from "../icons";
+import { crown } from "../crown";
 
 type Ev<K extends RescueEvent["kind"]> = Extract<RescueEvent, { kind: K }>;
 export type ProofKind = "readings" | "auction" | "topup" | "claim" | "payouts";
@@ -143,8 +144,9 @@ export function render(log: RescueLog, path: CostPath | null): string {
         ${ranked
           .map((b, i) => {
             const history = bids.filter((x) => x.steward === b.steward).map((x) => x.bps).join(", ");
-            const won = close?.winners.some((w) => w.steward === b.steward);
-            return `<div class="st-result${won ? " is-won" : ""}"><span class="st-result-rank">${i + 1}</span>${tile(b.steward, 28)}<span class="st-result-name">${b.steward}</span><span class="st-result-hist">${history} bps</span><span class="st-result-final">${num(String(b.bps), "bps")}</span></div>`;
+            const won = close?.winners.find((w) => w.steward === b.steward);
+            const claimOf = claims.find((c) => c.holder === b.steward);
+            return `<div class="st-result${won ? " is-won" : ""}"><span class="st-result-rank">${i + 1}</span>${tile(b.steward, 28)}<span class="st-result-name">${b.steward}${won ? crown(b.steward, [["Premium", `${b.bps} bps`], ["Share", `${fmtAmt(won.amount)} ${m.collateral}`], ...(claimOf ? ([["Claim", esc(claimOf.claim)]] as [string, string][]) : [])]) : ""}</span><span class="st-result-hist">${history} bps</span><span class="st-result-final">${num(String(b.bps), "bps")}</span></div>`;
           })
           .join("")}
       </div>
@@ -229,15 +231,13 @@ export function render(log: RescueLog, path: CostPath | null): string {
         <div><div class="st-label">PROOFS</div><h2 class="st-panel-title" id="proofs-h">Every step, linked to its record</h2></div>
         <p class="st-proof-count" data-proof-count aria-live="polite"></p>
       </div>
-      <div class="st-filters">
-        <div class="st-filter-group" role="group" aria-label="Kind of record">
-          ${kinds.filter((k) => count(k.id) > 0).map((k) => `<button type="button" class="st-filter" data-kind="${k.id}" aria-pressed="${k.id === "all"}">${k.label} <span class="st-seg-count">${count(k.id)}</span></button>`).join("")}
-        </div>
-        <div class="st-filter-group st-filter-group--chains" role="group" aria-label="Chain">
-          <button type="button" class="st-filter" data-chain="all" aria-pressed="true">ALL CHAINS</button>
-          <button type="button" class="st-filter" data-chain="near" aria-pressed="false">${icon("near", 14)}NEAR</button>
-          <button type="button" class="st-filter" data-chain="evm" aria-pressed="false">${icon("ethereum", 14)}${log.evmChain === "sepolia" ? "SEPOLIA" : "ETHEREUM"}</button>
-        </div>
+      <div class="st-list-tools st-proof-tools">
+        <label class="st-select"><span class="st-select-label">Show</span><select data-kind-select>
+          ${kinds.filter((k) => count(k.id) > 0).map((k) => `<option value="${k.id}">${k.id === "all" ? "Every record" : k.label.charAt(0) + k.label.slice(1).toLowerCase()} (${count(k.id)})</option>`).join("")}
+        </select></label>
+        <label class="st-select"><span class="st-select-label">Chain</span><select data-chain-select>
+          <option value="all">Both chains</option><option value="near">NEAR</option><option value="evm">${log.evmChain === "sepolia" ? "Sepolia" : "Ethereum"}</option>
+        </select></label>
       </div>
       <div class="st-table-wrap">
         <table class="st-proofs">
@@ -419,7 +419,8 @@ export function wireChart(root: HTMLElement, p: CostPath) {
   });
 }
 
-const PAGE = 7;
+/** Proofs a page: ten on a desktop, six on a phone. */
+const pageSize = () => (matchMedia("(max-width: 620px)").matches ? 6 : 10);
 function wireProofs(root: HTMLElement) {
   const sect = root.querySelector<HTMLElement>("[data-proofs]");
   if (!sect) return;
@@ -429,6 +430,7 @@ function wireProofs(root: HTMLElement) {
   let page = 0;
   const draw = () => {
     const match = rows.filter((r) => (kind === "all" || r.dataset.kind === kind) && (chain === "all" || r.dataset.chain === chain));
+    const PAGE = pageSize();
     const pages = Math.max(1, Math.ceil(match.length / PAGE));
     page = Math.min(page, pages - 1);
     const shown = new Set(match.slice(page * PAGE, page * PAGE + PAGE));
@@ -444,17 +446,20 @@ function wireProofs(root: HTMLElement) {
     next.disabled = page >= pages - 1;
     sect.querySelector<HTMLElement>(".st-pager")!.hidden = pages <= 1;
   };
+  sect.querySelector<HTMLSelectElement>("[data-kind-select]")?.addEventListener("change", (e) => {
+    kind = (e.target as HTMLSelectElement).value;
+    page = 0;
+    draw();
+  });
+  sect.querySelector<HTMLSelectElement>("[data-chain-select]")?.addEventListener("change", (e) => {
+    chain = (e.target as HTMLSelectElement).value;
+    page = 0;
+    draw();
+  });
   sect.addEventListener("click", (e) => {
-    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-page]");
     if (!b) return;
-    if (b.dataset.kind || b.dataset.chain) {
-      const attr = b.dataset.kind ? "kind" : "chain";
-      for (const x of sect.querySelectorAll<HTMLButtonElement>(`[data-${attr}]:is(button)`)) x.setAttribute("aria-pressed", String(x === b));
-      if (attr === "kind") kind = b.dataset.kind!;
-      else chain = b.dataset.chain!;
-      page = 0;
-    } else if (b.dataset.page === "prev") page--;
-    else if (b.dataset.page === "next") page++;
+    page += b.dataset.page === "next" ? 1 : -1;
     draw();
   });
   draw();
@@ -499,15 +504,13 @@ export async function mountProofs(root: HTMLElement, replays: { id: string; url:
         <p class="st-list-sub">Each verified reading, bid, top-up, claim and payment behind the ${logs.length} recorded rescues, newest first. A PROVEN reading is an OutLayer proof that several Sepolia RPCs agreed on the block.</p></div>
         <p class="st-proof-count" data-proof-count aria-live="polite"></p>
       </div>
-      <div class="st-filters">
-        <div class="st-filter-group" role="group" aria-label="Kind of record">
-          ${kinds.filter((k) => count(k.id) > 0).map((k) => `<button type="button" class="st-filter" data-kind="${k.id}" aria-pressed="${k.id === "all"}">${k.label} <span class="st-seg-count">${count(k.id)}</span></button>`).join("")}
-        </div>
-        <div class="st-filter-group st-filter-group--chains" role="group" aria-label="Chain">
-          <button type="button" class="st-filter" data-chain="all" aria-pressed="true">ALL CHAINS</button>
-          <button type="button" class="st-filter" data-chain="near" aria-pressed="false">${icon("near", 14)}NEAR</button>
-          <button type="button" class="st-filter" data-chain="evm" aria-pressed="false">${icon("ethereum", 14)}SEPOLIA</button>
-        </div>
+      <div class="st-list-tools st-proof-tools">
+        <label class="st-select"><span class="st-select-label">Show</span><select data-kind-select>
+          ${kinds.filter((k) => count(k.id) > 0).map((k) => `<option value="${k.id}">${k.id === "all" ? "Every record" : k.label.charAt(0) + k.label.slice(1).toLowerCase()} (${count(k.id)})</option>`).join("")}
+        </select></label>
+        <label class="st-select"><span class="st-select-label">Chain</span><select data-chain-select>
+          <option value="all">Both chains</option><option value="near">NEAR</option><option value="evm">Sepolia</option>
+        </select></label>
       </div>
       <div class="st-table-wrap">
         <table class="st-proofs st-proofs--multi">

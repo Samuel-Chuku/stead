@@ -225,3 +225,10 @@
   .st-proofs.st-proofs--multi:not(.st-values-table) td:nth-child(5) { grid-area: where; justify-self: end; }
   .st-proofs.st-proofs--multi:not(.st-values-table) td:nth-child(6) { grid-area: trust; justify-self: end; }
 }
+/* proofs tables: the evidence mark as a slim strip (text and a thin bar), not a filled box */
+.st-proofs .st-evidence { background: none; border: 0; border-left: 3px solid var(--st-line); padding: 1px 0 1px 7px; font-size: 10px; letter-spacing: .08em; gap: 0; color: var(--st-quiet); }
+.st-proofs .st-evidence .st-evidence-mark { display: none; }
+.st-proofs .st-evidence--proven { border-left-color: var(--st-ink); color: var(--st-ink); }
+.st-proofs .st-evidence--reported { border-left-style: dashed; border-left-color: var(--st-ink); }
+.st-proofs .st-evidence--unverified { background: none; border-left-style: dotted; }
+@media (max-width: 620px) { .st-proofs:not(.st-values-table) .st-evidence { padding: 1px 0 1px 6px; font-size: 9.5px; } }

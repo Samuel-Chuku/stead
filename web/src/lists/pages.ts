@@ -1,38 +1,54 @@
 // The list pages: Overview, Positions, Rescues, Claims, Stewards. Every row is the contracts' own
 // record (stewards/src/records.ts), read live through the feed (re-read every 2 minutes), else the
 // snapshot shipped with the site, and the page says which it shows and when it was read.
+// Calm by design: each item is one line with a few essentials and opens for the rest; ten items a
+// page; one dropdown for the chain.
 import type { ClaimRow, PositionRow, Records, RescueRow, StewardRow } from "../../../stewards/src/records";
 import type { StewardId } from "../../../stewards/src/rescuelog";
 import { CODE, RISK, RISK_WORD, STEWARD_ORDER } from "../board/model";
+import { crown } from "../crown";
 
 export type ListRoute = "overview" | "positions" | "rescues" | "claims" | "stewards";
 /** Rescues with a published recording (their own page with timeline, chart and proofs). */
 export type Recorded = { id: string; contract: string; rescueId: number };
+/** Items a page: ten on a desktop, six on a phone. */
+export const PAGE_SIZE = 10;
+export const PAGE_SIZE_PHONE = 6;
+export const pageSize = () => (typeof matchMedia === "function" && matchMedia("(max-width: 620px)").matches ? PAGE_SIZE_PHONE : PAGE_SIZE);
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const usd = (n: number | null) => (n === null ? "—" : "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+/** Amounts for reading: two decimals from 1 up, else up to 6 significant decimals. Exact values sit in the details. */
 const amt = (v: string) => {
   const n = Number(v);
-  return n >= 1 ? n.toLocaleString("en-US", { maximumFractionDigits: 4 }) : v;
+  return n >= 1 ? n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(Number(n.toPrecision(4)));
 };
+const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ") + " UTC";
 const shortC = (c: string) => (c.startsWith("sepolia-demo") ? "sepolia-demo" : c.split(".")[0]);
 const isSteward = (s: string): s is StewardId => (STEWARD_ORDER as string[]).includes(s);
 const tile = (s: string, size = 22) => (isSteward(s) ? `<span class="st-tile st-tile--${size}" style="--sc: var(--st-steward-${s})" aria-hidden="true">${CODE[s]}</span>` : "");
-const STATE: Record<string, [string, string]> = {
-  auction: ["AUCTION", "open"],
-  top_up_pending: ["TOP-UP", "open"],
-  open: ["CLAIM OPEN", "open"],
-  settling: ["SETTLING", "open"],
-  bought_back: ["BOUGHT BACK", "rescued"],
-  settled: ["SETTLED", "rescued"],
-  failed: ["FAILED", "liquidated"],
+
+/** A state as a dot and a word (amber only while money is exposed). */
+const STATE: Record<string, [string, "open" | "done" | "bad" | "quiet"]> = {
+  auction: ["Auction", "open"],
+  top_up_pending: ["Top-up", "open"],
+  open: ["Claim open", "open"],
+  settling: ["Settling", "open"],
+  bought_back: ["Bought back", "done"],
+  settled: ["Settled", "done"],
+  failed: ["Failed", "bad"],
+  "in rescue": ["In rescue", "open"],
+  "below trigger": ["Below trigger", "open"],
+  protected: ["Protected", "done"],
+  "no reading": ["No reading yet", "quiet"],
+  empty: ["Empty", "quiet"],
+  "window ended": ["Window ended", "open"],
 };
-const stateChip = (s: string) => {
-  const [t, k] = STATE[s] ?? [s.toUpperCase(), "rescued"];
-  return `<span class="st-chip st-chip--${k}">${t}</span>`;
+const state = (s: string) => {
+  const [t, k] = STATE[s] ?? [s, "quiet"];
+  return `<span class="st-state st-state--${k}"><span class="st-state-dot" aria-hidden="true"></span>${t}</span>`;
 };
-const forkChip = `<span class="st-evidence st-evidence--unverified">FORK · UNVERIFIED</span>`;
 
 // ── data ──
 
@@ -60,108 +76,143 @@ export async function loadRecords(): Promise<{ rec: Records; live: boolean }> {
 export function byChain<T extends { chain: string }>(rows: T[], chain: "real" | "fork" | "all"): T[] {
   return chain === "all" ? rows : rows.filter((r) => (chain === "fork" ? r.chain === "local fork" : r.chain !== "local fork"));
 }
+/** One page of rows (0-based), and how many pages there are. */
+export function pageOf<T>(rows: T[], page: number, size = PAGE_SIZE): { rows: T[]; page: number; pages: number } {
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const p = Math.min(Math.max(0, page), pages - 1);
+  return { rows: rows.slice(p * size, p * size + size), page: p, pages };
+}
 
 // ── page parts ──
 
 function head(label: string, title: string, sub: string, live: boolean, generated: string) {
-  return `<div class="st-sect-head">
-      <div><div class="st-label">${label}</div><h1 class="st-page-title">${title}</h1><p class="st-list-sub">${sub}</p></div>
+  return `<header class="st-list-head">
+      <div class="st-label">${label}</div>
+      <h1 class="st-page-title">${title}</h1>
+      <p class="st-list-sub">${sub}</p>
       <p class="st-list-src">${live ? `<span class="st-live-dot" aria-hidden="true"></span>Read from the contracts at ${when(Date.parse(generated))}` : `Snapshot of the contracts from ${when(Date.parse(generated))}`}</p>
-    </div>`;
+    </header>`;
 }
-const chainFilter = (counts: Record<"real" | "fork" | "all", number>) => `
-    <div class="st-filter-group" role="group" aria-label="Chain">
-      <button type="button" class="st-filter" data-chain="real" aria-pressed="true">SEPOLIA <span class="st-seg-count">${counts.real}</span></button>
-      ${counts.fork ? `<button type="button" class="st-filter" data-chain="fork" aria-pressed="false">LOCAL FORK <span class="st-seg-count">${counts.fork}</span></button>` : ""}
-      <button type="button" class="st-filter" data-chain="all" aria-pressed="false">ALL <span class="st-seg-count">${counts.all}</span></button>
-    </div>`;
+const chainSelect = (c: Record<"real" | "fork" | "all", number>) =>
+  c.fork
+    ? `<label class="st-select"><span class="st-select-label">Chain</span><select data-chain-select>
+        <option value="real">Sepolia (${c.real})</option><option value="fork">Local fork, unverified (${c.fork})</option><option value="all">All (${c.all})</option>
+      </select></label>`
+    : "";
 const counts = (rows: { chain: string }[]) => ({ real: byChain(rows, "real").length, fork: byChain(rows, "fork").length, all: rows.length });
-const table = (cols: string[], body: string, empty: string) => `
-    <div class="st-table-wrap"><table class="st-list-table">
-      <thead><tr>${cols.map((c) => `<th>${c}</th>`).join("")}</tr></thead>
-      <tbody>${body}<tr class="st-proof-empty" data-list-empty hidden><td colspan="${cols.length}">${empty}</td></tr></tbody>
-    </table></div>`;
+/** One item: a summary line of cells that opens to a details list. */
+type Item = { chain: string; cells: string[]; details: [string, string][] };
+const itemHtml = (it: Item) => `
+    <li data-chain="${it.chain === "local fork" ? "fork" : "real"}"><details class="st-item">
+      <summary>${it.cells.map((c) => `<span class="st-item-cell">${c}</span>`).join("")}<span class="st-item-caret" aria-hidden="true"></span></summary>
+      <dl class="st-item-details">${it.details.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
+    </details></li>`;
+const list = (cls: string, cols: string[], items: Item[], empty: string, paged = true) => `
+    <div class="st-items-head ${cls}" aria-hidden="true">${cols.map((c) => `<span>${c}</span>`).join("")}<span></span></div>
+    <ul class="st-items ${cls}" data-items>${items.map(itemHtml).join("")}</ul>
+    <p class="st-empty" data-items-empty hidden>${empty}</p>
+    ${paged ? `<div class="st-pager" data-pager><button type="button" class="st-secondary st-cut" data-page="prev">Previous</button><span class="st-pager-pos" data-page-pos></span><button type="button" class="st-secondary st-cut" data-page="next">Next</button></div>` : ""}`;
 
-function hfCell(p: PositionRow) {
-  if (p.hf === null) return `<span class="st-quiet">${p.status === "no reading" ? "no reading yet" : "no debt"}</span>`;
-  const mark = p.chain === "local fork" ? forkChip : p.hfSource === "verified" ? `<span class="st-evidence st-evidence--proven"><span class="st-evidence-mark" aria-hidden="true"></span>PROVEN</span>` : `<span class="st-evidence st-evidence--reported"><span class="st-evidence-mark" aria-hidden="true"></span>REPORTED · ${esc((p.hfSource ?? "").split(".")[0])}</span>`;
-  return `<span class="st-num st-list-hf${p.hf < 1.15 ? " is-below" : ""}">${p.hf.toFixed(3)}</span> ${mark}${p.hfBlock ? `<span class="st-list-meta">block ${p.hfBlock.toLocaleString("en-US")}</span>` : ""}`;
+// ── positions ──
+
+function hfShort(p: PositionRow) {
+  if (p.hf === null) return `<span class="st-quiet">—</span>`;
+  return `<span class="st-num st-item-big${p.hf < 1.15 ? " is-below" : ""}">${p.hf.toFixed(2)}</span>`;
 }
-const POS_STATUS: Record<PositionRow["status"], string> = {
-  "in rescue": `<span class="st-chip st-chip--open">IN RESCUE</span>`,
-  "below trigger": `<span class="st-chip st-chip--open">BELOW TRIGGER</span>`,
-  protected: `<span class="st-chip st-chip--rescued">PROTECTED</span>`,
-  "no reading": `<span class="st-chip st-chip--rescued">NO READING</span>`,
-  empty: `<span class="st-chip st-chip--rescued">EMPTY</span>`,
-};
-
+const markOf = (p: PositionRow) => (p.chain === "local fork" ? "reported, local fork (unverified)" : p.hfSource === "verified" ? "proven (OutLayer)" : `reported by ${esc(p.hfSource ?? "")}`);
+const positionItem = (p: PositionRow): Item => ({
+  chain: p.chain,
+  cells: [`<span class="st-num">#${p.id}</span>`, `<span class="st-item-main">${esc(p.pair)}</span><span class="st-item-sub">${esc(p.owner)}</span>`, hfShort(p), state(p.status)],
+  details: [
+    ["Health factor", p.hf === null ? (p.status === "no reading" ? "no reading yet" : "no debt at the last reading") : `${p.hf.toFixed(4)}, ${markOf(p)}`],
+    ["Last reading", p.hfBlock ? `block ${p.hfBlock.toLocaleString("en-US")}${p.hfAtMs ? `, ${when(p.hfAtMs)}` : ""}` : "—"],
+    ["Collateral", usd(p.collateralUsd)],
+    ["Debt", usd(p.debtUsd)],
+    ["Chain", esc(p.chain)],
+    ["Contract", `<span class="st-mono">${esc(p.contract)}</span>`],
+    ...(p.openRescues.length ? ([["Open rescue", p.openRescues.map((r) => `#${r}`).join(", ") + ` · <a class="st-textlink" href="#/live">Watch live</a>`]] as [string, string][]) : []),
+  ],
+});
 function positionsPage(rec: Records, live: boolean) {
-  const rows = rec.positions
-    .map(
-      (p) => `<tr data-chain="${p.chain === "local fork" ? "fork" : "real"}">
-        <td><span class="st-num">#${p.id}</span><span class="st-list-meta">${shortC(p.contract)}</span></td>
-        <td class="st-mono">${esc(p.owner)}</td>
-        <td>${esc(p.pair)}<span class="st-list-meta">${esc(p.chain)}</span></td>
-        <td>${hfCell(p)}</td>
-        <td>${usd(p.collateralUsd)}</td><td>${usd(p.debtUsd)}</td>
-        <td>${POS_STATUS[p.status]}${p.openRescues.length ? `<span class="st-list-meta">rescue ${p.openRescues.join(", ")}</span>` : ""}</td>
-      </tr>`,
-    )
-    .join("");
   return `<section class="st-panel st-sect st-list" data-list>
-    ${head("POSITIONS", "Protected positions", "Every position registered with a Stead contract. The health factor is the contract's last reading: proven by OutLayer on Sepolia, reported on the local fork. An auction opens when a proven reading falls below 1.15.", live, rec.generated)}
-    <div class="st-filters">${chainFilter(counts(rec.positions))}</div>
-    ${table(["POSITION", "BORROWER", "MARKET", "HEALTH FACTOR", "COLLATERAL", "DEBT", "STATUS"], rows, "No position on this chain.")}
+    ${head("POSITIONS", "Protected positions", "Every position registered with a Stead contract and its last health reading. An auction opens when a proven reading falls below 1.15.", live, rec.generated)}
+    <div class="st-list-tools">${chainSelect(counts(rec.positions))}</div>
+    ${list("st-items--positions", ["POSITION", "MARKET", "HEALTH", "STATUS"], rec.positions.map(positionItem), "No position on this chain.")}
   </section>`;
 }
 
-function rescuesPage(rec: Records, live: boolean, recorded: Recorded[], latest = false) {
-  const pageOf = (r: RescueRow) => recorded.find((x) => x.contract === r.contract && x.rescueId === r.id);
-  const rows = rec.rescues
-    .map((r) => {
-      const page = pageOf(r);
-      const open = ["auction", "top_up_pending", "open", "settling"].includes(r.state);
-      return `<tr data-chain="${r.chain === "local fork" ? "fork" : "real"}">
-        <td><span class="st-num">#${r.id}</span><span class="st-list-meta">${shortC(r.contract)}</span></td>
-        <td>#${r.positionId}<span class="st-list-meta">${esc(r.pair)} · ${esc(r.chain)}</span></td>
-        <td class="st-mono">${when(r.openedAtMs)}</td>
-        <td>${amt(r.topUp)} ${esc(r.asset)}<span class="st-list-meta">${usd(r.topUpUsd)} at the trigger</span></td>
-        <td>${r.winners.length ? r.winners.map((w) => `<span class="st-list-win">${tile(w.steward)}${esc(w.steward)} <span class="st-quiet">${w.bps} bps</span></span>`).join("") : `<span class="st-quiet">${r.state === "auction" ? "bidding" : r.bids ? "no winner" : "no bids"}</span>`}<span class="st-list-meta">${r.bids} bid${r.bids === 1 ? "" : "s"} · cap ${r.capBps.toLocaleString("en-US")} bps</span></td>
-        <td>${stateChip(r.state)}${r.chain === "local fork" ? ` ${forkChip}` : ""}</td>
-        <td>${page ? `<a class="st-textlink" href="?rescue=${page.id}#/rescues">Rescue page</a>` : open ? `<a class="st-textlink" href="#/live">Watch live</a>` : `<span class="st-quiet">—</span>`}</td>
-      </tr>`;
-    })
-    .join("");
+// ── rescues ──
+
+/** The two lowest premiums as tiles, then "+N more": the rest is one click away. */
+export function winnersShort(winners: RescueRow["winners"], range: string): string {
+  const byBps = [...winners].sort((a, b) => a.bps - b.bps);
+  const more = byBps.length - 2;
+  return `<span class="st-item-tiles">${byBps.slice(0, 2).map((w) => `<span title="${esc(w.steward)}, ${w.bps} bps">${tile(w.steward)}</span>`).join("")}${more > 0 ? `<span class="st-item-more">+${more} more</span>` : ""}</span><span class="st-item-sub">${range}</span>`;
+}
+function rescueItem(r: RescueRow, recorded: Recorded[]): Item {
+  const page = recorded.find((x) => x.contract === r.contract && x.rescueId === r.id);
+  const open = ["auction", "top_up_pending", "open", "settling"].includes(r.state);
+  const bps = r.winners.map((w) => w.bps);
+  const range = bps.length ? (Math.min(...bps) === Math.max(...bps) ? `${bps[0]} bps` : `${Math.min(...bps)}–${Math.max(...bps)} bps`) : r.state === "auction" ? "bidding" : "no winner";
+  return {
+    chain: r.chain,
+    cells: [
+      `<span class="st-num">#${r.id}</span><span class="st-item-sub">${day(r.openedAtMs)}</span>`,
+      `<span class="st-item-main">${amt(r.topUp)} ${esc(r.asset)}</span><span class="st-item-sub">${usd(r.topUpUsd)}</span>`,
+      winnersShort(r.winners, range),
+      state(r.state),
+    ],
+    details: [
+      ["Opened", when(r.openedAtMs)],
+      ["Position", `#${r.positionId} · ${esc(r.pair)} on ${esc(r.chain)}${r.chain === "local fork" ? " (unverified)" : ""}`],
+      ["Top-up", `${r.topUp} ${esc(r.asset)}, ${usd(r.topUpUsd)} at the trigger price`],
+      ["Bids", `${r.bids} · premium cap ${r.capBps.toLocaleString("en-US")} bps (below Aave's liquidation penalty)`],
+      ["Winners", r.winners.length ? [...r.winners].sort((a, b) => a.bps - b.bps).map((w) => `<span class="st-item-winner">${tile(w.steward)} ${esc(w.steward)} ${crown(w.steward, [["Premium", `${w.bps} bps`], ["Share", `${amt(w.share)} ${esc(r.asset)}`]], 13)}</span>`).join("") : "—"],
+      ["Premiums", usd(r.premiumUsd)],
+      ["Contract", `<span class="st-mono">${esc(r.contract)}</span>`],
+      ...(page ? ([["Recorded", `<a class="st-textlink" href="?rescue=${page.id}#/rescues">Open the rescue page</a> (timeline, cost chart, every proof)`]] as [string, string][]) : open ? ([["Live", `<a class="st-textlink" href="#/live">Watch it on the live board</a>`]] as [string, string][]) : []),
+    ],
+  };
+}
+function rescuesPage(rec: Records, live: boolean, recorded: Recorded[]) {
   return `<section class="st-panel st-sect st-list" data-list>
-    ${latest ? `<div class="st-sect-head"><div><div class="st-label">LATEST RESCUES</div><h2 class="st-panel-title">On Sepolia, newest first</h2></div><a class="st-textlink" href="#/rescues">Every rescue</a></div>` : head("RESCUES", "Every rescue", "Each auction a Stead contract opened, newest first, with its top-up, its winners and their premiums. Recorded rescues have their own page: timeline, cost chart and every proof.", live, rec.generated)}
-    ${latest ? "" : `<div class="st-filters">${chainFilter(counts(rec.rescues))}</div>`}
-    ${table(["RESCUE", "POSITION", "OPENED", "TOP-UP", "WINNERS", "STATE", ""], rows, "No rescue on this chain.")}
+    ${head("RESCUES", "Every rescue", "Each auction a Stead contract opened, newest first. Open one for its winners, premiums and links; recorded rescues have their own page.", live, rec.generated)}
+    <div class="st-list-tools">${chainSelect(counts(rec.rescues))}</div>
+    ${list("st-items--rescues", ["RESCUE", "TOP-UP", "WINNERS", "STATE"], rec.rescues.map((r) => rescueItem(r, recorded)), "No rescue on this chain.")}
   </section>`;
 }
+
+// ── claims ──
 
 function claimsPage(rec: Records, live: boolean) {
-  const chainOfClaim = (c: ClaimRow) => rec.rescues.find((r) => r.contract === c.contract && r.id === c.rescueId)?.chain ?? "Sepolia";
-  const rows = rec.claims
-    .map((c) => {
-      const chain = chainOfClaim(c);
-      const st = c.status === "open" ? (c.expiresAtMs > Date.now() ? `<span class="st-chip st-chip--open">OPEN</span><span class="st-list-meta">buy-back until ${when(c.expiresAtMs)}</span>` : `<span class="st-chip st-chip--open">WINDOW ENDED</span><span class="st-list-meta">settlement due</span>`) : stateChip(c.status);
-      return `<tr data-chain="${chain === "local fork" ? "fork" : "real"}">
-        <td class="st-mono">${esc(c.token)}<span class="st-list-meta">${shortC(c.contract)}</span></td>
-        <td><span class="st-list-win">${tile(c.owner)}${esc(c.owner)}</span></td>
-        <td>${amt(c.owed)} ${esc(c.asset)}<span class="st-list-meta">${amt(c.share)} supplied + ${amt(c.premium)} premium</span></td>
-        <td>${c.bps} bps</td>
-        <td>#${c.rescueId}<span class="st-list-meta">position ${c.positionId}</span></td>
-        <td>${st}</td>
-      </tr>`;
-    })
-    .join("");
-  const withChain = rec.claims.map((c) => ({ chain: chainOfClaim(c) }));
+  const chainOf = (c: ClaimRow) => rec.rescues.find((r) => r.contract === c.contract && r.id === c.rescueId)?.chain ?? "Sepolia";
+  const items = rec.claims.map((c): Item => {
+    const st = c.status === "open" ? (c.expiresAtMs > Date.now() ? "open" : "window ended") : c.status;
+    return {
+      chain: chainOf(c),
+      cells: [
+        `<span class="st-item-main st-mono">${esc(c.token)}</span><span class="st-item-sub">rescue #${c.rescueId}</span>`,
+        `<span class="st-item-who">${tile(c.owner)}${esc(c.owner)}</span>`,
+        `<span class="st-item-main">${amt(c.owed)} ${esc(c.asset)}</span><span class="st-item-sub">${c.bps} bps</span>`,
+        state(st),
+      ],
+      details: [
+        ["Owed", `${c.owed} ${esc(c.asset)}: ${c.share} supplied + ${c.premium} premium`],
+        ["Premium", `${c.bps} bps`],
+        ["Buy-back window", c.status === "open" ? `until ${when(c.expiresAtMs)}` : `ended ${when(c.expiresAtMs)}`],
+        ["Rescue", `#${c.rescueId} on position ${c.positionId}`],
+        ["Contract", `<span class="st-mono">${esc(c.contract)}</span>`],
+      ],
+    };
+  });
   return `<section class="st-panel st-sect st-list" data-list>
-    ${head("CLAIMS", "Claims", "Each rescue mints its stewards a claim (NEP-171), owed in units of the asset they supplied, never in dollars. The borrower buys it back within the window, or it settles at the oracle price.", live, rec.generated)}
-    <div class="st-filters">${chainFilter(counts(withChain))}</div>
-    ${table(["CLAIM", "HOLDER", "OWED", "PREMIUM", "RESCUE", "STATUS"], rows, "No claim on this chain.")}
+    ${head("CLAIMS", "Claims", "Each winning steward gets a claim (NEP-171), owed in units of the asset it supplied. The borrower buys it back within the window, or it settles at the oracle price.", live, rec.generated)}
+    <div class="st-list-tools">${chainSelect(counts(items))}</div>
+    ${list("st-items--claims", ["CLAIM", "HOLDER", "OWED", "STATUS"], items, "No claim on this chain.")}
   </section>`;
 }
+
+// ── stewards ──
 
 const STRATEGY: Record<StewardId, string> = {
   patient: "Bids late and prices thin margins higher.",
@@ -171,80 +222,107 @@ const STRATEGY: Record<StewardId, string> = {
   swift: "Bids first, at a fixed spread.",
 };
 function stewardsPage(rec: Records, live: boolean) {
-  const card = (s: StewardRow) => {
+  const items = rec.stewards.map((s: StewardRow): Item => {
     const id = isSteward(s.name) ? s.name : null;
-    return `<article class="st-panel st-list-steward">
-      <div class="st-list-steward-head">${tile(s.name, 40)}<div><h2 class="st-list-steward-name">${esc(s.name)}</h2><span class="st-mono st-list-meta">${esc(s.account)}</span>${id ? `<span class="st-list-meta">Risk appetite: ${RISK_WORD[RISK[id]]}</span>` : ""}</div></div>
-      ${id ? `<p class="st-list-steward-body">${STRATEGY[id]}</p>` : ""}
-      <dl class="st-list-kv">
-        <div><dt>BIDS</dt><dd class="st-num">${s.bids}</dd></div>
-        <div><dt>WON</dt><dd class="st-num">${s.wins}</dd></div>
-        <div><dt>OPEN</dt><dd class="st-num">${s.claimsOpen}</dd></div>
-        <div><dt>EARNED</dt><dd class="st-num">${usd(s.premiumUsd)}</dd></div>
-      </dl>
-      <p class="st-list-meta">${s.lastWinAtMs ? `Last win ${when(s.lastWinAtMs)}` : "No win yet"} · on ${s.contracts.map(shortC).join(", ")}</p>
-    </article>`;
-  };
-  return `<section class="st-panel st-sect st-list">
-    ${head("STEWARDS", "Stewards", "Anyone can register a steward and bid; these five are example strategies running 24/7. Premiums are each rescue's premium at its trigger price, across the testnet contracts and the local fork.", live, rec.generated)}
-    <div class="st-list-stewards">${rec.stewards.map(card).join("")}</div>
+    return {
+      chain: "Sepolia",
+      cells: [
+        `<span class="st-item-who">${tile(s.name, 28)}<span><span class="st-item-main">${esc(s.name)}</span><span class="st-item-sub">${id ? `risk appetite ${RISK_WORD[RISK[id]]}` : "registered steward"}</span></span></span>`,
+        `<span class="st-item-main">${s.wins} won</span><span class="st-item-sub">of ${s.bids} bids</span>`,
+        `<span class="st-item-main">${usd(s.premiumUsd)}</span><span class="st-item-sub">premiums earned</span>`,
+      ],
+      details: [
+        ...(id ? ([["Strategy", STRATEGY[id]]] as [string, string][]) : []),
+        ["Claims", `${s.claimsOpen} open, ${s.claimsTotal} in all`],
+        ["Last win", s.lastWinAtMs ? when(s.lastWinAtMs) : "none yet"],
+        ["Account", `<span class="st-mono">${esc(s.account)}</span>`],
+        ["Contracts", s.contracts.map((c) => `<span class="st-mono">${esc(c)}</span>`).join(", ")],
+      ],
+    };
+  });
+  return `<section class="st-panel st-sect st-list" data-list>
+    ${head("STEWARDS", "Stewards", "Anyone can register a steward and bid. These five are example strategies running around the clock; open one for its strategy and record.", live, rec.generated)}
+    ${list("st-items--stewards", ["STEWARD", "WON", "EARNED"], items, "No steward registered.", false)}
   </section>`;
 }
+
+// ── overview ──
 
 function overviewPage(rec: Records, live: boolean, recorded: Recorded[]) {
   const real = byChain(rec.rescues, "real");
   const done = real.filter((r) => r.state === "bought_back" || r.state === "settled");
   const open = real.filter((r) => ["auction", "top_up_pending", "open", "settling"].includes(r.state));
   const pos = byChain(rec.positions, "real");
-  const realRescue = new Set(real.map((r) => r.key));
-  const claimsOpen = rec.claims.filter((c) => c.status === "open" && realRescue.has(`${c.contract}#${c.rescueId}`)).length;
   const premiums = done.reduce((a, r) => a + r.premiumUsd, 0);
   const topups = done.reduce((a, r) => a + r.topUpUsd, 0);
   return `<section class="st-panel st-sect st-list">
-    ${head("OVERVIEW", "Overview", "Totals across the testnet contracts on Sepolia, from their own records. Local fork runs are listed on each page but not counted here.", live, rec.generated)}
+    ${head("OVERVIEW", "Overview", "The testnet contracts on Sepolia, from their own records.", live, rec.generated)}
     <dl class="st-kpis">
-      <div><dt>POSITIONS</dt><dd><span class="st-num">${pos.length}</span></dd><dd class="st-kpi-sub">${pos.filter((p) => p.status === "in rescue").length} in a rescue now</dd></div>
-      <div><dt>RESCUES</dt><dd><span class="st-num">${done.length}</span></dd><dd class="st-kpi-sub">${done.filter((r) => r.state === "bought_back").length} bought back · ${done.filter((r) => r.state === "settled").length} settled</dd></div>
-      <div><dt>OPEN NOW</dt><dd><span class="st-num">${open.length}</span></dd><dd class="st-kpi-sub">${claimsOpen} claim${claimsOpen === 1 ? "" : "s"} open</dd></div>
-      <div><dt>COLLATERAL TOPPED UP</dt><dd><span class="st-num">${usd(topups)}</span></dd><dd class="st-kpi-sub">at each trigger price</dd></div>
-      <div><dt>PREMIUMS PAID</dt><dd><span class="st-num">${usd(premiums)}</span></dd><dd class="st-kpi-sub">${topups ? ((premiums / topups) * 100).toFixed(2) : "0"} % of the top-ups</dd></div>
+      <div><dt>POSITIONS</dt><dd><span class="st-num">${pos.length}</span></dd><dd class="st-kpi-sub">${open.length ? `${open.length} in a rescue now` : "all above the trigger"}</dd></div>
+      <div><dt>RESCUES</dt><dd><span class="st-num">${done.length}</span></dd><dd class="st-kpi-sub">${done.filter((r) => r.state === "bought_back").length} bought back, ${done.filter((r) => r.state === "settled").length} settled</dd></div>
+      <div><dt>TOPPED UP</dt><dd><span class="st-num">${usd(Math.round(topups)).replace(/\.00$/, "")}</span></dd><dd class="st-kpi-sub">collateral, at trigger prices</dd></div>
+      <div><dt>PREMIUMS</dt><dd><span class="st-num">${topups ? ((premiums / topups) * 100).toFixed(2) : "0"}%</span></dd><dd class="st-kpi-sub">of the top-ups, ${usd(premiums)}</dd></div>
     </dl>
   </section>
-  ${rescuesPage({ ...rec, rescues: real.slice(0, 6) }, live, recorded, true)}`;
+  <section class="st-panel st-sect st-list" data-list>
+    <div class="st-sect-head"><div><div class="st-label">LATEST RESCUES</div><h2 class="st-panel-title">On Sepolia, newest first</h2></div><a class="st-textlink" href="#/rescues">Every rescue</a></div>
+    ${list("st-items--rescues", ["RESCUE", "TOP-UP", "WINNERS", "STATE"], real.slice(0, 5).map((r) => rescueItem(r, recorded)), "No rescue yet.", false)}
+  </section>`;
 }
 
-/** Filters: rows carry data-chain; the SEPOLIA button shows real chains (the default). */
-function wire(root: HTMLElement) {
+/** The chain dropdown and the pager: ten visible items at a time. */
+function wire(root: HTMLElement, signal: AbortSignal) {
   for (const sect of root.querySelectorAll<HTMLElement>("[data-list]")) {
-    const rows = [...sect.querySelectorAll<HTMLTableRowElement>("tbody tr[data-chain]")];
-    // phones show each row as a card: every cell carries its column's name
-    const cols = [...sect.querySelectorAll("thead th")].map((th) => th.textContent ?? "");
-    for (const r of rows) [...r.cells].forEach((td, i) => cols[i] && (td.dataset.label = cols[i]));
-    const draw = (chain: string) => {
-      let shown = 0;
-      for (const r of rows) shown += (r.hidden = !(chain === "all" || r.dataset.chain === chain)) ? 0 : 1;
-      const empty = sect.querySelector<HTMLElement>("[data-list-empty]");
-      if (empty) empty.hidden = shown > 0;
+    const items = [...sect.querySelectorAll<HTMLLIElement>("[data-items] > li")];
+    const select = sect.querySelector<HTMLSelectElement>("[data-chain-select]");
+    const pager = sect.querySelector<HTMLElement>("[data-pager]");
+    let page = 0;
+    const draw = () => {
+      const chain = select?.value ?? "all";
+      const match = items.filter((li) => chain === "all" || li.dataset.chain === chain);
+      const size = pageSize();
+      const p = pager ? pageOf(match, page, size) : { rows: match, page: 0, pages: 1 };
+      page = p.page;
+      const shown = new Set(p.rows);
+      for (const li of items) li.hidden = !shown.has(li);
+      sect.querySelector<HTMLElement>("[data-items-empty]")!.hidden = match.length > 0;
+      if (pager) {
+        pager.hidden = p.pages <= 1;
+        sect.querySelector("[data-page-pos]")!.textContent = `${page * size + 1}–${page * size + p.rows.length} of ${match.length}`;
+        sect.querySelector<HTMLButtonElement>('[data-page="prev"]')!.disabled = page === 0;
+        sect.querySelector<HTMLButtonElement>('[data-page="next"]')!.disabled = page >= p.pages - 1;
+      }
     };
-    sect.addEventListener("click", (e) => {
-      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-chain]");
-      if (!b) return;
-      for (const x of sect.querySelectorAll<HTMLButtonElement>("button[data-chain]")) x.setAttribute("aria-pressed", String(x === b));
-      draw(b.dataset.chain!);
+    select?.addEventListener("change", () => {
+      page = 0;
+      draw();
     });
-    draw(sect.querySelector("button[data-chain]") ? "real" : "all");
+    pager?.addEventListener("click", (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-page]");
+      if (!b) return;
+      page += b.dataset.page === "next" ? 1 : -1;
+      draw();
+      sect.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+    // crossing the phone width changes the page size: start again from the first page
+    matchMedia("(max-width: 620px)").addEventListener("change", () => {
+      page = 0;
+      draw();
+    }, { signal });
+    draw();
   }
 }
 
 export function mountList(root: HTMLElement, route: ListRoute, recorded: Recorded[]): () => void {
   let gone = false;
+  const stop = new AbortController();
   root.innerHTML = `<section class="st-panel st-page" aria-busy="true"><div class="st-label">${route.toUpperCase()}</div><p class="st-empty">Reading the contracts…</p></section>`;
   loadRecords().then(
     ({ rec, live }) => {
       if (gone) return;
       root.innerHTML =
         route === "positions" ? positionsPage(rec, live) : route === "rescues" ? rescuesPage(rec, live, recorded) : route === "claims" ? claimsPage(rec, live) : route === "stewards" ? stewardsPage(rec, live) : overviewPage(rec, live, recorded);
-      wire(root);
+      wire(root, stop.signal);
     },
     (e) => {
       if (!gone) root.innerHTML = `<section class="st-error" role="alert"><h2>Records not loaded</h2><p>Neither the live feed nor the site's snapshot answered (${esc(String((e as Error).message))}). Reload the page to try again.</p></section>`;
@@ -252,5 +330,6 @@ export function mountList(root: HTMLElement, route: ListRoute, recorded: Recorde
   );
   return () => {
     gone = true;
+    stop.abort();
   };
 }

@@ -85,9 +85,9 @@ switched off). Anything that needs an RPC, OutLayer or keys is opt-in and skips 
 
 | Command | Expected |
 |---|---|
-| `cd contract && cargo test -p stead-core` | **114 passed**, 0 failed: rules 65, settlement and liquidation watch 24, owner limits 10, stewards 10, invariant sweeps 3, OutLayer output parsing 1, migration dry-run 1 (prints `skipped` unless `STEAD_STATE_FILE` points at a downloaded contract state) |
-| `cd verifier && cargo test` | **13 passed, 1 ignored**: the proof program against recorded Sepolia RPC answers (`tests/fixtures/`); `record` is the live recorder, opt-in: `cargo test -- --ignored record` |
-| `cd stewards && npm ci && npm test` | **136 passed** in 20 files: strategies, hedging, polling, settlement repay, NEAR Intents quotes, AI tuning, the replay model, the run evidence trail and its on-chain checker, the read-only mainnet feed, the rescue event log rebuilt from the chains, the live board that replays it, and the rescue page with its cost chart, the homepage totals |
+| `cd contract && cargo test -p stead-core` | **115 passed**, 0 failed: rules 66, settlement and liquidation watch 24, owner limits 10, stewards 10, invariant sweeps 3, OutLayer output parsing 1, migration dry-run 1 (prints `skipped` unless `STEAD_STATE_FILE` points at a downloaded contract state) |
+| `cd verifier && cargo test` | **18 passed, 1 ignored**: the proof program against recorded Sepolia RPC answers (`tests/fixtures/`), plus 5 unit tests; `record` is the live recorder, opt-in: `cargo test -- --ignored record` |
+| `cd stewards && npm ci && npm test` | **181 passed** in 24 files, with no `.env`, keys or network: strategies, hedging, polling, settlement repay, NEAR Intents quotes, AI tuning, the replay model, the run evidence trail and its on-chain checker, the read-only mainnet feed, the rescue event log rebuilt from the chains, the live feed that follows rescues block by block (checked identical to the recordings), the live board in LIVE, DEMO and REPLAY modes, the demo runner's rules (slots, spacing, budget pacing, exact buy-back, reset), the list pages' records, the rescue page with its cost chart, the homepage totals |
 | `cd contract && cargo near build non-reproducible-wasm --no-abi` | `target/near/stead.wasm`; SHA-256 `9035456a230787ac45cfaed411d552397cdad864d753bf2a5ba00e9970b17585`, the code deployed on `steadfi.testnet` and `sepolia-demo.steadfi.testnet` (compare with `view_code`) |
 
 Run from the workspace root, `cargo test` would also try to build the NEAR contract crate for the host,

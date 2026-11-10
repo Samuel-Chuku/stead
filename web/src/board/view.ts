@@ -3,6 +3,7 @@
 import type { RescueLog, StewardId } from "../../../stewards/src/rescuelog";
 import { CODE, consequence, fmtAmt, isPooled, RISK, RISK_WORD, RULE, STEWARD_ORDER, type Board, type LampId } from "./model";
 import { poolMarkup, updatePool } from "./pool";
+import { crown } from "../crown";
 
 export type ReplayChoice = { id: string; label: string };
 
@@ -232,8 +233,12 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
         el.classList.toggle("is-won", r.badge === "WON");
         el.querySelector("[data-rank]")!.textContent = r.rank !== null ? String(r.rank + 1) : "";
         const badge = el.querySelector<HTMLElement>("[data-badge]")!;
-        badge.textContent = r.badge;
-        badge.dataset.kind = r.badge.toLowerCase();
+        const kind = r.badge.toLowerCase();
+        if (badge.dataset.kind !== kind) {
+          if (r.badge === "WON") badge.innerHTML = crown(r.steward, [["Premium", `${r.bps} bps`], ...(r.cost !== null ? ([["Cost", `$${r.cost.toFixed(2)}`]] as [string, string][]) : [])], 15);
+          else badge.textContent = r.badge;
+          badge.dataset.kind = kind;
+        }
         el.querySelector<HTMLElement>("[data-fill]")!.style.width = r.bps !== null ? `${Math.min(100, r.bps / 3)}%` : "0%";
         const prev = el.querySelector<HTMLElement>("[data-prev]")!;
         prev.style.left = `${Math.min(100, (r.prevBps ?? r.bps ?? 0) / 3)}%`;

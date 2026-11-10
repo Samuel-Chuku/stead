@@ -41,7 +41,7 @@ describe("rescue page", () => {
     expect(rows.length).toBeGreaterThanOrEqual(14);
     const times = rows.map((r) => r[3]);
     expect([...times].sort().reverse()).toEqual(times);
-    const counts = Object.fromEntries([...html.matchAll(/data-kind="(\w+)" aria-pressed="\w+">[A-Z &;-]+ <span class="st-seg-count">(\d+)<\/span>/g)].map((m) => [m[1], Number(m[2])]));
+    const counts = Object.fromEntries([...html.matchAll(/<option value="(\w+)">[^<(]+\((\d+)\)<\/option>/g)].map((m) => [m[1], Number(m[2])]));
     expect(counts.all).toBe(rows.length);
     expect(Object.entries(counts).filter(([k]) => k !== "all").reduce((a, [, n]) => a + n, 0)).toBe(rows.length);
     expect(new Set(rows.map((r) => r[2]))).toEqual(new Set(["near", "evm"]));

@@ -395,3 +395,20 @@
 }
 .st-board-warn { margin-top: var(--st-space-16); }
 .st-board-warn[hidden] { display: none; }
+/* a winning bid: a crown beside the name / inside the WON badge */
+.st-badge[data-kind="won"] { background: none; padding: 0; display: inline-flex; }
+/* the crown: the icon alone; hover, focus or click pops out a few details from it */
+.st-crown-wrap { position: relative; display: inline-flex; vertical-align: -3px; margin-left: 6px; }
+.st-crown { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; min-height: 24px; padding: 0; border: 0; background: none; color: var(--st-ink); cursor: pointer; }
+.st-crown:focus-visible { outline: 2px solid var(--st-ink); outline-offset: 1px; }
+.st-crown-pop {
+  display: none; position: absolute; z-index: 20; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  min-width: 150px; padding: 8px 10px; background: var(--st-ink); color: var(--st-panel); border: var(--st-border);
+  font-family: var(--st-font-head); font-size: 12px; font-weight: 500; line-height: 1.5; white-space: nowrap; text-align: left;
+}
+.st-crown-pop::before { content: ""; position: absolute; top: -5px; left: 50%; width: 8px; height: 8px; background: var(--st-ink); transform: translateX(-50%) rotate(45deg); }
+.st-crown-wrap:hover .st-crown-pop, .st-crown-wrap:focus-within .st-crown-pop, .st-crown-wrap.is-open .st-crown-pop { display: flex; flex-direction: column; }
+.st-crown-pop-title { font-weight: 700; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 2px; }
+.st-crown-pop-row { display: flex; justify-content: space-between; gap: 14px; }
+.st-crown-pop-row > span:first-child { opacity: .7; }
+.st-row:has(.st-crown-wrap:hover, .st-crown-wrap:focus-within, .st-crown-wrap.is-open) { z-index: 10; overflow: visible; }

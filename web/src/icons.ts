@@ -12,6 +12,8 @@ const paths = {
   menu: "M2.5 4h11M2.5 8h11M2.5 12h7",
   close: "M3.5 3.5l9 9M12.5 3.5l-9 9",
   external: "M6 3H3v10h10v-3M9 3h4v4M13 3L7 9",
+  // a winning bid
+  crown: "M2.5 12.5h11M3 10.5 2 4.5l3.2 2.6L8 2.5l2.8 4.6L14 4.5l-1 6z",
   // chain marks for the chain filters, simplified to the same 16px stroke style
   near: "M3.5 13.5v-11l9 11v-11",
   ethereum: "M8 1.5 3.6 8.3 8 10.9l4.4-2.6zM3.6 9.6 8 14.5l4.4-4.9L8 12.2z",
