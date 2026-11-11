@@ -39,7 +39,7 @@ export const erc20Abi = parseAbi([
   "event Transfer(address indexed from, address indexed to, uint256 value)",
 ]);
 const oracleAbi = parseAbi(["function getAssetPrice(address) view returns (uint256)"]);
-const faucetAbi = parseAbi(["function mint(address token, address to, uint256 amount) returns (uint256)"]);
+export const faucetAbi = parseAbi(["function mint(address token, address to, uint256 amount) returns (uint256)"]);
 const mockAbi = parseAbi(["function setAnswer(int256)"]);
 
 export const E18 = 10n ** 18n;

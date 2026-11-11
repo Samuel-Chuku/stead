@@ -80,3 +80,19 @@
 .st-item-note { white-space: normal; }
 .st-list-note { margin: 0; font-size: 12px; color: var(--st-quiet); }
 .st-item-hf-below { color: var(--st-exposure-ink); }
+
+/* Your own rescue: seven steps, one active at a time */
+.st-own-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.st-own-step { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 14px; padding: 14px 0; border-bottom: var(--st-hairline); color: var(--st-quiet); }
+.st-own-step h3 { font-family: var(--st-font-head); font-weight: 700; font-size: 17px; margin: 4px 0; }
+.st-own-step.is-now, .st-own-step.is-done { color: var(--st-ink); }
+.st-own-num { width: 30px; height: 30px; border: 2px solid currentColor; border-radius: 50%; display: grid; place-items: center; font-family: var(--st-font-head); font-weight: 700; }
+.st-own-step.is-done .st-own-num { background: var(--st-level-safe); border-color: var(--st-ink); color: var(--st-ink); }
+.st-own-step.is-now .st-own-num { background: var(--st-ink); color: var(--st-panel); }
+.st-own-body p { margin: 0 0 10px; line-height: 1.5; max-width: 72ch; }
+.st-own-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.st-own-busy { display: flex; align-items: center; gap: 4px; font-family: var(--st-font-head); font-weight: 600; margin: 0; }
+.st-own-error { border: 1.5px solid var(--st-trip); padding: 10px 12px; margin: 0; }
+.st-own-hint { font-size: 13px; color: var(--st-quiet); margin: 8px 0 0; }
+.st-own-board { margin-top: var(--st-space-16); }
+.st-own-board[hidden] { display: none; }
