@@ -10,7 +10,7 @@ const near = vi.hoisted(() => ({ callListeners: [] as ((c: any) => void)[] }));
 vi.mock("../src/near.js", () => near);
 
 import { Trail, describeEvm, describeNear, type Book, type TrailFile, type TrailEntry } from "../src/record.js";
-import { checkEvm, checkNear, compareState, rpcAny, checkTrail, renderTrail } from "../src/trailcheck.js";
+import { checkEvm, checkNear, compareState, rpcAny, checkTrail, renderTrail, webRuns } from "../src/trailcheck.js";
 
 const POOL = "0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2";
 const WETH = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
@@ -158,5 +158,14 @@ describe("the checker", () => {
     expect(keyPart).toContain("top-up");
     expect(keyPart).not.toContain("| bids |");
     expect(full).toContain("| bids |");
+    // the site's panel: every entry with its check and link, nothing of the snapshot or the RPCs
+    const w = webRuns([c], "g");
+    expect(w.runs[0].entries.map((e) => [e.what, e.confirmed, e.key])).toEqual([["top-up", true, true], ["bids", true, false]]);
+    expect(w.runs[0].entries[0].link).toBe(`https://etherscan.io/tx/${h(1)}`);
+    expect(w.runs[0].state).toEqual({ checked: true, matches: true, note: c.state.note });
+    const text = JSON.stringify(w);
+    expect(text).not.toContain("https://e\"");
+    expect(text).not.toContain("https://n\"");
+    expect(text).not.toContain("read_at");
   });
 });

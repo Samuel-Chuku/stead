@@ -212,3 +212,40 @@ export function renderTrail(c: CheckedTrail): string {
   lines.push(`Key steps (${key.length}):`, "", ...bySteps(key), `<details><summary>Full trail: all ${c.total} transactions, in order, including the keeper's readings and confirmations</summary>`, "", ...bySteps(c.entries), "</details>", "");
   return lines.join("\n");
 }
+
+/** What the site's "Live on mainnet" panel reads: each checked run, without the snapshot or the
+ *  chain-check internals. Only real runs (evidence/mainnet/) are ever published. */
+export interface WebRuns {
+  generated: string;
+  runs: {
+    title: string;
+    label: string;
+    contract: string;
+    contractLink: string;
+    started: string;
+    finished?: string;
+    outcome?: string;
+    confirmed: number;
+    total: number;
+    state: { checked: boolean; matches: boolean; note: string };
+    entries: Pick<CheckedEntry, "chain" | "tx" | "at" | "step" | "what" | "actor" | "ok" | "key" | "link" | "confirmed" | "status">[];
+  }[];
+}
+export function webRuns(checked: CheckedTrail[], generated = new Date().toISOString()): WebRuns {
+  return {
+    generated,
+    runs: checked.map((c) => ({
+      title: c.title,
+      label: c.label,
+      contract: c.contract,
+      contractLink: c.contractLink,
+      started: c.started,
+      finished: c.finished,
+      outcome: c.outcome,
+      confirmed: c.confirmed,
+      total: c.total,
+      state: { checked: c.state.checked, matches: c.state.matches, note: c.state.note },
+      entries: c.entries.map(({ chain, tx, at, step, what, actor, ok, key, link, confirmed, status }) => ({ chain, tx, at, step, what, actor, ok, key, link, confirmed, status })),
+    })),
+  };
+}

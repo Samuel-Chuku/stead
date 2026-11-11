@@ -63,7 +63,7 @@ for (const r of RUNS) {
     year: windowStats(series, { hfTrigger: trigger.hf, hfAfter: after.hf }),
   });
   const p = out[out.length - 1];
-  console.log(`rescue ${r.id} (${p.pair}, ${p.claims} claim${p.claims > 1 ? "s" : ""}): ${r.rule} ${sym} fall from ${new Date(path.startMs).toISOString().slice(0, 13)}h, liquidated at +${path.liqHour}h, rescued low ${path.lowestWith.toFixed(3)}; held in ${p.year.held} of ${p.year.windows} windows`);
+  console.log(`rescue ${r.id} (${p.pair}, ${p.claims} claim${p.claims > 1 ? "s" : ""}): ${r.rule} ${sym} fall from ${new Date(path.startMs).toISOString().slice(0, 13)}h, liquidated at +${path.liqHour}h, rescued low ${path.lowestWith.toFixed(3)}; held in ${p.year!.held} of ${p.year!.windows} windows`);
 }
 const file = join(REPO, "web/public/replays/chart-runs.json");
 writeFileSync(file, JSON.stringify(out));

@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { createPublicClient, http, parseAbi, type Address } from "viem";
 import { mainnet } from "viem/chains";
 import { REPO, env, hasEnv } from "../src/config.js";
-import { checkTrail, renderTrail, rpcAny, explorerLink, type Rpcs, type CheckedTrail } from "../src/trailcheck.js";
+import { checkTrail, renderTrail, rpcAny, explorerLink, webRuns, type Rpcs, type CheckedTrail } from "../src/trailcheck.js";
 import type { TrailFile, TrailChain } from "../src/record.js";
 import { fallThroughEvents, replayPath, summarize, STEAD_PARAMS, type PathResult, type Reserve } from "../src/evidence.js";
 
@@ -196,6 +196,9 @@ async function main() {
     console.log(renderTrail(c));
     for (const e of c.entries.filter((x) => !x.confirmed)) console.log(`NOT CONFIRMED: ${e.chain} ${e.tx} ${e.what}: ${e.status}`);
     console.log(`\n${c.confirmed}/${c.total} confirmed · state: ${c.state.note}${c.state.differences.length ? ` (${c.state.differences.join(", ")})` : ""}`);
+    // --web <file>: the panel's format for this one trail (a preview; never written into the site)
+    const web = argAfter("--web");
+    if (web) writeFileSync(web, JSON.stringify(webRuns([c])) + "\n");
     if (c.confirmed !== c.total || (c.state.checked && !c.state.matches)) process.exitCode = 1;
     return;
   }
@@ -210,6 +213,8 @@ async function main() {
   const test_ = skip ? { md: "_skipped (--no-live)_", rows: [] } : await liveRuns();
   const live = test_.md;
   if (!skip) writeFileSync(join(OUT, "live-checked.json"), JSON.stringify({ generated: new Date().toISOString(), mainnet: main_.checked, testnet: test_.rows }, null, 1) + "\n");
+  // the site's "Live on mainnet" panel: real runs only, re-checked just now
+  if (!skip && main_.checked.length) writeFileSync(join(REPO, "web", "public", "mainnet-runs.json"), JSON.stringify(webRuns(main_.checked)) + "\n");
   const day = new Date().toISOString().slice(0, 10);
   const md = `# Stead: evidence
 

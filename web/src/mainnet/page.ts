@@ -6,6 +6,7 @@ import type { Liquidation, PanelFeed, PanelPosition, TriggerEvent } from "../../
 import { crown } from "../crown";
 import { list, wire, type Item } from "../lists/pages";
 import { icon } from "../icons";
+import { loadRuns, runsHtml, wireRuns } from "./runs";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const usd = (n: number, dp = 0) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
@@ -108,7 +109,7 @@ function positionItem(p: PanelPosition): Item {
   };
 }
 
-function render(f: PanelFeed, live: boolean) {
+function render(f: PanelFeed, live: boolean, runs: string) {
   const s = f.summary;
   const dayAgo = Date.parse(f.blockTime) - 86_400_000;
   const recent = f.liquidations.filter((l) => Date.parse(l.at) > dayAgo);
@@ -120,7 +121,7 @@ function render(f: PanelFeed, live: boolean) {
     <header class="st-list-head">
       <div class="st-label">ETHEREUM MAINNET · READ-ONLY</div>
       <h1 class="st-page-title">Aave on mainnet, with Stead</h1>
-      <p class="st-list-sub">Real Aave V3 positions and real liquidations on Ethereum, read from public RPCs. Next to each, what Stead's contract and stewards would have done at the 1.15 trigger: the same formulas and strategies as on testnet. No Stead transaction is involved.</p>
+      <p class="st-list-sub">Real Aave V3 positions and real liquidations on Ethereum, read from public RPCs. Next to each, what Stead's contract and stewards would have done at the 1.15 trigger: the same formulas and strategies as on testnet. Below the totals, Stead's own capped rescues with real funds.</p>
       <p class="st-list-src">${live ? `<span class="st-live-dot" aria-hidden="true"></span>` : ""}${live ? "Read" : "Snapshot read"} at block ${f.block.toLocaleString("en-US")}, ${when(f.blockTime)} · ${f.coverage.borrowers.toLocaleString("en-US")} borrowers followed</p>
     </header>
     <dl class="st-kpis">
@@ -130,6 +131,7 @@ function render(f: PanelFeed, live: boolean) {
       <div><dt>NEAR THE TRIGGER</dt><dd><span class="st-num">${s.nearTrigger}</span></dd><dd class="st-kpi-sub">${usdBig(s.debtNearTriggerUsd)} of debt, ${s.belowTrigger} below 1.15</dd></div>
     </dl>
   </section>
+  ${runs}
   <section class="st-panel st-sect st-list" data-list>
     <div class="st-sect-head"><div><div class="st-label">LIQUIDATIONS · LAST 24 HOURS</div><h2 class="st-panel-title">What borrowers paid, and what Stead would have charged</h2></div></div>
     <div class="st-list-tools"><label class="st-select"><span class="st-select-label">Show</span><select data-chain-select>
@@ -152,11 +154,12 @@ export function mountMainnet(root: HTMLElement): () => void {
   let gone = false;
   const stop = new AbortController();
   root.innerHTML = `<section class="st-panel st-page" aria-busy="true"><div class="st-label">MAINNET</div><p class="st-empty">Reading Ethereum mainnet…</p></section>`;
-  loadPanel().then(
-    ({ feed, live }) => {
+  Promise.all([loadPanel(), loadRuns()]).then(
+    ([{ feed, live }, runs]) => {
       if (gone) return;
-      root.innerHTML = render(feed, live);
+      root.innerHTML = render(feed, live, runsHtml(runs));
       wire(root, stop.signal);
+      wireRuns(root, stop.signal);
     },
     (e) => {
       if (!gone) root.innerHTML = `<section class="st-error" role="alert"><h2>Mainnet panel not loaded</h2><p>Neither the live feed nor the site's snapshot answered (${esc(String((e as Error).message))}). Reload the page to try again.</p></section>`;
