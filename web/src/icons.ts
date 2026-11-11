@@ -10,6 +10,7 @@ const paths = {
   claims: "M2 6l6-4.5h6v6L8 14 2 8zM11 4.5h.01",
   proofs: "M8 1.5l6.5 6.5L8 14.5 1.5 8zM5.5 8l1.8 1.8L10.5 6.5",
   menu: "M2.5 4h11M2.5 8h11M2.5 12h7",
+  check: "M3 8.5l3 3 7-7",
   close: "M3.5 3.5l9 9M12.5 3.5l-9 9",
   external: "M6 3H3v10h10v-3M9 3h4v4M13 3L7 9",
   // a winning bid

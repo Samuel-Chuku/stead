@@ -158,3 +158,13 @@
   .st-mn-table td:nth-child(5) { grid-area: check; justify-self: end; }
   .st-mn-steps .st-table-wrap { overflow: visible; }
 }
+
+/* a finished step: what was sent, each linked to its explorer */
+.st-own-receipt { display: grid; gap: 8px; }
+.st-own-receipt-head { display: inline-flex; align-items: center; gap: 6px; font-family: var(--st-font-head); font-weight: 700; font-size: 14px; }
+.st-own-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.st-own-chip { display: inline-flex; align-items: center; gap: 6px; border: var(--st-border); background: var(--st-panel); padding: 4px 8px; font-size: 13px; font-weight: 600; color: var(--st-ink); text-decoration: none; }
+.st-own-chip:hover { background: var(--st-inset); }
+.st-own-chip:focus-visible { outline: 2px solid var(--st-ink); outline-offset: 2px; }
+.st-own-chip-where { font-family: var(--st-font-head); font-size: 10px; letter-spacing: .06em; color: var(--st-quiet); text-transform: uppercase; }
+.st-own-chip.is-refused { border-color: var(--st-trip); }

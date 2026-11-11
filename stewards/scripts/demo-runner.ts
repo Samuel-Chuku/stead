@@ -15,7 +15,7 @@ import type { Address, Hex } from "viem";
 import { cfg, env, nearKey, REPO, STEWARDS, stewardAccount } from "../src/config.js";
 import { pub, wallet, price, write, faucetAbi, E8 } from "../src/fork.js";
 import { account } from "../src/near.js";
-import { FAUCET, SPONSOR as SPONSORED, checkFaucet, checkSponsor, freshFaucet, recordFaucet, type FaucetState } from "../src/faucet.js";
+import { FAUCET, SPONSOR as SPONSORED, addReceipt, checkFaucet, checkSponsor, freshFaucet, receiptsFor, recordFaucet, type FaucetState, type Receipts } from "../src/faucet.js";
 import { accountData, balance } from "../src/fork.js";
 import { marketAssets } from "../src/market.js";
 import { view } from "../src/near.js";
@@ -54,6 +54,8 @@ interface Saved {
   faucet?: FaucetState;
   /** NEAR-only visitors' sponsored actions done: "fund:<near>", "buyback:<rescue>", "repay:<position>" → time. */
   sponsorDone?: Record<string, number>;
+  /** What the faucet and the sponsor sent each visitor (a week), for their page on any device. */
+  receipts?: Receipts;
   /** Finished runs, newest first (kept across restarts for the page's history). */
   history?: { slot: number; kind: string; runId: string; rescueId: number | null; outcome: string; error: string | null; startedAt: number; endedAt: number; txs: RunTx[] }[];
   slots: Omit<DemoSlot, "evmKey">[];
@@ -242,6 +244,8 @@ async function serveFaucet(body: string, origin: string | undefined, visitor: st
     sent.push({ label: `${Number(FAUCET.ethWei) / 1e18} Sepolia ETH`, chain: "sepolia", hash: h });
     sent.push({ label: `${FAUCET.link / 10n ** 18n} ${A.cSym} (Aave's test faucet)`, chain: "sepolia", hash: await write(reserve, cfg.aave.faucet!, faucetAbi, "mint", [A.collateral, v.evm, FAUCET.link]) });
     sent.push({ label: `${FAUCET.dai / 10n ** 18n} ${A.dSym} (Aave's test faucet)`, chain: "sepolia", hash: await write(reserve, cfg.aave.faucet!, faucetAbi, "mint", [A.debt, v.evm, FAUCET.dai]) });
+    addReceipt((saved.receipts ??= {}), [`faucet:${v.near}`, `faucet:${v.evm.toLowerCase()}`], Date.now(), sent);
+    save();
     say(`faucet ${v.near} ${v.evm}: ${sent.map((s) => s.hash.slice(0, 10)).join(" ")}`);
     return { status: 200, json: { sent } };
   } catch (e) {
@@ -310,6 +314,10 @@ async function serveSponsor(body: string, origin: string | undefined, visitor: s
       save();
       if (need > held) sent.push({ label: `${Number((need - held) / 10n ** 16n) / 100} ${A.dSym} into your position, to repay its debt`, chain: "sepolia", hash: await mint(A.debt, need - held) });
     }
+    if (sent.length) {
+      addReceipt((saved.receipts ??= {}), [v.what === "fund" ? `fund:${v.near}:${v.positionId}` : `${v.what}:${v.positionId}`], now, sent);
+      save();
+    }
     say(`sponsor ${v.what} ${v.near} position ${v.positionId}: ${sent.map((s) => s.hash.slice(0, 10)).join(" ") || "nothing needed"}`);
     return { status: 200, json: { sent, payout: reserve.address } };
   } catch (e) {
@@ -344,6 +352,12 @@ createServer(async (req, res) => {
     if (!sponsorReady) return void res.writeHead(503, headers).end('{"error":"the sponsor is not set up"}');
     const r = await serveSponsor(body, origin, visitorOf(req.headers, req.socket.remoteAddress));
     return void res.writeHead(r.status, headers).end(JSON.stringify(r.json));
+  }
+  if (req.url?.split("?")[0] === "/demo/receipts") {
+    // read-only: a visitor's own sends, looked up by the ids their page already shows
+    if (req.method !== "GET") return void res.writeHead(405, headers).end('{"error":"GET only"}');
+    const q = new URL(req.url, "http://x").searchParams;
+    return void res.writeHead(200, headers).end(JSON.stringify(receiptsFor(saved.receipts ?? {}, { near: q.get("near"), evm: q.get("evm"), position: q.get("position") })));
   }
   if (req.url?.split("?")[0] === "/demo/faucet") {
     if (req.method !== "POST") return void res.writeHead(405, headers).end('{"error":"POST only"}');

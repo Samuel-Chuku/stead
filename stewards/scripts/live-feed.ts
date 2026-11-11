@@ -411,12 +411,14 @@ async function loop() {
   }
 }
 
-/** The demo runner's address inside the stack (not public). Only /demo/start and /demo/status
+/** The demo runner's address inside the stack (not public). Only the /demo/ endpoints below
  *  go through, with the request's origin and the visitor's Cloudflare IP; bodies ≤ 1 KB. */
 const DEMO_RUNNER = process.env.DEMO_RUNNER_URL ?? "";
 function passToRunner(req: IncomingMessage, res: ServerResponse, path: string) {
   const fail = (code: number, error: string) => void res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify({ error }));
-  if (path !== "/demo/start" && path !== "/demo/status" && path !== "/demo/try" && path !== "/demo/faucet" && path !== "/demo/sponsor") return fail(404, "not found");
+  if (path !== "/demo/start" && path !== "/demo/status" && path !== "/demo/try" && path !== "/demo/faucet" && path !== "/demo/sponsor" && path !== "/demo/receipts") return fail(404, "not found");
+  // only the receipts lookup takes a query (near, evm, position); the runner checks each id's form
+  const query = path === "/demo/receipts" ? (req.url ?? "").replace(/^[^?]*/, "").slice(0, 200) : "";
   if (!["GET", "POST", "OPTIONS"].includes(req.method ?? "")) return fail(405, "method not allowed");
   let body = "";
   req.on("data", (c: Buffer) => {
@@ -430,7 +432,7 @@ function passToRunner(req: IncomingMessage, res: ServerResponse, path: string) {
         const v = req.headers[h];
         if (typeof v === "string") fwd[h] = v;
       }
-      const r = await fetch(`${DEMO_RUNNER}${path}`, { method: req.method, headers: fwd, body: req.method === "POST" ? body : undefined, signal: AbortSignal.timeout(path === "/demo/try" || path === "/demo/faucet" || path === "/demo/sponsor" ? 60_000 : 10_000) });
+      const r = await fetch(`${DEMO_RUNNER}${path}${query}`, { method: req.method, headers: fwd, body: req.method === "POST" ? body : undefined, signal: AbortSignal.timeout(path === "/demo/try" || path === "/demo/faucet" || path === "/demo/sponsor" ? 60_000 : 10_000) });
       const out: Record<string, string> = {};
       r.headers.forEach((v, k) => {
         if (k.startsWith("access-control-") || k === "content-type" || k === "cache-control" || k === "vary") out[k] = v;

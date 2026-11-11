@@ -64,3 +64,21 @@ describe("sponsor (NEAR-only visitors)", () => {
       expect(ok(bad)).toMatchObject({ ok: false, status: 400 });
   });
 });
+
+describe("receipts", () => {
+  it("returns a visitor's sends by wallet or position, forgets them after a week, and ignores malformed ids", async () => {
+    const { addReceipt, receiptsFor, RECEIPT_KEEP_MS } = await import("../src/faucet.js");
+    const store = {};
+    const sent = [{ label: "80 LINK", chain: "sepolia" as const, hash: "0xabc" }];
+    addReceipt(store, ["faucet:alice.testnet", "faucet:0x81f5321e62660e4802e306b02447682ef3742c11"], 1_000, sent);
+    expect(receiptsFor(store, { near: "alice.testnet" }).faucet?.sent).toEqual(sent);
+    expect(receiptsFor(store, { evm: "0x81F5321E62660E4802E306B02447682EF3742C11" }).faucet?.sent).toEqual(sent);
+    expect(receiptsFor(store, { near: "bob.testnet" }).faucet).toBeNull();
+    expect(receiptsFor(store, { near: "faucet:alice.testnet\"}" }).faucet).toBeNull();
+    addReceipt(store, ["fund:alice.testnet:8"], 2_000, sent);
+    expect(receiptsFor(store, { near: "alice.testnet", position: "8" }).fund?.at).toBe(2_000);
+    expect(receiptsFor(store, { near: "bob.testnet", position: "8" }).fund).toBeNull();
+    addReceipt(store, ["repay:8"], 1_000 + RECEIPT_KEEP_MS, sent);
+    expect(receiptsFor(store, { near: "alice.testnet" }).faucet).toBeNull();
+  });
+});

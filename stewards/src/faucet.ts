@@ -100,3 +100,31 @@ export function checkSponsor(body: string, origin: string | undefined, allowedOr
   if (key && done[key] !== undefined && now - done[key] < FAUCET.perWalletMs) return { ok: false, status: 429, error: "already done for this account or position today" };
   return { ok: true, near, positionId: b.positionId, what: b.what };
 }
+
+// ── receipts: what the faucet and the sponsor sent, so the visitor's page can show it on any device ──
+export type Sent = { label: string; chain: "near" | "sepolia"; hash: string };
+/** "faucet:<near>" / "faucet:<evm>" / "fund:<near>:<position>" / "buyback:<position>" / "repay:<position>" → sends. */
+export type Receipts = Record<string, { at: number; sent: Sent[] }>;
+export const RECEIPT_KEEP_MS = 7 * 86_400_000;
+export const RECEIPT_MAX = 2000;
+
+export function addReceipt(store: Receipts, keys: string[], now: number, sent: Sent[]) {
+  for (const k of keys) store[k] = { at: now, sent };
+  for (const [k, r] of Object.entries(store)) if (now - r.at >= RECEIPT_KEEP_MS) delete store[k];
+  const all = Object.entries(store).sort((a, b) => a[1].at - b[1].at);
+  for (const [k] of all.slice(0, Math.max(0, all.length - RECEIPT_MAX))) delete store[k];
+}
+
+/** A visitor's receipts, read-only. Only well-formed ids are looked up; nothing else is listed. */
+export function receiptsFor(store: Receipts, q: { near?: string | null; evm?: string | null; position?: string | null }) {
+  const near = q.near && NEAR_ACCOUNT_RE.test(q.near) && q.near.length <= 64 ? q.near : null;
+  const evm = q.evm && EVM_RE.test(q.evm) ? q.evm.toLowerCase() : null;
+  const pos = q.position && /^\d{1,6}$/.test(q.position) ? q.position : null;
+  const get = (k: string | null) => (k && store[k]) || null;
+  return {
+    faucet: get(near && `faucet:${near}`) ?? get(evm && `faucet:${evm}`),
+    fund: get(near && pos && `fund:${near}:${pos}`),
+    buyback: get(pos && `buyback:${pos}`),
+    repay: get(pos && `repay:${pos}`),
+  };
+}
