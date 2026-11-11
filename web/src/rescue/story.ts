@@ -84,7 +84,7 @@ export function story(log: RescueLog): string {
   return `
   <details class="st-panel st-sect st-story">
     <summary class="st-story-summary"><div><div class="st-label">WHAT HAPPENED</div><h2 class="st-panel-title">Step by step, every step on chain</h2>
-      <p class="st-story-gist">${steps.length} steps, ${clock(log, 0)} to ${clock(log, last?.t ?? 0)} UTC, each linked to its transaction. Open to read them.</p></div>
+      <p class="st-story-gist">${steps.length} steps, ${clock(log, 0)} to ${clock(log, last?.t ?? 0)} UTC, each linked to its transaction.</p></div>
       <span class="st-story-toggle" aria-hidden="true"></span></summary>
     <ol class="st-story-list">
       ${steps

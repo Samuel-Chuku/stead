@@ -15,7 +15,8 @@ import type { Address, Hex } from "viem";
 import { cfg, env, nearKey, REPO, STEWARDS, stewardAccount } from "../src/config.js";
 import { pub, wallet, price, write, faucetAbi, E8 } from "../src/fork.js";
 import { account } from "../src/near.js";
-import { FAUCET, checkFaucet, freshFaucet, recordFaucet, type FaucetState } from "../src/faucet.js";
+import { FAUCET, SPONSOR as SPONSORED, checkFaucet, checkSponsor, freshFaucet, recordFaucet, type FaucetState } from "../src/faucet.js";
+import { accountData, balance } from "../src/fork.js";
 import { marketAssets } from "../src/market.js";
 import { view } from "../src/near.js";
 import { DEMO, DEMO_KINDS, STEP_TEXT, BREAK_TEXT, allowancePerDay, checkTry, type RunTx, checkSigners, freshGate, refuelPlan, route, visitorOf, MAX_BODY, type Budget, type GateState, type Step } from "../src/demogate.js";
@@ -51,6 +52,8 @@ interface Saved {
   gate: GateState;
   /** The sponsored faucet's limits (who was served when). */
   faucet?: FaucetState;
+  /** NEAR-only visitors' sponsored actions done: "fund:<near>", "buyback:<rescue>", "repay:<position>" → time. */
+  sponsorDone?: Record<string, number>;
   /** Finished runs, newest first (kept across restarts for the page's history). */
   history?: { slot: number; kind: string; runId: string; rescueId: number | null; outcome: string; error: string | null; startedAt: number; endedAt: number; txs: RunTx[] }[];
   slots: Omit<DemoSlot, "evmKey">[];
@@ -249,6 +252,74 @@ async function serveFaucet(body: string, origin: string | undefined, visitor: st
   }
 }
 
+/** NEAR-only visitors: the sponsor holds the Sepolia side of their position. Acts only on a
+ *  position the requesting NEAR account owns whose payout is the sponsor's address. */
+async function serveSponsor(body: string, origin: string | undefined, visitor: string): Promise<{ status: number; json: unknown }> {
+  if (faucetBusy) return { status: 429, json: { error: "the sponsor is serving someone else; try again in a few seconds" } };
+  faucetBusy = true;
+  try {
+    saved.sponsorDone ??= {};
+    const now = Date.now();
+    for (const [k, t] of Object.entries(saved.sponsorDone)) if (now - t >= FAUCET.perWalletMs && !k.startsWith("buyback:")) delete saved.sponsorDone[k];
+    const v = checkSponsor(body, origin, ORIGINS, saved.sponsorDone, now);
+    if (!v.ok) return { status: v.status, json: { error: v.error } };
+    const p = await view<{ owner: string; payout: string; evm_address: string | null; active_auction: number | null; open_rescues: number[] } | null>("get_position", { position_id: v.positionId });
+    if (!p || p.owner !== v.near) return { status: 403, json: { error: `position ${v.positionId} isn't ${v.near}'s` } };
+    if (p.payout.toLowerCase() !== reserve.address.toLowerCase() || !p.evm_address) return { status: 403, json: { error: "only positions whose payout is the sponsor's address are sponsored" } };
+    const pos = p.evm_address as Address;
+    const A = await marketAssets();
+    const mint = async (token: Address, units: bigint) => write(reserve, cfg.aave.faucet!, faucetAbi, "mint", [token, pos, units]);
+    const sent: { label: string; chain: "near" | "sepolia"; hash: string }[] = [];
+    if (v.what === "fund") {
+      saved.faucet ??= freshFaucet();
+      const [reserveWei, sponsorYocto] = await Promise.all([pub.getBalance({ address: reserve.address }), nearBalance(SPONSOR)]);
+      const day = new Date(now).toISOString().slice(0, 10);
+      if (saved.faucet.day === day && saved.faucet.today >= FAUCET.perDay) return { status: 429, json: { error: "today's sponsored test funds are used up; try tomorrow" } };
+      if (reserveWei < FAUCET.reserveFloorWei + SPONSORED.positionGasWei || (sponsorYocto ?? 0n) < FAUCET.sponsorFloorYocto + FAUCET.nearYocto) return { status: 503, json: { error: "the sponsor is being refilled" } };
+      saved.sponsorDone[`fund:${v.near}`] = now;
+      recordFaucet(saved.faucet, now, v.near, pos.toLowerCase(), visitor);
+      save();
+      const n = await account(SPONSOR).transfer({ receiverId: v.near, amount: FAUCET.nearYocto });
+      sent.push({ label: `0.04 NEAR to ${v.near} for its Stead calls`, chain: "near", hash: (n as any).transaction?.hash ?? (n as any).transaction_outcome?.id ?? "" });
+      if ((await pub.getBalance({ address: pos })) < SPONSORED.positionGasWei) {
+        const h = await reserve.sendTransaction({ to: pos, value: SPONSORED.positionGasWei, account: reserve.account!, chain: reserve.chain });
+        await pub.waitForTransactionReceipt({ hash: h });
+        sent.push({ label: "0.0015 Sepolia ETH to your position for its gas", chain: "sepolia", hash: h });
+      }
+      const held = await balance(A.collateral, pos);
+      if ((await accountData(pos)).collateralBase === 0n && held < SPONSORED.collateral) sent.push({ label: `${(SPONSORED.collateral - held) / 10n ** 18n} ${A.cSym} into your position (Aave's test faucet)`, chain: "sepolia", hash: await mint(A.collateral, SPONSORED.collateral - held) });
+    } else if (v.what === "buyback") {
+      const rid = p.open_rescues[0];
+      if (rid === undefined) return { status: 409, json: { error: "no open claim to buy back" } };
+      if (saved.sponsorDone[`buyback:${rid}`] !== undefined) return { status: 429, json: { error: "already paid for this rescue" } };
+      const r = await view<{ state: string; members: { claim_id: string | null }[] }>("get_rescue", { rescue_id: rid });
+      if (r.state !== "open") return { status: 409, json: { error: "the claims aren't open (yet): buy back once they are" } };
+      const claims = await Promise.all(r.members.filter((m) => m.claim_id).map((m) => view<{ owed_units: string; status: string }>("get_claim", { token_id: m.claim_id })));
+      const owed = claims.filter((c) => c.status === "open").reduce((s, c) => s + BigInt(c.owed_units), 0n);
+      const held = await balance(A.collateral, pos);
+      saved.sponsorDone[`buyback:${rid}`] = now;
+      save();
+      if (owed > held) sent.push({ label: `Buy-back: exactly the ${Number((owed - held) / 10n ** 12n) / 1e6} ${A.cSym} owed, into your position`, chain: "sepolia", hash: await mint(A.collateral, owed - held) });
+    } else {
+      if (p.active_auction !== null || p.open_rescues.length) return { status: 409, json: { error: "a rescue is still running on this position" } };
+      const d = await accountData(pos);
+      if (d.debtBase === 0n) return { status: 409, json: { error: "no debt to repay" } };
+      const need = (d.debtBase * 10n ** BigInt(A.dDec) * 1002n) / 1000n / (await price(A.debt));
+      const held = await balance(A.debt, pos);
+      saved.sponsorDone[`repay:${v.positionId}`] = now;
+      save();
+      if (need > held) sent.push({ label: `${Number((need - held) / 10n ** 16n) / 100} ${A.dSym} into your position, to repay its debt`, chain: "sepolia", hash: await mint(A.debt, need - held) });
+    }
+    say(`sponsor ${v.what} ${v.near} position ${v.positionId}: ${sent.map((s) => s.hash.slice(0, 10)).join(" ") || "nothing needed"}`);
+    return { status: 200, json: { sent, payout: reserve.address } };
+  } catch (e) {
+    say(`sponsor failed: ${scrub((e as Error).message)}`);
+    return { status: 502, json: { error: "a send failed; try again in a minute." } };
+  } finally {
+    faucetBusy = false;
+  }
+}
+
 const readBody = (req: IncomingMessage) =>
   new Promise<string>((ok) => {
     let b = "";
@@ -268,6 +339,12 @@ createServer(async (req, res) => {
   else if (req.method === "GET" && req.url?.startsWith("/demo/status")) headers["access-control-allow-origin"] = "*";
   if (req.method === "OPTIONS") return void res.writeHead(204, headers).end();
   const body = req.method === "POST" ? await readBody(req) : "";
+  if (req.url?.split("?")[0] === "/demo/sponsor") {
+    if (req.method !== "POST") return void res.writeHead(405, headers).end('{"error":"POST only"}');
+    if (!sponsorReady) return void res.writeHead(503, headers).end('{"error":"the sponsor is not set up"}');
+    const r = await serveSponsor(body, origin, visitorOf(req.headers, req.socket.remoteAddress));
+    return void res.writeHead(r.status, headers).end(JSON.stringify(r.json));
+  }
   if (req.url?.split("?")[0] === "/demo/faucet") {
     if (req.method !== "POST") return void res.writeHead(405, headers).end('{"error":"POST only"}');
     if (!sponsorReady) return void res.writeHead(503, headers).end('{"error":"the faucet is not set up"}');

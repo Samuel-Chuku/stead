@@ -98,3 +98,35 @@
 .st-own-board[hidden] { display: none; }
 /* a row that opens a page: the whole row is the link, the caret opens the details */
 .st-items > li[data-href] > .st-item > summary { cursor: pointer; }
+
+/* How it works: diagrams, steps, three columns, questions */
+.st-how { display: flex; flex-direction: column; gap: var(--st-space-16); }
+.st-how-cta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.st-dg { width: 100%; height: auto; max-height: 460px; }
+.st-dg-band { fill: var(--st-inset); stroke: var(--st-line); stroke-width: 1; stroke-dasharray: 4 4; }
+.st-dg-zone { font-family: var(--st-font-head); font-weight: 700; font-size: 13px; letter-spacing: .08em; fill: var(--st-quiet); }
+.st-dg-node rect { fill: var(--st-panel); stroke: var(--st-ink); stroke-width: 1.5; }
+.st-dg-node.is-core rect { fill: var(--st-ink); }
+.st-dg-node.is-core text { fill: var(--st-panel); }
+.st-dg-node.is-money rect { stroke-width: 2.5; }
+.st-dg-node.is-risk rect { fill: var(--st-exposure); }
+.st-dg-node.is-safe rect { fill: var(--st-level-safe); }
+.st-dg-title { font-family: var(--st-font-head); font-weight: 700; font-size: 16px; fill: var(--st-ink); text-anchor: middle; }
+.st-dg-sub { font-family: var(--st-font-body); font-size: 12px; fill: var(--st-quiet); text-anchor: middle; }
+.st-dg-node.is-risk .st-dg-sub, .st-dg-node.is-safe .st-dg-sub { fill: var(--st-ink); }
+.st-dg-edge { stroke: var(--st-ink); stroke-width: 1.5; }
+.st-dg-head { fill: var(--st-ink); }
+.st-dg-label { font-family: var(--st-font-body); font-size: 12px; fill: var(--st-ink); text-anchor: middle; paint-order: stroke; stroke: var(--st-panel); stroke-width: 4px; }
+.st-how-steps { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px 28px; }
+.st-how-steps li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; }
+.st-how-steps h3, .st-how-cols h3 { font-family: var(--st-font-head); font-weight: 700; font-size: 17px; margin: 4px 0 4px; }
+.st-how-steps p, .st-how-cols p { margin: 0; line-height: 1.55; }
+.st-how-steps .st-own-num { background: var(--st-ink); color: var(--st-panel); border-color: var(--st-ink); }
+.st-how-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; }
+.st-faq { display: flex; flex-direction: column; }
+.st-faq-item { border-bottom: var(--st-hairline); }
+.st-faq-item > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 4px; font-family: var(--st-font-head); font-weight: 700; font-size: 17px; }
+.st-faq-item > summary::-webkit-details-marker { display: none; }
+.st-faq-item > summary:hover { background: var(--st-inset); }
+.st-faq-item[open] .st-item-caret { transform: rotate(225deg); margin-top: 4px; }
+.st-faq-item p { margin: 0 4px 16px; line-height: 1.6; max-width: 90ch; }

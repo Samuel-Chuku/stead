@@ -8,6 +8,7 @@ import { mountProofs, mountRescue } from "./rescue/page";
 import { mountHome } from "./home/page";
 import { loadRecords, mountList } from "./lists/pages";
 import { mountMainnet } from "./mainnet/page";
+import { mountHow } from "./how/page";
 import { bindCrowns } from "./crown";
 /** The live feed (and its recordings): the local one when the app runs locally. */
 const liveFeedUrl = () => (import.meta as any).env?.VITE_LIVE_FEED ?? (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? "http://127.0.0.1:8788" : "https://live.usestead.xyz");
@@ -40,10 +41,11 @@ function setBoardMode(m: BoardMode) {
   fill("live");
 }
 
-type Route = "overview" | "live" | "try" | "mainnet" | "rescues" | "positions" | "stewards" | "claims" | "proofs";
+type Route = "overview" | "how" | "live" | "try" | "mainnet" | "rescues" | "positions" | "stewards" | "claims" | "proofs";
 
 const NAV: { id: Route; label: string; icon: IconName }[] = [
   { id: "overview", label: "Overview", icon: "overview" },
+  { id: "how", label: "How it works", icon: "proofs" },
   { id: "live", label: "Live auctions", icon: "live" },
   { id: "try", label: "Your own rescue", icon: "rescues" },
   { id: "mainnet", label: "On mainnet", icon: "ethereum" },
@@ -60,6 +62,7 @@ const PAGES: Record<Route, { label: string; title: string; body: string }> = {
   live: { label: "LIVE AUCTIONS", title: "Live auctions", body: "The live board replays a recorded rescue from its event log: annunciator, health gauge, flip clock, bid ladder, stewards and journal. It is the next step." },
   mainnet: { label: "MAINNET", title: "On mainnet", body: "" },
   try: { label: "YOUR OWN RESCUE", title: "Your own rescue", body: "" },
+  how: { label: "HOW IT WORKS", title: "How it works", body: "" },
   rescues: { label: "RESCUES", title: "Rescues", body: "Each rescue with its timeline, cost chart, auction results, claims and proofs." },
   positions: { label: "POSITIONS", title: "Positions", body: "Protected positions and their health factors, each with its evidence mark." },
   stewards: { label: "STEWARDS", title: "Stewards", body: "The five example strategies, their bids and their claims. Anyone can register a steward." },
@@ -120,7 +123,7 @@ function sidebarBody(active: Route, inDrawer: boolean): string {
         <button type="button" data-theme-set="light" aria-pressed="${t === "light"}">LIGHT</button>
         <button type="button" data-theme-set="dark" aria-pressed="${t === "dark"}">DARK</button>
       </div>
-      <button type="button" class="st-push st-push--small st-cut" data-connect><span class="st-lamp" aria-hidden="true"></span>CONNECT NEAR</button>
+      <button type="button" class="st-push st-push--small st-cut st-connect" data-connect aria-live="polite"><span class="st-lamp" aria-hidden="true"></span><span data-connect-label>CONNECT NEAR</span></button>
     </div>`;
 }
 
@@ -207,6 +210,8 @@ function fill(r: Route) {
     void mountRescue(content, [`${liveFeedUrl()}/rescue/${contract}/${id}.json`, ...(published ? [published] : [])]);
   } else if (r === "overview" || r === "positions" || r === "rescues" || r === "claims" || r === "stewards") {
     unmount = mountList(content, r, REPLAYS.map((x) => ({ id: x.id, contract: "sepolia-demo.steadfi.testnet", rescueId: Number(x.id) })));
+  } else if (r === "how") {
+    unmount = mountHow(content);
   } else if (r === "try") {
     // the wallet libraries load only here
     let stop = () => {};
@@ -239,6 +244,7 @@ function render() {
   layout = "app";
   const r = route();
   app.innerHTML = shell(r);
+  showNear(nearShown);
   fill(r);
   fillStatus();
   document.title = `${PAGES[r].title} · Stead`;
@@ -270,8 +276,48 @@ function onRoute() {
   if (document.body.classList.contains("st-drawer-open")) setDrawer(false);
 }
 
+// The NEAR wallet button (sidebar and drawer): connect through NEAR Connector, show the account,
+// a second click disconnects. The connector loads only when used or when a visitor was connected.
+let nearShown: string | null = null;
+function showNear(a: string | null) {
+  nearShown = a;
+  for (const el of document.querySelectorAll<HTMLElement>("[data-connect-label]")) el.textContent = a ? (a.length > 22 ? `${a.slice(0, 20)}…` : a) : "CONNECT NEAR";
+  for (const b of document.querySelectorAll<HTMLElement>("[data-connect]")) {
+    b.classList.toggle("is-connected", !!a);
+    b.title = a ? `Connected as ${a}. Click to disconnect.` : "Connect a NEAR testnet wallet";
+  }
+}
+async function nearButton() {
+  const w = await import("./wallet/near");
+  if (nearShown) {
+    if (confirmDisconnect()) await w.disconnectNear();
+    return;
+  }
+  for (const el of document.querySelectorAll<HTMLElement>("[data-connect-label]")) el.textContent = "CONNECTING…";
+  try {
+    await w.connectNear();
+  } catch {
+    /* closed the wallet window */
+  }
+  showNear(await w.nearAccount());
+}
+/** Disconnect needs no dialog: the button label already says who is connected; a second click within 4 s confirms. */
+let armedAt = 0;
+function confirmDisconnect(): boolean {
+  if (Date.now() - armedAt < 4000) return true;
+  armedAt = Date.now();
+  for (const el of document.querySelectorAll<HTMLElement>("[data-connect-label]")) el.textContent = "CLICK AGAIN TO DISCONNECT";
+  setTimeout(() => showNear(nearShown), 4000);
+  return false;
+}
+void import("./wallet/near").then(async (w) => {
+  w.onNearAccount(showNear);
+  showNear(await w.nearAccount());
+});
+
 app.addEventListener("click", (e) => {
   const t = e.target as HTMLElement;
+  if (t.closest("[data-connect]")) return void nearButton();
   // menu links open a page fresh: page options (?rescue, ?replay, ?demo) belong to the page they were set on
   const nav = t.closest<HTMLAnchorElement>("a.st-nav-item");
   if (nav && location.search && !(e as MouseEvent).metaKey && !(e as MouseEvent).ctrlKey) {

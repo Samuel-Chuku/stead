@@ -416,7 +416,7 @@ async function loop() {
 const DEMO_RUNNER = process.env.DEMO_RUNNER_URL ?? "";
 function passToRunner(req: IncomingMessage, res: ServerResponse, path: string) {
   const fail = (code: number, error: string) => void res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify({ error }));
-  if (path !== "/demo/start" && path !== "/demo/status" && path !== "/demo/try" && path !== "/demo/faucet") return fail(404, "not found");
+  if (path !== "/demo/start" && path !== "/demo/status" && path !== "/demo/try" && path !== "/demo/faucet" && path !== "/demo/sponsor") return fail(404, "not found");
   if (!["GET", "POST", "OPTIONS"].includes(req.method ?? "")) return fail(405, "method not allowed");
   let body = "";
   req.on("data", (c: Buffer) => {
@@ -430,7 +430,7 @@ function passToRunner(req: IncomingMessage, res: ServerResponse, path: string) {
         const v = req.headers[h];
         if (typeof v === "string") fwd[h] = v;
       }
-      const r = await fetch(`${DEMO_RUNNER}${path}`, { method: req.method, headers: fwd, body: req.method === "POST" ? body : undefined, signal: AbortSignal.timeout(path === "/demo/try" || path === "/demo/faucet" ? 60_000 : 10_000) });
+      const r = await fetch(`${DEMO_RUNNER}${path}`, { method: req.method, headers: fwd, body: req.method === "POST" ? body : undefined, signal: AbortSignal.timeout(path === "/demo/try" || path === "/demo/faucet" || path === "/demo/sponsor" ? 60_000 : 10_000) });
       const out: Record<string, string> = {};
       r.headers.forEach((v, k) => {
         if (k.startsWith("access-control-") || k === "content-type" || k === "cache-control" || k === "vary") out[k] = v;

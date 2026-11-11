@@ -68,3 +68,35 @@ export function recordFaucet(st: FaucetState, now: number, near: string, evm: st
   for (const k of [`near:${near}`, `evm:${evm}`, `ip:${visitor}`]) st.served[k] = now;
   for (const [k, t] of Object.entries(st.served)) if (now - t >= FAUCET.perWalletMs) delete st.served[k];
 }
+
+// ── NEAR-only visitors: the sponsor holds the Sepolia side of their position ──
+// The position is registered by the visitor's NEAR account with the sponsor's Sepolia address as its
+// payout, so withdrawals and borrowed DAI come back to the sponsor. The sponsor funds the position
+// (gas + collateral), pays the buy-back when asked, and sends the DAI to repay at close.
+
+export type SponsorWhat = "fund" | "buyback" | "repay";
+export const SPONSOR = {
+  positionGasWei: 1_500_000_000_000_000n, // 0.0015 ETH: one signed transaction's maximum fee up front, plus spend
+  collateral: 60n * 10n ** 18n, // 60 LINK
+} as const;
+
+/** Check a sponsor request's shape and limits (chain checks follow in the runner). `done` holds
+ *  "fund:<near>" (per day), "buyback:<rescueId>" and "repay:<positionId>" (per day) keys → time. */
+export function checkSponsor(body: string, origin: string | undefined, allowedOrigins: string[], done: Record<string, number>, now: number): { ok: true; near: string; positionId: number; what: SponsorWhat } | { ok: false; status: number; error: string } {
+  if (!origin || !allowedOrigins.includes(origin)) return { ok: false, status: 403, error: "origin not allowed" };
+  if (body.length > 1024) return { ok: false, status: 400, error: "body too large" };
+  let b: Record<string, unknown>;
+  try {
+    b = JSON.parse(body);
+    if (!b || typeof b !== "object" || Array.isArray(b) || Object.keys(b).some((k) => !["near", "positionId", "what"].includes(k))) throw new Error();
+  } catch {
+    return { ok: false, status: 400, error: 'body must be {"near": "…", "positionId": n, "what": "fund" | "buyback" | "repay"}' };
+  }
+  const near = typeof b.near === "string" ? b.near.toLowerCase() : "";
+  if (!near.endsWith(".testnet") || near.length > 64 || !NEAR_ACCOUNT_RE.test(near)) return { ok: false, status: 400, error: "a NEAR testnet account is needed" };
+  if (typeof b.positionId !== "number" || !Number.isInteger(b.positionId) || b.positionId < 0 || b.positionId > 1_000_000) return { ok: false, status: 400, error: "bad positionId" };
+  if (b.what !== "fund" && b.what !== "buyback" && b.what !== "repay") return { ok: false, status: 400, error: "bad what" };
+  const key = b.what === "fund" ? `fund:${near}` : b.what === "repay" ? `repay:${b.positionId}` : null;
+  if (key && done[key] !== undefined && now - done[key] < FAUCET.perWalletMs) return { ok: false, status: 429, error: "already done for this account or position today" };
+  return { ok: true, near, positionId: b.positionId, what: b.what };
+}

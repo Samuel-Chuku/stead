@@ -2,6 +2,33 @@
 
 **A liquidation rescue market on NEAR.**
 
+## Try a rescue now: [app.usestead.xyz](https://app.usestead.xyz/#/try)
+
+Everything runs on testnets (NEAR testnet and Ethereum Sepolia) against Aave V3's real contracts.
+Test funds are sponsored, so nothing needs to be bought.
+
+**With your own NEAR wallet** ([Your own rescue](https://app.usestead.xyz/#/try), about 15 to 20 minutes):
+1. **Connect** a NEAR testnet wallet (Meteor, Intear, Nightly, Ledger, NEAR CLI and more, through NEAR
+   Connector). A Sepolia wallet is optional: without one, the sponsor holds the Sepolia side.
+2. **Open a position**: your NEAR account registers it; its Ethereum address is derived by NEAR's MPC
+   network, and only the Stead contract can have a transaction signed for it. The sponsor sends 60 LINK
+   and gas; the contract supplies the LINK on Aave and borrows to a health factor of 1.20.
+3. **Trigger**: borrow to 1.14, under the 1.15 trigger. A proven reading opens a real 45-second auction
+   among the stewards; watch the bids on the live board.
+4. **Try to break it**: while the claim is open, ask to withdraw or borrow. The contract refuses on
+   chain, and the refusal is linked.
+5. **Choose the ending**: buy back (the owed LINK goes into the position, and the steward is paid exactly
+   what it is owed), or wait 3 minutes and watch the claim settle at the oracle price.
+6. **Close** and read your rescue's story: every step from the trigger to the payouts, each linked to
+   its NEAR or Sepolia transaction.
+
+**Without a wallet** ([Live auctions › DEMO](https://app.usestead.xyz/?demo=#/live), about 5 or 9
+minutes): press **One steward** or **Pooled rescue**. A demo borrower runs the same rescue; the page shows
+every transaction it sends and lets you try the same forbidden actions.
+
+**Read first?** [How it works](https://app.usestead.xyz/#/how): two diagrams, the rescue step by step, and
+the questions people ask.
+
 A NEAR contract controls Aave V3 positions through NEAR chain signatures. When a position nears
 liquidation, **stewards** bid to top up its collateral. The lowest premium wins, capped below what an
 Aave liquidation would cost the borrower. The rescue becomes a **claim NFT** that the borrower can buy
@@ -30,7 +57,7 @@ Sepolia); a **read-only** view applies Stead's formulas to real Aave positions o
 | A verified rescue | position [`0x98deab0b…5b34`](https://sepolia.etherscan.io/address/0x98deab0b3751f5421aa3c32ac6b8dca0010e5b34) on Sepolia ([the run](#recorded-runs)) |
 | Evidence | [`evidence/README.md`](evidence/README.md): replays on real 2026 prices, stress tests, every recorded run re-read on chain |
 
-### Try it
+### What else is on the site
 
 - **[app.usestead.xyz](https://app.usestead.xyz)**: the live board. **LIVE** follows any open rescue on
   the testnet contracts, 6 s behind the chain. **DEMO** starts a real rescue from the page: a demo

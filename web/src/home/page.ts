@@ -74,7 +74,7 @@ function skeleton(): string {
     <header class="st-panel st-site-nav">
       <a class="st-brand" href="#/" aria-label="Stead, home">${logo(26)}</a>
       <nav class="st-site-links" aria-label="Site">
-        <a class="st-site-link" href="#how" data-scroll="how">How it works</a>
+        <a class="st-site-link" href="#/how">How it works</a>
         <a class="st-site-link" href="#stewards" data-scroll="stewards">Stewards</a>
         <a class="st-site-link" href="#proof" data-scroll="proof">Proofs</a>
         <a class="st-site-link" href="${REPO_URL}" target="_blank" rel="noopener">Docs</a>
@@ -88,7 +88,7 @@ function skeleton(): string {
         <h1 class="st-hero-h" id="hero-h">Liquidation is not the only way out.</h1>
         <p class="st-hero-lead">When your Aave loan nears liquidation, a market of agent stewards bids to top it up for a premium that is always smaller than the penalty. A NEAR contract signs only what the rules allow, and every reading it acts on is proven, not reported.</p>
         <div class="st-hero-actions">
-          <a class="st-push st-cut" href="#/positions"><span class="st-lamp" aria-hidden="true"></span>PROTECT A POSITION</a>
+          <a class="st-push st-cut" href="#/try"><span class="st-lamp" aria-hidden="true"></span>TRY A RESCUE</a>
           <a class="st-secondary st-cut st-secondary--link" href="#how" data-scroll="how">See a rescue, step by step</a>
         </div>
       </section>

@@ -1,6 +1,6 @@
 // The sponsored faucet's rules. Offline.
 import { describe, expect, it } from "vitest";
-import { FAUCET, checkFaucet, freshFaucet, recordFaucet } from "../src/faucet.js";
+import { FAUCET, checkFaucet, checkSponsor, freshFaucet, recordFaucet } from "../src/faucet.js";
 
 const O = "https://app.usestead.xyz";
 const T0 = Date.UTC(2026, 10, 12, 10);
@@ -43,5 +43,24 @@ describe("faucet", () => {
   it("amounts match one own-wallet rescue, not more", () => {
     expect(FAUCET.nearYocto).toBe(4n * 10n ** 22n); // 0.04 NEAR ≈ 13 calls × 0.0018 + key, with margin
     expect(FAUCET.ethWei).toBe(25n * 10n ** 14n); // 0.0025 ETH
+  });
+});
+
+describe("sponsor (NEAR-only visitors)", () => {
+  const ok = (o: object, done: Record<string, number> = {}) => checkSponsor(JSON.stringify(o), O, [O], done, T0);
+  it("accepts fund, buyback and repay for a NEAR account and a position", () => {
+    expect(ok({ near: "alice.testnet", positionId: 7, what: "fund" })).toEqual({ ok: true, near: "alice.testnet", positionId: 7, what: "fund" });
+    expect(ok({ near: "alice.testnet", positionId: 7, what: "buyback" }).ok).toBe(true);
+    expect(ok({ near: "alice.testnet", positionId: 7, what: "repay" }).ok).toBe(true);
+  });
+  it("funds an account once a day and repays a position once a day", () => {
+    expect(ok({ near: "alice.testnet", positionId: 7, what: "fund" }, { "fund:alice.testnet": T0 - 1000 })).toMatchObject({ ok: false, status: 429 });
+    expect(ok({ near: "alice.testnet", positionId: 7, what: "repay" }, { "repay:7": T0 - 1000 })).toMatchObject({ ok: false, status: 429 });
+    expect(ok({ near: "alice.testnet", positionId: 7, what: "fund" }, { "fund:alice.testnet": T0 - FAUCET.perWalletMs }).ok).toBe(true);
+  });
+  it("refuses other origins and malformed requests", () => {
+    expect(checkSponsor(JSON.stringify({ near: "alice.testnet", positionId: 7, what: "fund" }), "https://evil.example", [O], {}, T0)).toMatchObject({ status: 403 });
+    for (const bad of [{ near: "alice.near", positionId: 7, what: "fund" }, { near: "alice.testnet", positionId: -1, what: "fund" }, { near: "alice.testnet", positionId: 7, what: "drain" }, { near: "alice.testnet", positionId: 7, what: "fund", to: "0x1" }])
+      expect(ok(bad)).toMatchObject({ ok: false, status: 400 });
   });
 });

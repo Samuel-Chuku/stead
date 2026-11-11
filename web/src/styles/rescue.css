@@ -267,7 +267,7 @@
 }
 
 /* compact rescue page: a readable width, story steps in three columns, links beside the text */
-.st-rescue { max-width: 1240px; }
+
 .st-story > .st-story-summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .st-story > .st-story-summary::-webkit-details-marker { display: none; }
 .st-story-gist { margin: 4px 0 0; color: var(--st-quiet); font-size: 14px; }
@@ -290,3 +290,8 @@
   .st-story-step { grid-template-columns: 1fr; }
   .st-story-step > .st-story-links { grid-column: 1; }
 }
+/* bids and claims inside a story step: the detail and its link on one line */
+.st-story-sub { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; }
+.st-story-sub > span:first-child:not(.st-tile) { grid-column: 1 / 3; }
+.st-story-links { width: 100%; }
+.st-story-step { grid-template-columns: 110px minmax(0, 1.1fr) minmax(320px, 1fr); }

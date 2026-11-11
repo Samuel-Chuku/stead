@@ -2,10 +2,7 @@
 // Sepolia), on the demo contract (3-minute buy-back window, so both endings fit in one sitting).
 // Every step is chosen from chain state, so a reload picks up where it was; every transaction the
 // visitor signs is listed with its link. Nothing here holds a key: the wallets sign.
-import { setupWalletSelector, type WalletSelector } from "@near-wallet-selector/core";
-import { setupMyNearWallet } from "@near-wallet-selector/my-near-wallet";
-import { setupMeteorWallet } from "@near-wallet-selector/meteor-wallet";
-import { actionCreators } from "@near-js/transactions";
+import { connectNear, nearAccount, onNearAccount, steadCall } from "../wallet/near";
 import { createPublicClient, createWalletClient, custom, http, parseAbi, type Address, type Hex } from "viem";
 import { sepolia } from "viem/chains";
 import { icon } from "../icons";
@@ -20,6 +17,8 @@ const ORACLE: Address = "0x2da88497588bf89281816106C7259e31AF45a663";
 const LINK: Address = "0xf8Fb3713D459D7C1018BD0A49D19b4C44290EBE5";
 const DAI: Address = "0xFF34B3d4Aee8ddCd6F9AFFFB6Fe49bD371b8a357";
 const E18 = 10n ** 18n;
+/** NEAR-only visitors: the sponsor's Sepolia address is the position's payout (it holds the Sepolia side). */
+const SPONSOR_PAYOUT: Address = "0xA57b528591700bB77992D095258eF6F921CDAD68";
 /** The position's size: 60 LINK; it opens at health 1.20 and is triggered at 1.14. */
 const COLLATERAL = 60n * E18;
 const POSITION_GAS_WEI = 1_500_000_000_000_000n; // 0.0015 ETH: one signed tx's maximum fee up front, plus spend
@@ -55,8 +54,26 @@ const txHref = (t: TxRow) => (t.chain === "near" ? `https://testnet.nearblocks.i
 
 export function mountOwn(root: HTMLElement): () => void {
   let gone = false;
-  let selector: WalletSelector | null = null;
   let near: string | null = null;
+  /** "sponsored": NEAR wallet only, the sponsor holds the Sepolia side; "own": the visitor's Sepolia wallet too. */
+  let mode: "sponsored" | "own" | null = null;
+  const MODE_KEY = () => `stead-own-mode-${near}`;
+  const loadMode = () => {
+    try {
+      const m = localStorage.getItem(MODE_KEY());
+      mode = m === "sponsored" || m === "own" ? m : mode;
+    } catch {
+      /* ignore */
+    }
+  };
+  const setMode = (m: "sponsored" | "own") => {
+    mode = m;
+    try {
+      localStorage.setItem(MODE_KEY(), m);
+    } catch {
+      /* ignore */
+    }
+  };
   let evm: Address | null = null;
   let busy = "";
   let error = "";
@@ -90,19 +107,15 @@ export function mountOwn(root: HTMLElement): () => void {
   };
 
   // ── wallets ──
+  let stopNear: () => void = () => {};
   async function initNear() {
-    selector = await setupWalletSelector({ network: "testnet", modules: [setupMyNearWallet(), setupMeteorWallet()] });
-    const st = selector.store.getState();
-    near = st.accounts[0]?.accountId ?? null;
-    selector.store.observable.subscribe((s) => {
-      near = s.accounts[0]?.accountId ?? null;
+    near = await nearAccount();
+    loadMode();
+    stopNear = onNearAccount((a) => {
+      near = a;
+      loadMode();
       void refresh();
     });
-  }
-  async function connectNear(id: "my-near-wallet" | "meteor-wallet") {
-    const w = await selector!.wallet(id);
-    // a limited key for the Stead contract only: later Stead calls need no pop-up each
-    await (w as any).signIn({ contractId: CONTRACT, methodNames: [], accounts: [] });
   }
   async function connectEvm() {
     const eth = (window as any).ethereum;
@@ -115,14 +128,14 @@ export function mountOwn(root: HTMLElement): () => void {
       await w.addChain({ chain: sepolia });
     }
     evm = a;
+    setMode("own");
   }
   const evmWallet = () => createWalletClient({ account: evm!, chain: sepolia, transport: custom((window as any).ethereum) });
 
   // ── Stead calls (signed by the visitor's NEAR wallet) ──
   async function stead(method: string, args: object, label: string, gasTgas = 150n): Promise<string> {
-    const w = await selector!.wallet();
     try {
-      const out: any = await w.signAndSendTransaction({ receiverId: CONTRACT, actions: [actionCreators.functionCall(method, args, gasTgas * 1_000_000_000_000n, 0n)] });
+      const out: any = await steadCall(method, args, gasTgas);
       const hash = out?.transaction?.hash ?? out?.transaction_outcome?.id ?? "";
       const failure = [out?.status?.Failure, ...(out?.receipts_outcome ?? []).map((r: any) => r.outcome?.status?.Failure)].find(Boolean);
       if (failure) {
@@ -238,6 +251,12 @@ export function mountOwn(root: HTMLElement): () => void {
     busy = "";
     await refresh();
   }
+  async function sponsor(what: "fund" | "buyback" | "repay") {
+    const r = await fetch(`${feedUrl()}/demo/sponsor`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ near, positionId: state!.pos!.id, what }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+    for (const x of j.sent ?? []) addTx({ label: `Sponsor: ${x.label}`, chain: x.chain, hash: x.hash, ok: true });
+  }
   const faucet = () =>
     run("Getting test funds", async () => {
       const r = await fetch(`${feedUrl()}/demo/faucet`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ near, evm }) });
@@ -259,15 +278,23 @@ export function mountOwn(root: HTMLElement): () => void {
     run("Opening your position", async () => {
       let p = state?.pos ?? null;
       if (!p) {
-        await stead("register_position", { market_id: MARKET, payout: evm }, "Register a position (its Sepolia address is derived by NEAR's MPC network)", 100n);
+        await stead("register_position", { market_id: MARKET, payout: mode === "sponsored" ? SPONSOR_PAYOUT : evm }, "Register a position (its Sepolia address is derived by NEAR's MPC network)", 100n);
         for (let i = 0; i < 20 && !(p = await findPosition())?.evm_address; i++) await sleep(2000);
         if (!p?.evm_address) throw new Error("the new position didn't appear");
+        state = { ...(state as NonNullable<typeof state>), pos: p };
       }
       const addr = p.evm_address as Address;
+      if (mode === "sponsored") {
+        busy = "The sponsor sends your position its LINK and gas…";
+        render();
+        await sponsor("fund").catch((e) => {
+          if (!/already done/.test((e as Error).message)) throw e;
+        });
+      }
       const held = await pub.readContract({ address: LINK, abi: erc20, functionName: "balanceOf", args: [addr] });
       const d0 = await pub.readContract({ address: POOL, abi: poolAbi, functionName: "getUserAccountData", args: [addr] });
-      if (d0[0] === 0n && held < COLLATERAL) await evmSend(`Send ${fmt(COLLATERAL - held, 18, 0)} LINK to your position`, () => evmWallet().writeContract({ address: LINK, abi: erc20, functionName: "transfer", args: [addr, COLLATERAL - held] }));
-      if ((await pub.getBalance({ address: addr })) < POSITION_GAS_WEI) await evmSend("Send 0.0015 ETH to your position for its gas", () => evmWallet().sendTransaction({ to: addr, value: POSITION_GAS_WEI }));
+      if (mode === "own" && d0[0] === 0n && held < COLLATERAL) await evmSend(`Send ${fmt(COLLATERAL - held, 18, 0)} LINK to your position`, () => evmWallet().writeContract({ address: LINK, abi: erc20, functionName: "transfer", args: [addr, COLLATERAL - held] }));
+      if (mode === "own" && (await pub.getBalance({ address: addr })) < POSITION_GAS_WEI) await evmSend("Send 0.0015 ETH to your position for its gas", () => evmWallet().sendTransaction({ to: addr, value: POSITION_GAS_WEI }));
       const allowed = (t: Address) => pub.readContract({ address: t, abi: erc20, functionName: "allowance", args: [addr, POOL] });
       if ((await allowed(LINK)) < COLLATERAL) await signAction(p.id, { type: "approve", token: "collateral", amount: "max" }, "Let Aave take the position's LINK");
       if ((await allowed(DAI)) === 0n) await signAction(p.id, { type: "approve", token: "debt", amount: "max" }, "Let Aave take DAI repays");
@@ -284,6 +311,7 @@ export function mountOwn(root: HTMLElement): () => void {
     });
   const buyBack = () =>
     run("Buying back", async () => {
+      if (mode === "sponsored") return sponsor("buyback");
       const owed = state!.claims.filter((c) => c.status === "open").reduce((s, c) => s + BigInt(c.owed_units), 0n);
       const addr = state!.pos!.evm_address as Address;
       const held = await pub.readContract({ address: LINK, abi: erc20, functionName: "balanceOf", args: [addr] });
@@ -294,7 +322,12 @@ export function mountOwn(root: HTMLElement): () => void {
       const p = state!.pos!;
       const addr = p.evm_address as Address;
       const d = await pub.readContract({ address: POOL, abi: poolAbi, functionName: "getUserAccountData", args: [addr] });
-      if (d[1] > 0n) {
+      if (d[1] > 0n && mode === "sponsored") {
+        await sponsor("repay").catch((e) => {
+          if (!/already done|no debt/.test((e as Error).message)) throw e;
+        });
+        await signAction(p.id, { type: "repay", amount: "max" }, "Repay all the debt");
+      } else if (d[1] > 0n) {
         const pd = await pub.readContract({ address: ORACLE, abi: oracleAbi, functionName: "getAssetPrice", args: [DAI] });
         const need = (d[1] * E18 * 1002n) / 1000n / pd; // a little over the debt: interest keeps accruing
         const held = await pub.readContract({ address: DAI, abi: erc20, functionName: "balanceOf", args: [addr] });
@@ -316,16 +349,17 @@ export function mountOwn(root: HTMLElement): () => void {
     const pos = s?.pos ?? null;
     const opened = !!pos && s!.coll > 0n;
     const rescue = s?.rescue ?? null;
-    const funded = !!s && (s.nearYocto ?? 0n) >= 20_000_000_000_000_000_000_000n && s.eth >= 2_000_000_000_000_000n && (opened || s.link >= COLLATERAL);
+    const sponsored = mode === "sponsored";
+    const funded = !!s && (s.nearYocto ?? 0n) >= 20_000_000_000_000_000_000_000n && (sponsored || (s.eth >= 2_000_000_000_000_000n && (opened || s.link >= COLLATERAL)));
     const triggered = opened && (rescue !== null || (s!.hf !== null && s!.hf < 1.15));
     const ended = opened && !rescue && s!.hf !== null && s!.hf >= 1.4; // after a rescue, health is back near 1.50
     const closed = !!pos && s!.coll === 0n && s!.debt === 0n && txs.some((t) => /Withdraw all/.test(t.label));
     const btn = (label: string, attr: string, primary = false, off = false) => `<button type="button" class="${primary ? "st-push" : "st-secondary"} st-cut" ${attr}${busy || off ? ' aria-disabled="true" disabled' : ""}>${primary ? '<span class="st-lamp" aria-hidden="true"></span>' : ""}${label}</button>`;
     const steps = [
-      stepHtml(1, "Connect a NEAR testnet wallet", !!near, !near, near ? `Connected as <strong>${esc(near)}</strong>${s?.nearYocto != null ? ` · ${fmt(s.nearYocto, 24, 3)} NEAR` : ""}` : `<p>It signs your Stead calls. Connecting adds a limited key for the Stead contract only (no deposits, no transfers), so the calls below need no pop-up each.</p><div class="st-own-buttons">${btn("MyNEAR Wallet", 'data-near="my-near-wallet"')}${btn("Meteor", 'data-near="meteor-wallet"')}</div>`),
-      stepHtml(2, "Connect a Sepolia wallet", !!evm, !!near && !evm, evm ? `Connected as <span class="st-mono">${evm.slice(0, 8)}…${evm.slice(-6)}</span>${s ? ` · ${fmt(s.eth, 18, 4)} ETH · ${fmt(s.link, 18, 2)} LINK · ${fmt(s.dai, 18, 2)} DAI` : ""}` : `<p>MetaMask or any injected wallet, on Sepolia. It sends LINK and gas to your position, and receives everything back at the end.</p><div class="st-own-buttons">${btn("Connect Sepolia wallet", "data-evm")}</div>`),
-      stepHtml(3, "Get test funds", funded, !!near && !!evm && !funded && !opened, `<p>You need about 0.03 NEAR, 0.002 Sepolia ETH and 60 LINK (+20 LINK if you buy back). We sponsor one set per wallet per day: 0.04 NEAR, 0.0025 Sepolia ETH, 80 LINK and 5 DAI.</p><div class="st-own-buttons">${btn("Send me test funds", "data-faucet", true)}</div>`),
-      stepHtml(4, "Open your position", opened, funded && !opened, `<p>Registers a position on the demo contract; its Sepolia address is derived by NEAR's MPC network, and only the contract can sign for it. Then 60 LINK goes in, and the contract supplies it on Aave and borrows DAI to a health factor of 1.20. Two Sepolia confirmations, the rest are Stead calls.</p><div class="st-own-buttons">${btn("Open my position", "data-open", true)}</div>`),
+      stepHtml(1, "Connect a NEAR testnet wallet", !!near, !near, near ? `Connected as <strong>${esc(near)}</strong>${s?.nearYocto != null ? ` · ${fmt(s.nearYocto, 24, 3)} NEAR` : ""}${s?.nearYocto != null && s.nearYocto < 10_000_000_000_000_000_000_000n ? ` · <span class="st-own-warn">your account needs a little testnet NEAR to sign: get 10 from <a class="st-textlink" href="https://near-faucet.io" target="_blank" rel="noopener">a NEAR testnet faucet</a></span>` : ""}` : `<p>Your NEAR account owns the position and signs its Stead calls. Any NEAR wallet with testnet works (Meteor, Intear, Nightly, Ledger, NEAR CLI and more). Connecting adds a limited key for the Stead contract only, so the calls below need few approvals.</p><div class="st-own-buttons">${btn("Connect NEAR wallet", "data-near", true)}</div>`),
+      stepHtml(2, "Sepolia side: your wallet, or ours", !!mode, !!near && !mode, mode === "own" && evm ? `Your Sepolia wallet <span class="st-mono">${evm.slice(0, 8)}…${evm.slice(-6)}</span>${s ? ` · ${fmt(s.eth, 18, 4)} ETH · ${fmt(s.link, 18, 2)} LINK · ${fmt(s.dai, 18, 2)} DAI` : ""}` : mode === "sponsored" ? `NEAR only: the sponsor holds the Sepolia side. Your position's payout is the sponsor's address; it funds the position and pays the buy-back when you ask.` : `<p>The position's money lives on Sepolia. <strong>Only a NEAR wallet?</strong> Let the sponsor hold the Sepolia side: it funds your position and pays the buy-back when you ask; test funds go back to it at the end. <strong>Have a Sepolia wallet?</strong> Use it: you fund the position and get everything back.</p><div class="st-own-buttons">${btn("Only NEAR: sponsor the Sepolia side", "data-sponsored", true)}${btn("Use my Sepolia wallet", "data-evm")}</div>`),
+      stepHtml(3, "Get test funds", funded || sponsored, mode === "own" && !funded && !opened, `<p>You need about 0.03 NEAR, 0.002 Sepolia ETH and 60 LINK (+20 LINK if you buy back). We sponsor one set per wallet per day: 0.04 NEAR, 0.0025 Sepolia ETH, 80 LINK and 5 DAI.</p><div class="st-own-buttons">${btn("Send me test funds", "data-faucet", true)}</div>`),
+      stepHtml(4, "Open your position", opened, (sponsored ? !!near : funded) && !opened, `<p>Registers a position on the demo contract; its Sepolia address is derived by NEAR's MPC network, and only the contract can sign for it. Then 60 LINK goes in${sponsored ? " (from the sponsor)" : ""}, and the contract supplies it on Aave and borrows DAI to a health factor of 1.20.${sponsored ? " Every step is a Stead call from your NEAR wallet." : " Two Sepolia confirmations, the rest are Stead calls."}</p><div class="st-own-buttons">${btn("Open my position", "data-open", true)}</div>`),
       stepHtml(5, "Trigger a rescue", triggered || ended, opened && !triggered && !ended, `<p>Borrow a little more, to a health factor of 1.14: under Stead's 1.15 trigger. The keeper's proven reading then opens a real auction among the stewards.</p><div class="st-own-buttons">${btn("Borrow to 1.14", "data-trigger", true)}</div>`),
       stepHtml(6, "Watch your rescue, try to break it, choose the ending", ended, triggered && !ended, `${rescue ? `<p>Rescue <strong>#${rescue.id}</strong>: ${esc(rescue.state.replace(/_/g, " "))}. ${rescue.state === "open" ? `Claims are open: buy them back by paying exactly what is owed into your position, or do nothing and watch the claim settle after the demo contract's 3-minute window.` : "Stewards are bidding and topping up; watch it below."}</p>` : `<p>Waiting for the proven reading to open the auction (30 to 60 seconds).</p>`}
         <div class="st-own-buttons">${rescue?.state === "open" ? btn("Buy back now", "data-buyback", true) : ""}${rescue ? btn("Try to withdraw 1 LINK", 'data-break="withdraw"') + btn("Try to borrow 1 DAI", 'data-break="borrow"') : ""}</div>
@@ -335,7 +369,7 @@ export function mountOwn(root: HTMLElement): () => void {
     main.innerHTML = `
       <section class="st-panel st-sect st-own">
         <header class="st-list-head"><div class="st-label">YOUR OWN RESCUE · NEAR TESTNET AND SEPOLIA</div><h1 class="st-page-title">Run a rescue with your own wallets</h1>
-          <p class="st-list-sub">Everything below is real, on testnets: your NEAR account owns the position, the contract signs its Aave transactions through NEAR's chain signatures, and the stewards that rescue it are the same bots as everywhere on this site. About 10 minutes.</p></header>
+          <p class="st-list-sub">Everything below is real, on testnets: your NEAR account owns the position, the contract signs its Aave transactions through NEAR's chain signatures, and the stewards that rescue it are the same bots as everywhere on this site. About 15 to 20 minutes: each Aave step waits for Sepolia.</p></header>
         ${busy ? `<p class="st-own-busy" role="status"><span class="st-live-dot" aria-hidden="true"></span>${esc(busy)}</p>` : ""}
         ${error ? `<p class="st-own-error" role="alert">${esc(error)}</p>` : ""}
         <ol class="st-own-steps">${steps.join("")}</ol>
@@ -345,7 +379,11 @@ export function mountOwn(root: HTMLElement): () => void {
           .map((t) => `<li><span class="st-runlog-time">${new Date(t.at).toISOString().slice(11, 19)}</span><span class="st-runlog-label">${esc(t.label)}</span>${t.hash ? `<a class="st-txlink" href="${txHref(t)}" target="_blank" rel="noopener"><span>${t.chain === "near" ? "NearBlocks" : "Etherscan"}</span><span class="st-txlink-where">${t.hash.slice(0, 8)}…</span>${icon("external", 12)}</a>` : ""}</li>`)
           .join("")}</ol>` : ""}
       </section>`;
-    main.querySelectorAll<HTMLButtonElement>("[data-near]").forEach((b) => b.addEventListener("click", () => run("Connecting NEAR", () => connectNear(b.dataset.near as any))));
+    main.querySelector("[data-near]")?.addEventListener("click", () => run("Connecting your NEAR wallet", async () => void (near = await connectNear())));
+    main.querySelector("[data-sponsored]")?.addEventListener("click", () => {
+      setMode("sponsored");
+      render();
+    });
     main.querySelector("[data-evm]")?.addEventListener("click", () => run("Connecting your Sepolia wallet", connectEvm));
     main.querySelector("[data-faucet]")?.addEventListener("click", faucet);
     main.querySelector("[data-open]")?.addEventListener("click", open);
@@ -381,5 +419,6 @@ export function mountOwn(root: HTMLElement): () => void {
     gone = true;
     clearInterval(timer);
     stopBoard();
+    stopNear();
   };
 }
