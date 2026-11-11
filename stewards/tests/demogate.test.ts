@@ -1,7 +1,7 @@
 // Demo rescues from the web page: who may start, budget pacing, exact buy-back, reset to rest,
 // signer check, HTTP answers. No network, no keys.
 import { describe, expect, it } from "vitest";
-import { DEMO, admit, allowancePerDay, buybackUnits, checkSigners, freshGate, refuelPlan, resetPlan, route, stepOf, visitorOf, type Budget, type ChainView } from "../src/demogate.js";
+import { DEMO, admit, allowancePerDay, buybackUnits, checkSigners, checkTry, freshGate, refuelPlan, resetPlan, route, stepOf, visitorOf, type Budget, type ChainView } from "../src/demogate.js";
 
 const T0 = Date.UTC(2026, 10, 12, 12, 0, 0);
 const OPEN: Budget = { leftToday: 100, canPayOne: true };
@@ -181,5 +181,32 @@ describe("HTTP", () => {
     expect(r.json).toMatchObject({ started: false, reason: "too_soon", nextAt: T0 + DEMO.gapMs });
     // the kind is checked: anything but single or pooled is a bad request
     expect(route({ ...post('{"token":"token-cccc","kind":"triple"}'), visitor: "x" }, d).status).toBe(400);
+  });
+});
+
+describe("try to break it", () => {
+  const O = "https://app.usestead.xyz";
+  const running = (step: string) => {
+    const g = freshGate();
+    g.slots[0].run = { id: "abc-0", token: "token-aaaa", startedAt: T0, step: step as any, rescueId: 16, error: null, endedAt: null };
+    return g;
+  };
+  const body = (o: object) => JSON.stringify(o);
+  it("accepted only for a running demo whose position is locked, once per action", () => {
+    const tried = new Set<string>();
+    expect(checkTry(body({ runId: "abc-0", action: "withdraw" }), O, [O], running("buyback"), tried)).toEqual({ ok: true, slot: 0, action: "withdraw" });
+    tried.add("abc-0|withdraw");
+    expect(checkTry(body({ runId: "abc-0", action: "withdraw" }), O, [O], running("buyback"), tried)).toMatchObject({ ok: false, status: 409 });
+    expect(checkTry(body({ runId: "abc-0", action: "borrow" }), O, [O], running("auction"), tried).ok).toBe(true);
+    // before the auction and after the buy-back the position isn't locked: nothing to show
+    expect(checkTry(body({ runId: "abc-0", action: "borrow" }), O, [O], running("trigger"), tried)).toMatchObject({ ok: false, status: 409 });
+    expect(checkTry(body({ runId: "abc-0", action: "borrow" }), O, [O], running("reset"), tried)).toMatchObject({ ok: false, status: 409 });
+  });
+  it("refuses other origins, unknown runs, other actions and extra fields", () => {
+    const g = running("buyback");
+    expect(checkTry(body({ runId: "abc-0", action: "withdraw" }), "https://evil.example", [O], g, new Set())).toMatchObject({ status: 403 });
+    expect(checkTry(body({ runId: "nope-1", action: "withdraw" }), O, [O], g, new Set())).toMatchObject({ status: 404 });
+    expect(checkTry(body({ runId: "abc-0", action: "transfer" }), O, [O], g, new Set())).toMatchObject({ status: 400 });
+    expect(checkTry(body({ runId: "abc-0", action: "withdraw", amount: 99 }), O, [O], g, new Set())).toMatchObject({ status: 400 });
   });
 });

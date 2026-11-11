@@ -80,9 +80,12 @@ services:
       STEAD_EVM: sepolia
       DEMO_RUNNER_URL: http://demo-runner:8789
       MAINNET_PANEL_URL: http://mainnet-panel:8787
+      # every finished rescue, recorded once from the chains, for its own page
+      ARCHIVE_DIR: /app/state-feed/rescues
     # only the testnet node URL (QUICKNODE_NEAR_TESTNET_URL): no keys
     volumes:
       - /opt/stead/secrets-live/.env:/app/.env:ro
+      - /opt/stead/state-feed:/app/state-feed
     mem_limit: 256m
   # starts a real testnet rescue on a demo borrower's position when a visitor clicks; holds only
   # the two demo borrowers' NEAR keys, their Sepolia payout keys and the reserve wallet's key

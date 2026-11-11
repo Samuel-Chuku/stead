@@ -36,8 +36,11 @@ export const DEMO_KINDS: DemoKind[] = ["single", "pooled"];
 export interface SlotState {
   kind?: DemoKind;
   /** null when free. */
-  run: null | { id: string; token: string; startedAt: number; step: Step; rescueId: number | null; error: string | null; endedAt: number | null };
+  run: null | { id: string; token: string; startedAt: number; step: Step; rescueId: number | null; error: string | null; endedAt: number | null; txs?: RunTx[] };
 }
+/** One transaction a demo run sent, labelled for the page. */
+export type RunTx = { at: number; label: string; chain: "near" | "sepolia"; hash: string };
+
 export interface GateState {
   slots: SlotState[];
   lastStartAt: number;
@@ -305,4 +308,36 @@ export function route(req: HttpIn, d: { allowedOrigins: string[]; now: number; g
     d.start(a.slot, a.runId);
   }
   return { status: a.repeat ? 200 : 202, json: { started: true, slot: a.slot, runId: a.runId } };
+}
+
+// ── "try to break it": a visitor asks the demo borrower to do what a locked position forbids ──
+
+export type BreakAction = "withdraw" | "borrow";
+export const BREAK_TEXT: Record<BreakAction, string> = {
+  withdraw: "Withdraw 1 LINK of collateral while the claim is open",
+  borrow: "Borrow 1 DAI more while the claim is open",
+};
+/** The run steps during which the position is locked (auction open or a claim open). */
+const LOCKED: Step[] = ["auction", "topup", "buyback"];
+
+/** Check a "try" request: `{runId, action}` for a run in progress whose position is locked; each
+ *  action once per run. Pure: the caller records the attempt. */
+export function checkTry(body: string, origin: string | undefined, allowedOrigins: string[], g: GateState, tried: Set<string>): { ok: true; slot: number; action: BreakAction } | { ok: false; status: number; error: string } {
+  if (!origin || !allowedOrigins.includes(origin)) return { ok: false, status: 403, error: "origin not allowed" };
+  if (body.length > MAX_BODY) return { ok: false, status: 400, error: "body too large" };
+  let b: Record<string, unknown>;
+  try {
+    b = JSON.parse(body);
+    if (!b || typeof b !== "object" || Array.isArray(b) || Object.keys(b).some((k) => k !== "runId" && k !== "action")) throw new Error();
+  } catch {
+    return { ok: false, status: 400, error: 'body must be {"runId": "…", "action": "withdraw" | "borrow"}' };
+  }
+  const { runId, action } = b as { runId: unknown; action: unknown };
+  if (action !== "withdraw" && action !== "borrow") return { ok: false, status: 400, error: "bad action" };
+  if (typeof runId !== "string" || !/^[a-z0-9-]{3,40}$/.test(runId)) return { ok: false, status: 400, error: "bad runId" };
+  const slot = g.slots.findIndex((x) => x.run?.id === runId);
+  if (slot < 0) return { ok: false, status: 404, error: "that demo run isn't running" };
+  if (!LOCKED.includes(g.slots[slot].run!.step)) return { ok: false, status: 409, error: "the position is only locked from the auction until the buy-back; try again then" };
+  if (tried.has(`${runId}|${action}`)) return { ok: false, status: 409, error: "already tried on this run" };
+  return { ok: true, slot, action };
 }

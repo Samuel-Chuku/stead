@@ -234,7 +234,7 @@
    "t": 63.516,
    "kind": "TOPUP_SENT",
    "steward": "swift",
-   "amount": "8.114527572406149221",
+   "amount": "8.104743016",
    "asset": "LINK",
    "evidence": {
     "mark": "proven",

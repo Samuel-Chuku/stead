@@ -27,6 +27,8 @@ export interface DemoSlot {
 export interface Hooks {
   step(s: Step, d?: { rescueId?: number; tx?: string; note?: string }): void;
   log(msg: string): void;
+  /** Every transaction the run sends, labelled (shown live on the page, with its link). */
+  tx?(label: string, chain: "near" | "sepolia", hash: string): void;
 }
 
 const pos = (pid: number) => view<Position>("get_position", { position_id: pid });
@@ -79,6 +81,7 @@ export class DemoRun {
     const before = (await pos(pid)).next_nonce;
     const c = await call(this.slot.account, "sign_action", { position_id: pid, action, gas: EVM_GAS }, { gas: SIGN_GAS });
     this.hooks.log(`${label}: sign_action ${c.hash}`);
+    this.hooks.tx?.(`${label} (the contract signs it through NEAR's chain signatures)`, "near", c.hash);
     // done only when the contract has seen it land (no transaction in flight on the position)
     await until(`${label} on Sepolia`, step, async () => {
       const p = await pos(pid);
@@ -95,8 +98,8 @@ export class DemoRun {
     const target = (d.collateralBase * d.ltBps) / BigInt(hfBps);
     if (target <= d.debtBase) return;
     const units = ((target - d.debtBase) * 10n ** BigInt(A.dDec)) / pd;
-    const h = await this.sign(pid, { type: "borrow", amount: units.toString() }, step, `borrow to HF ${hfBps / 10_000}`);
-    await this.sign(pid, { type: "transfer_debt", amount: units.toString() }, step, "send the borrowed DAI to the payout");
+    const h = await this.sign(pid, { type: "borrow", amount: units.toString() }, step, `Borrow ${A.dSym} until health is ${(hfBps / 10_000).toFixed(2)}`);
+    await this.sign(pid, { type: "transfer_debt", amount: units.toString() }, step, `Move the borrowed ${A.dSym} to the borrower's wallet`);
     return h;
   }
 
@@ -135,6 +138,19 @@ export class DemoRun {
     return { positionId: pid, restUnits: rest.toString() };
   }
 
+  /** Ask the contract to sign something a locked position forbids. Expected: refused, with a NEAR
+   *  transaction to show for it. Tiny amounts, so even a wrong answer could not hurt the demo. */
+  async tryBreak(action: "withdraw" | "borrow"): Promise<{ refused: boolean; message: string; hash?: string }> {
+    const pid = this.slot.positionId!;
+    const a = action === "withdraw" ? { type: "withdraw", amount: { exact: (10n ** 18n).toString() } } : { type: "borrow", amount: (10n ** 18n).toString() };
+    try {
+      const c = await call(this.slot.account, "sign_action", { position_id: pid, action: a, gas: EVM_GAS }, { gas: SIGN_GAS });
+      return { refused: false, message: "the contract accepted it", hash: c.hash };
+    } catch (e) {
+      return { refused: true, message: (e as Error).message.replace(/^Smart contract panicked: /, "").slice(0, 160), hash: (e as { hash?: string }).hash };
+    }
+  }
+
   /** Bring the position back to rest (collateral at rest, HF 1.17). Allowed only with no open claim. */
   async reset(pid: number, A: MarketAssets) {
     this.hooks.step("reset");
@@ -154,7 +170,7 @@ export class DemoRun {
       const held = await balance(A.debt, addr);
       if (held < plan.repayUnits) {
         await ensureTokens(this.w, A.debt, plan.repayUnits - held);
-        await write(this.w, A.debt, erc20Abi, "transfer", [addr, plan.repayUnits - held]);
+        this.hooks.tx?.(`Reset: ${A.dSym} sent into the position for the repay`, "sepolia", await write(this.w, A.debt, erc20Abi, "transfer", [addr, plan.repayUnits - held]));
       }
       // repay everything the position holds: debt-asset left in the position would be refunded by the
       // next rescue as a stray payment (an extra payout); a slightly higher HF is borrowed back next run
@@ -219,6 +235,7 @@ export class DemoRun {
       if (units > 0n && (await balance(A.collateral, addr)) < units) {
         await ensureTokens(this.w, A.collateral, units);
         const tx = await write(this.w, A.collateral, erc20Abi, "transfer", [addr, units]);
+        this.hooks.tx?.(`Buy-back: the demo borrower pays exactly the owed ${A.cSym} into the position`, "sepolia", tx);
         this.hooks.step("buyback", { rescueId: rid, tx });
       } else this.hooks.step("buyback", { rescueId: rid });
       const end = await until<Rescue>("waiting for the buy-back to commit", "buyback", async () => {

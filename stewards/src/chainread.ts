@@ -131,6 +131,18 @@ export async function txLogs(rd: Reader, contract: string, txs: Tx[], onEvent?: 
 }
 
 /** ERC-20 transfers of an EVM address on Sepolia, newest pages first, back to `sinceMs`. */
+const senders = new Map<string, string>();
+/** Who sent a Sepolia transaction (Blockscout), cached. */
+export async function txSender(rd: Reader, tx: string): Promise<string | undefined> {
+  if (!senders.has(tx)) {
+    const d = await rd.get(`${BLOCKSCOUT}/transactions/${tx}`).catch(() => null);
+    if (d?.from?.hash) senders.set(tx, String(d.from.hash).toLowerCase());
+  }
+  return senders.get(tx);
+}
+
+/** The address's ERC-20 transfers since `sinceMs`; supplies into it (mints from address zero) carry
+ *  their transaction's sender, so a top-up is tied to the wallet that made it. */
 export async function evmTransfers(rd: Reader, address: string, sinceMs: number, maxPages = 20): Promise<EvmTransfer[]> {
   const out: EvmTransfer[] = [];
   let page: any = undefined;
@@ -146,6 +158,7 @@ export async function evmTransfers(rd: Reader, address: string, sinceMs: number,
     page = d.next_page_params;
     await sleep(400);
   }
+  for (const x of out) if (/^0x0{40}$/i.test(x.from) && x.to.toLowerCase() === address.toLowerCase() && Date.parse(new Date(x.ts * 1000).toISOString()) >= sinceMs) x.sender = await txSender(rd, x.tx);
   return out;
 }
 

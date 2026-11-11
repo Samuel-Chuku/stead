@@ -5,6 +5,7 @@
 // so instead of claiming that nothing is open.
 import type { FeedRescue, LiveFeed } from "../../../stewards/src/livefeed";
 import { boardAt, isPooled } from "./model";
+import { icon } from "../icons";
 import { bindModeSwitch, modeSwitch, mountBoard, type BoardMode } from "./view";
 
 /** Seconds the board runs behind the chain: the feed sees an event ~3–5 s after it lands. */
@@ -46,7 +47,29 @@ export function screenFor(feed: LiveFeed | null, lastOkMs: number | null, starte
 /** One steward covering the top-up, or several sharing it (a top-up larger than any one's capacity). */
 export type DemoKind = "single" | "pooled";
 export type DemoStep = "trigger" | "reading" | "auction" | "topup" | "buyback" | "payouts" | "settling" | "reset" | "done" | "stopped";
-export type DemoRunView = { runId: string; startedAt: number; step: DemoStep; stepText: string; rescueId: number | null; error: string | null };
+export type RunTx = { at: number; label: string; chain: "near" | "sepolia"; hash: string };
+export type DemoRunView = { runId: string; startedAt: number; step: DemoStep; stepText: string; rescueId: number | null; error: string | null; txs?: RunTx[] };
+export type DemoHistory = { slot: number; kind: string; runId: string; rescueId: number | null; outcome: string; error: string | null; startedAt: number; endedAt: number; txs: RunTx[] };
+/** What is happening at each step, in plain words. */
+export const STEP_EXPLAIN: Record<DemoStep, string> = {
+  trigger: "The demo borrower borrows DAI against its LINK until its health factor drops to 1.14, just under the 1.15 trigger. The contract signs the borrow on Aave through NEAR's chain signatures: the borrower holds no key to the position.",
+  reading: "The keeper asks OutLayer for a proven reading of the position. When the proof shows health below 1.15, the contract opens the auction. This takes 30 to 60 seconds.",
+  auction: "Stewards have 45 seconds to bid a premium. Watch the bids land on the board below; deep and swift re-bid lower when outbid. The position is locked now: try to break it.",
+  topup: "The winner supplies LINK into the position on Aave. Only a new proven reading of the collateral lets the contract mint the claims.",
+  buyback: "The claims are open. The demo borrower pays exactly what they are owed into the position; a proven balance commits the buy-back.",
+  payouts: "The contract signs one payout per claim, each exactly the owed amount.",
+  settling: "The buy-back window ran out: a claim owner settles at the oracle price.",
+  reset: "Done on screen. Off-screen, the demo position goes back to rest for the next visitor.",
+  done: "Done.",
+  stopped: "Stopped.",
+};
+const txHref = (t: RunTx) => (t.chain === "near" ? `https://testnet.nearblocks.io/txns/${t.hash}` : `https://sepolia.etherscan.io/tx/${t.hash}`);
+const runLog = (txs: RunTx[]) =>
+  txs.length
+    ? `<ol class="st-runlog">${txs
+        .map((t) => `<li><span class="st-runlog-time">${new Date(t.at).toISOString().slice(11, 19)}</span><span class="st-runlog-label">${esc(t.label)}</span><a class="st-txlink" href="${txHref(t)}" target="_blank" rel="noopener"><span>${t.chain === "near" ? "NearBlocks" : "Etherscan"}</span><span class="st-txlink-where">${t.hash.slice(0, 8)}…</span>${icon("external", 12)}</a></li>`)
+        .join("")}</ol>`
+    : "";
 export type DemoStatus = {
   generated: number;
   slots: { slot: number; kind?: DemoKind; positionId: number | null; run: DemoRunView | null }[];
@@ -55,6 +78,7 @@ export type DemoStatus = {
   paused: boolean;
   leftToday: number;
   recent: { slot: number; runId: string; rescueId: number | null; outcome: string; error: string | null; startedAt: number; endedAt: number }[];
+  history?: DemoHistory[];
 };
 /** The steps a demo run shows, in order (settling replaces buy-back when the window runs out). */
 export const DEMO_STEPS: { id: DemoStep; title: string }[] = [
@@ -130,7 +154,7 @@ const newToken = () => {
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 };
 
-export function mountLive(root: HTMLElement, onMode: (m: BoardMode) => void, mode: "live" | "demo" = "live"): () => void {
+export function mountLive(root: HTMLElement, onMode: (m: BoardMode) => void, mode: "live" | "demo" = "live", only?: (r: FeedRescue) => boolean): () => void {
   const demo = mode === "demo";
   const started = Date.now();
   let feed: LiveFeed | null = null;
@@ -150,6 +174,7 @@ export function mountLive(root: HTMLElement, onMode: (m: BoardMode) => void, mod
   let sending = false;
   let refusal: string | null = null;
   let demoKey = "";
+  let tryResult: string | null = null;
 
   root.innerHTML = demo ? `<section class="st-panel st-demo" data-demo aria-label="Demo rescue"></section><div data-stage></div>` : `<div data-stage></div>`;
   const stage = root.querySelector<HTMLElement>("[data-stage]")!;
@@ -205,22 +230,46 @@ export function mountLive(root: HTMLElement, onMode: (m: BoardMode) => void, mod
     await pollDemo().catch(() => {});
   }
 
+  async function tryBreak(runId: string, action: "withdraw" | "borrow") {
+    tryResult = `Asking the contract to ${action === "withdraw" ? "withdraw 1 LINK" : "borrow 1 DAI"}…`;
+    renderDemo(true);
+    try {
+      const r = await fetch(`${feedUrl()}/demo/try`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId, action }), signal: AbortSignal.timeout(30_000) });
+      const j = await r.json().catch(() => ({}));
+      tryResult = r.ok ? (j.refused ? `Refused by the contract: "${j.message}". The refusal is on NEAR testnet, in the run log below.` : "The contract accepted it: that should never happen, please report it.") : j.error ?? "The demo runner refused the attempt.";
+    } catch {
+      tryResult = "The demo runner did not answer. Try again in a moment.";
+    }
+    await pollDemo().catch(() => {});
+  }
+
   function renderDemo(force = false) {
     if (!ctl) return;
     const now = Date.now();
+    // the visitor's own run, else whichever demo is running now (everyone can watch)
     const own = status?.slots.find((s) => s.run?.runId === mine)?.run ?? null;
+    const watching = own ?? status?.slots.find((s) => s.run)?.run ?? null;
     const ended = status?.recent.find((r) => r.runId === mine) ?? null;
     const gates = { single: startState(status, now, !!own, "single"), pooled: startState(status, now, !!own, "pooled") };
-    const key = JSON.stringify([gates, own?.step, own?.rescueId, own?.error, ended?.outcome, sending, refusal]);
+    const key = JSON.stringify([gates, watching?.runId, watching?.step, watching?.rescueId, watching?.error, watching?.txs?.length, ended?.outcome, sending, refusal, tryResult, status?.history?.[0]?.runId]);
     if (key === demoKey && !force) return;
     demoKey = key;
-    const idx = own ? stepIndex(own.step) : -1;
-    const stepper = own
-      ? `<ol class="st-demo-steps" aria-label="Your demo rescue">${DEMO_STEPS.map((s, i) => {
-          const title = s.id === "buyback" && own.step === "settling" ? "Settlement" : s.title;
+    const idx = watching ? stepIndex(watching.step) : -1;
+    const locked = watching && (watching.step === "auction" || watching.step === "topup" || watching.step === "buyback");
+    const stepper = watching
+      ? `<div class="st-demo-run">
+        <div class="st-label">${own ? "YOUR DEMO RESCUE" : "A DEMO RESCUE IS RUNNING"}${watching.rescueId !== null ? ` · RESCUE ${watching.rescueId}` : ""}</div>
+        <ol class="st-demo-steps" aria-label="Demo rescue steps">${DEMO_STEPS.map((s, i) => {
+          const title = s.id === "buyback" && watching.step === "settling" ? "Settlement" : s.title;
           return `<li class="${i < idx ? "is-done" : i === idx ? "is-now" : ""}"${i === idx ? ' aria-current="step"' : ""}><span class="st-demo-dot" aria-hidden="true"></span>${title}</li>`;
         }).join("")}</ol>
-        <p class="st-demo-now">${own.rescueId !== null ? `Rescue ${own.rescueId} · ` : ""}${esc(own.stepText)}${own.error ? ` · <span class="st-demo-err">${esc(own.error)}; retrying from the chain state</span>` : ""}</p>`
+        <p class="st-demo-now"><strong>${esc(watching.stepText)}.</strong> ${esc(STEP_EXPLAIN[watching.step])}${watching.error ? ` <span class="st-demo-err">${esc(watching.error)}; retrying from the chain state.</span>` : ""}</p>
+        ${locked ? `<div class="st-break"><div class="st-break-text"><strong>Try to break it.</strong> While the claim is open the borrower may only repay or add collateral. Ask the contract for something else and watch it refuse, on chain.</div>
+          <div class="st-break-buttons"><button type="button" class="st-secondary st-cut" data-break="withdraw">Try to withdraw 1 LINK</button><button type="button" class="st-secondary st-cut" data-break="borrow">Try to borrow 1 DAI</button></div>
+          ${tryResult ? `<p class="st-break-result" role="status">${esc(tryResult)}</p>` : ""}</div>` : ""}
+        ${watching.txs?.length ? `<div class="st-label st-runlog-head">RUN LOG · EVERY TRANSACTION THIS DEMO SENT</div>${runLog(watching.txs)}` : ""}
+        ${watching.rescueId !== null ? `<p class="st-demo-story"><a class="st-textlink" href="?rescue=sepolia-demo:${watching.rescueId}#/rescues">Rescue ${watching.rescueId}'s full story</a> appears a few minutes after it ends: every step from the trigger to the payouts, each with its transaction.</p>` : ""}
+      </div>`
       : ended
         ? `<p class="st-demo-now">Your demo rescue${ended.rescueId !== null ? ` ${ended.rescueId}` : ""} ended: ${ended.outcome === "bought_back" ? "bought back, the steward paid exactly what it was owed" : ended.outcome === "settled" ? "the buy-back window ran out and the claim was settled" : esc(ended.outcome)}.</p>`
         : "";
@@ -242,7 +291,12 @@ export function mountLive(root: HTMLElement, onMode: (m: BoardMode) => void, mod
           ${refusal ? `<p class="st-demo-reason st-demo-refusal" role="alert">${esc(refusal)}</p>` : ""}
         </div>
       </div>
-      ${stepper}`;
+      ${stepper}
+      ${status?.history?.length ? `<details class="st-demo-history"${watching ? "" : " open"}><summary>Recent demo rescues (${status.history.length})</summary><ul>${status.history
+        .map((h) => `<li><span class="st-mono">${new Date(h.startedAt).toISOString().slice(5, 16).replace("T", " ")}</span><span>${h.kind === "pooled" ? "Pooled" : "One steward"}</span><span>${h.rescueId !== null ? `Rescue ${h.rescueId}` : "—"}</span><span>${h.outcome === "bought_back" ? "Bought back" : h.outcome === "settled" ? "Settled" : esc(h.outcome)}</span><span>${h.txs.length} transactions</span>${h.rescueId !== null ? `<a class="st-textlink" href="?rescue=sepolia-demo:${h.rescueId}#/rescues">The whole story</a>` : ""}</li>`)
+        .join("")}</ul></details>` : ""}`;
+    for (const b of ctl.querySelectorAll<HTMLButtonElement>("[data-break]"))
+      b.addEventListener("click", () => watching && void tryBreak(watching.runId, b.dataset.break as "withdraw" | "borrow"));
     for (const b of ctl.querySelectorAll<HTMLButtonElement>("[data-demo-start]"))
       b.addEventListener("click", () => {
         const k = b.dataset.demoStart as DemoKind;
@@ -309,7 +363,7 @@ export function mountLive(root: HTMLElement, onMode: (m: BoardMode) => void, mod
       const d = demoPick(status, mine);
       const pick = picked ?? (d.rescueId !== null && feed ? feed.rescues.find((r) => r.rescueId === d.rescueId && d.positions.has(r.positionId))?.key : undefined);
       render(screenFor(feed, lastOk, started, Date.now(), pick, (r) => d.positions.has(r.positionId) && r.contract === DEMO_CONTRACT));
-    } else render(screenFor(feed, lastOk, started, Date.now(), picked));
+    } else render(screenFor(feed, lastOk, started, Date.now(), picked, only));
     raf = requestAnimationFrame(frame);
   }
   void poll();

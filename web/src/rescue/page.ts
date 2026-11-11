@@ -5,6 +5,7 @@ import type { Evidence, RescueEvent, RescueLog, StewardId } from "../../../stewa
 import { CODE, fmtAmt } from "../board/model";
 import { icon } from "../icons";
 import { crown } from "../crown";
+import { story } from "./story";
 
 type Ev<K extends RescueEvent["kind"]> = Extract<RescueEvent, { kind: K }>;
 export type ProofKind = "readings" | "auction" | "topup" | "claim" | "payouts";
@@ -56,13 +57,24 @@ const tile = (s: StewardId, size: number) => `<span class="st-tile st-tile--${si
 /** A number in Big Shoulders with its unit in Chakra Petch (no word is ever set in Big Shoulders). */
 const num = (n: string, unit = "") => `<span class="st-num">${n}</span>${unit ? `<span class="st-unit">${unit}</span>` : ""}`;
 
-export async function mountRescue(root: HTMLElement, replayUrl: string) {
+/** Open a rescue: the first of `urls` that answers (the live feed's recording, then a published one). */
+export async function mountRescue(root: HTMLElement, urls: string | string[]) {
+  const list = Array.isArray(urls) ? urls : [urls];
+  let replayUrl = list[list.length - 1];
   root.innerHTML = `<section class="st-panel st-page"><div class="st-label">RESCUES</div><p class="st-empty">Loading the recorded rescue…</p></section>`;
   let log: RescueLog;
   let path: CostPath | null = null;
   try {
-    const r = await fetch(replayUrl);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    let r: Response | null = null;
+    for (const u of list) {
+      r = await fetch(u, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+      if (r?.ok && (r.headers.get("content-type") ?? "").includes("json")) {
+        replayUrl = u;
+        break;
+      }
+      r = null;
+    }
+    if (!r) throw new Error("this rescue isn't recorded yet: recordings are made a few minutes after a rescue ends");
     log = await r.json();
     // the cost chart's price path exists only for some recordings: without one, the page has no chart
     const p = await fetch(replayUrl.replace(/\.json$/, "-path.json"));
@@ -273,10 +285,11 @@ export function render(log: RescueLog, path: CostPath | null): string {
       ${kpis}
       ${timeline}
     </section>
+    ${story(log)}
     ${path ? chart(log, path, premiumUsd, claim, open.capBps) : ""}
     ${results}
     ${claimBlock}
-    ${proofs}
+    <details class="st-records"><summary>Every record behind this rescue, filterable</summary>${proofs}</details>
   </div>`;
 }
 

@@ -574,7 +574,8 @@
    "from": "0x0000000000000000000000000000000000000000",
    "to": "0xCDEd4D283E1dd00712257c55622622e8745AdC57",
    "value": "865215",
-   "decimals": 8
+   "decimals": 8,
+   "sender": "0x88248eb0aeb2149fd60ecd4e1c7f7976c38113a6"
   },
   {
    "block": 12082525,
@@ -604,7 +605,8 @@
    "from": "0x0000000000000000000000000000000000000000",
    "to": "0xCDEd4D283E1dd00712257c55622622e8745AdC57",
    "value": "259639204405262019579",
-   "decimals": 18
+   "decimals": 18,
+   "sender": "0xcded4d283e1dd00712257c55622622e8745adc57"
   },
   {
    "block": 12082517,
@@ -1036,5 +1038,8 @@
    "value": "6000000000000000",
    "decimals": 0
   }
- ]
+ ],
+ "stewardWallets": {
+  "0x88248eb0aeb2149fd60ecd4e1c7f7976c38113a6": "hedged.steadfi.testnet"
+ }
 }

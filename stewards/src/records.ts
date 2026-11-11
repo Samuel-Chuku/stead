@@ -40,6 +40,10 @@ export type RescueRow = {
   winners: { steward: string; bps: number; share: string }[];
   premiumUsd: number;
   claims: string[];
+  /** A recording of this rescue exists (its own page, every step linked). */
+  recorded?: boolean;
+  /** The trigger's NEAR transaction (the reading that opened the auction). */
+  triggerUrl?: string;
 };
 export type ClaimRow = {
   token: string;
@@ -54,6 +58,11 @@ export type ClaimRow = {
   bps: number;
   status: string;
   expiresAtMs: number;
+  /** Links from the rescue's recording: where the claim was minted, and where it was paid. */
+  mintUrl?: string;
+  paidUrl?: string;
+  paidTransferUrl?: string;
+  topupUrl?: string;
 };
 export type StewardRow = { name: string; account: string; contracts: string[]; bids: number; wins: number; claimsOpen: number; claimsTotal: number; premiumUsd: number; lastWinAtMs: number | null };
 export type Records = { version: 1; generated: string; contracts: string[]; positions: PositionRow[]; rescues: RescueRow[]; claims: ClaimRow[]; stewards: StewardRow[] };
@@ -199,4 +208,27 @@ export async function fetchContract(contract: string, view: <T>(contract: string
   }
   const roles = await view<[string, string[], string[], boolean]>(contract, "get_roles", {});
   return { contract, positions, rescues, claims, markets, stewards: roles[2] };
+}
+
+type Ev = { kind: string; claim?: string | null; steward?: string; evidence?: { url?: string }; transfer?: { url?: string } };
+/** Add transaction links from recorded rescues: `logs` maps "<contract>#<id>" to the rescue's events. */
+export function linkRecords(r: Records, logs: Map<string, { events: Ev[] }>): Records {
+  for (const x of r.rescues) {
+    const log = logs.get(x.key);
+    if (!log) continue;
+    x.recorded = true;
+    x.triggerUrl = log.events.find((e) => e.kind === "TRIGGER")?.evidence?.url;
+  }
+  for (const c of r.claims) {
+    const log = logs.get(`${c.contract}#${c.rescueId}`);
+    if (!log) continue;
+    const mint = log.events.find((e) => e.kind === "CLAIM_MINTED" && e.claim === c.token);
+    const paid = log.events.find((e) => e.kind === "PAYOUT" && e.claim === c.token);
+    const top = log.events.find((e) => e.kind === "TOPUP_SENT" && e.steward === c.owner);
+    c.mintUrl = mint?.evidence?.url;
+    c.paidUrl = paid?.evidence?.url;
+    c.paidTransferUrl = paid?.transfer?.url;
+    c.topupUrl = top?.evidence?.url;
+  }
+  return r;
 }

@@ -11,6 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { buildLog, STEWARDS, type ClaimRecord, type Inputs } from "../src/rescuelog.js";
 import { contractTxs, evmTransfers, reader, scrub, sleep, tokenSymbol, txLogs } from "../src/chainread.js";
 import { env, hasEnv } from "../src/config.js";
+import { walletsOf } from "../src/recorder.js";
 
 const REPO = resolve(dirname(new URL(import.meta.url).pathname), "..", "..");
 const arg = (n: string) => (process.argv.includes(n) ? process.argv[process.argv.indexOf(n) + 1] : undefined);
@@ -79,7 +80,8 @@ async function main() {
   const transfers = await evmTransfers(rd, position.evm_address, Number(fromNs / 1_000_000n));
   const symbols = { collateral: await tokenSymbol(rd, market.collateral), debt: await tokenSymbol(rd, market.debt) };
 
-  const inputs: Inputs = { contract, nearNetwork: "testnet", evmChain: "sepolia", rescue, position, market, params, symbols, claims, logs, transfers };
+  const stewardWallets = await walletsOf(rd, contract, rescue.members.map((m: { steward: string }) => m.steward));
+  const inputs: Inputs = { contract, nearNetwork: "testnet", evmChain: "sepolia", rescue, position, market, params, symbols, claims, logs, transfers, stewardWallets };
   if (rawOut) writeFileSync(resolve(rawOut), JSON.stringify(inputs, null, 1));
   const log = buildLog(inputs);
   log.label = `Recorded on NEAR testnet and Sepolia, ${new Date(log.openedAtMs).toISOString().slice(0, 10)}`;

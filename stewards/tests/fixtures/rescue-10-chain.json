@@ -999,6 +999,141 @@
  ],
  "transfers": [
   {
+   "block": 12103422,
+   "ts": 1794298836,
+   "tx": "0x891a5bcabcb7962a1ddc716c0b14992ca582593185878c75ff81a9e7b6e1cbd4",
+   "token": "0xFF34B3d4Aee8ddCd6F9AFFFB6Fe49bD371b8a357",
+   "from": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "to": "0x8b2389f53161bEE927F2204Dc0E5c46F4E5C11FE",
+   "value": "999999990800000000",
+   "decimals": 18
+  },
+  {
+   "block": 12103417,
+   "ts": 1794298776,
+   "tx": "0xcc4b79d78653c66aa4802e210d6c77228b18990c4b5d98e9c2f7b6fd6651eabf",
+   "token": "0xFF34B3d4Aee8ddCd6F9AFFFB6Fe49bD371b8a357",
+   "from": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "to": "0xBb261A7076CADC30f797CDEF283aE454f673640C",
+   "value": "650312905610000000000",
+   "decimals": 18
+  },
+  {
+   "block": 12103413,
+   "ts": 1794298728,
+   "tx": "0x463f5f54325ebaf94b9e473f84ed67a2af244954643732514fd8e795cf7b913f",
+   "token": "0xFF34B3d4Aee8ddCd6F9AFFFB6Fe49bD371b8a357",
+   "from": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "to": "0xa2f476Be0a14dDEB2376Bd3a3Beac45E02D78Be8",
+   "value": "924120000000000000000",
+   "decimals": 18
+  },
+  {
+   "block": 12103408,
+   "ts": 1794298668,
+   "tx": "0x1cf359521e73981f24916a69fcc33b5f6dafc251cef0e93ebbfd5b25bb7d1a8f",
+   "token": "0xFF34B3d4Aee8ddCd6F9AFFFB6Fe49bD371b8a357",
+   "from": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "to": "0x3882c34A281E93Ae0B0dF247459F02493d47b161",
+   "value": "913500000000000000000",
+   "decimals": 18
+  },
+  {
+   "block": 12103403,
+   "ts": 1794298608,
+   "tx": "0x7e2840aebd780447ceb05ad279037223e1a660596719c222524689f8d3b226ca",
+   "token": "0xFF34B3d4Aee8ddCd6F9AFFFB6Fe49bD371b8a357",
+   "from": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "to": "0x88248eb0AeB2149Fd60ECD4e1C7F7976C38113A6",
+   "value": "905670000000000000000",
+   "decimals": 18
+  },
+  {
+   "block": 12103396,
+   "ts": 1794298524,
+   "tx": "0xaf75b0b39b36e30f0048eb5f5fac8bbc454bd7386d0aea311b86ad722a2802fe",
+   "token": "0xFF34B3d4Aee8ddCd6F9AFFFB6Fe49bD371b8a357",
+   "from": "0x8b2389f53161bEE927F2204Dc0E5c46F4E5C11FE",
+   "to": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "value": "3394602905600800000000",
+   "decimals": 18
+  },
+  {
+   "block": 12103388,
+   "ts": 1794298416,
+   "tx": "0x87723bb7efbdf2c01a83218b00c3e8270739735fa1733c8a549f899d47793b59",
+   "token": "0x3FfAf50D4F4E96eB78f2407c090b72e86eCaed24",
+   "from": "0x0000000000000000000000000000000000000000",
+   "to": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "value": "30000000000000000000",
+   "decimals": 18,
+   "sender": "0x3882c34a281e93ae0b0df247459f02493d47b161"
+  },
+  {
+   "block": 12103388,
+   "ts": 1794298416,
+   "tx": "0xab209a4f8c9a26498ac980959f56011dfcfa54238f5e80908b9a463aa88b4389",
+   "token": "0x3FfAf50D4F4E96eB78f2407c090b72e86eCaed24",
+   "from": "0x0000000000000000000000000000000000000000",
+   "to": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "value": "30000000000000000000",
+   "decimals": 18,
+   "sender": "0xa2f476be0a14ddeb2376bd3a3beac45e02d78be8"
+  },
+  {
+   "block": 12103388,
+   "ts": 1794298416,
+   "tx": "0x94c0cd4021f93379ea091e7a2f546c1bbf93b265efa0791034209cce35b31517",
+   "token": "0x3FfAf50D4F4E96eB78f2407c090b72e86eCaed24",
+   "from": "0x0000000000000000000000000000000000000000",
+   "to": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "value": "20843362359000000000",
+   "decimals": 18,
+   "sender": "0xbb261a7076cadc30f797cdef283ae454f673640c"
+  },
+  {
+   "block": 12103388,
+   "ts": 1794298416,
+   "tx": "0xc8c63ac1b85f68728db7be2bb2112f4e35e56a43ea736edb8ef7b9f779690494",
+   "token": "0x3FfAf50D4F4E96eB78f2407c090b72e86eCaed24",
+   "from": "0x0000000000000000000000000000000000000000",
+   "to": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "value": "34735269663436795389",
+   "decimals": 18,
+   "sender": "0x88248eb0aeb2149fd60ecd4e1c7f7976c38113a6"
+  },
+  {
+   "block": 12103379,
+   "ts": 1794298308,
+   "tx": "0x38867eeb508931486e0c9707ed59d51b3ff7aff7456683841652ff42cd1808b8",
+   "token": "0xFF34B3d4Aee8ddCd6F9AFFFB6Fe49bD371b8a357",
+   "from": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "to": "0x8b2389f53161bEE927F2204Dc0E5c46F4E5C11FE",
+   "value": "1710140077540000000000",
+   "decimals": 18
+  },
+  {
+   "block": 12103376,
+   "ts": 1794298272,
+   "tx": "0xa2a5ecdaa0b47a5511d04060d02ff1573b120b916057f512e1782a01deac585c",
+   "token": "0xFF34B3d4Aee8ddCd6F9AFFFB6Fe49bD371b8a357",
+   "from": "0x29598b72eb5CeBd806C5dCD549490FdA35B13cD8",
+   "to": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "value": "1710140077540000000000",
+   "decimals": 18
+  },
+  {
+   "block": 12103376,
+   "ts": 1794298272,
+   "tx": "0xa2a5ecdaa0b47a5511d04060d02ff1573b120b916057f512e1782a01deac585c",
+   "token": "0x22675C506A8FC26447aFFfa33640f6af5d4D4cF0",
+   "from": "0x0000000000000000000000000000000000000000",
+   "to": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
+   "value": "1733667570138632964701",
+   "decimals": 18,
+   "sender": "0x7e3f5e8817fa3da16fefb0ad0ba76fa69c31ff31"
+  },
+  {
    "block": 12088845,
    "ts": 1794118440,
    "tx": "0x19d04da87cc4ab705f1eb3683aa09ab8c1b450f4c5a449eb223ada6c590a9be7",
@@ -1066,7 +1201,8 @@
    "from": "0x0000000000000000000000000000000000000000",
    "to": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
    "value": "25000000000000000000",
-   "decimals": 18
+   "decimals": 18,
+   "sender": "0x3882c34a281e93ae0b0df247459f02493d47b161"
   },
   {
    "block": 12088809,
@@ -1076,7 +1212,8 @@
    "from": "0x0000000000000000000000000000000000000000",
    "to": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
    "value": "25000000000000000000",
-   "decimals": 18
+   "decimals": 18,
+   "sender": "0x88248eb0aeb2149fd60ecd4e1c7f7976c38113a6"
   },
   {
    "block": 12088809,
@@ -1086,7 +1223,8 @@
    "from": "0x0000000000000000000000000000000000000000",
    "to": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
    "value": "25000000000000000000",
-   "decimals": 18
+   "decimals": 18,
+   "sender": "0xa2f476be0a14ddeb2376bd3a3beac45e02d78be8"
   },
   {
    "block": 12088809,
@@ -1096,7 +1234,8 @@
    "from": "0x0000000000000000000000000000000000000000",
    "to": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
    "value": "8114527572406149221",
-   "decimals": 18
+   "decimals": 18,
+   "sender": "0xbb261a7076cadc30f797cdef283ae454f673640c"
   },
   {
    "block": 12088800,
@@ -1126,7 +1265,8 @@
    "from": "0x0000000000000000000000000000000000000000",
    "to": "0x7e3F5E8817fA3dA16fEfB0Ad0ba76fA69c31fF31",
    "value": "1246711777385417144734",
-   "decimals": 18
+   "decimals": 18,
+   "sender": "0x7e3f5e8817fa3da16fefb0ad0ba76fa69c31ff31"
   },
   {
    "block": 12088794,
@@ -1308,5 +1448,11 @@
    "value": "6000000000000000",
    "decimals": 0
   }
- ]
+ ],
+ "stewardWallets": {
+  "0x3882c34a281e93ae0b0df247459f02493d47b161": "deep.steadfi.testnet",
+  "0x88248eb0aeb2149fd60ecd4e1c7f7976c38113a6": "hedged.steadfi.testnet",
+  "0xa2f476be0a14ddeb2376bd3a3beac45e02d78be8": "patient.steadfi.testnet",
+  "0xbb261a7076cadc30f797cdef283ae454f673640c": "swift.steadfi.testnet"
+ }
 }

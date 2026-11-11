@@ -13,10 +13,12 @@ import { existsSync, readFileSync, renameSync, writeFileSync, mkdirSync } from "
 import { dirname, join } from "node:path";
 import type { Address, Hex } from "viem";
 import { cfg, env, nearKey, REPO, STEWARDS, stewardAccount } from "../src/config.js";
-import { pub, wallet, price, E8 } from "../src/fork.js";
+import { pub, wallet, price, write, faucetAbi, E8 } from "../src/fork.js";
+import { account } from "../src/near.js";
+import { FAUCET, checkFaucet, freshFaucet, recordFaucet, type FaucetState } from "../src/faucet.js";
 import { marketAssets } from "../src/market.js";
 import { view } from "../src/near.js";
-import { DEMO, DEMO_KINDS, STEP_TEXT, allowancePerDay, checkSigners, freshGate, refuelPlan, route, visitorOf, MAX_BODY, type Budget, type GateState, type Step } from "../src/demogate.js";
+import { DEMO, DEMO_KINDS, STEP_TEXT, BREAK_TEXT, allowancePerDay, checkTry, type RunTx, checkSigners, freshGate, refuelPlan, route, visitorOf, MAX_BODY, type Budget, type GateState, type Step } from "../src/demogate.js";
 import { DemoRun, type DemoSlot } from "../src/demorun.js";
 import { scrub } from "../src/chainread.js";
 import { sleep } from "../src/log.js";
@@ -33,9 +35,24 @@ const accounts = env("DEMO_ACCOUNTS", "demo.steadfi.testnet,demo-2.steadfi.testn
 checkSigners(accounts, [cfg.borrower, cfg.reporter, cfg.contract, ...STEWARDS.map(stewardAccount)]);
 for (const a of accounts) nearKey(a); // throws (without printing anything) if a key file is missing
 const reserve = wallet(env("DEMO_RESERVE_EVM_KEY") as Hex);
+/** The NEAR account that sponsors visitors' test NEAR (sends only plain transfers). */
+const SPONSOR = env("FAUCET_SPONSOR", "stead-sponsor.testnet");
+if (!/^stead-sponsor\./.test(SPONSOR)) throw new Error(`refusing to use ${SPONSOR} as the faucet sponsor`);
+const sponsorReady = (() => {
+  try {
+    nearKey(SPONSOR);
+    return true;
+  } catch {
+    return false; // no key: the faucet answers 503, the demos run as before
+  }
+})();
 
 interface Saved {
   gate: GateState;
+  /** The sponsored faucet's limits (who was served when). */
+  faucet?: FaucetState;
+  /** Finished runs, newest first (kept across restarts for the page's history). */
+  history?: { slot: number; kind: string; runId: string; rescueId: number | null; outcome: string; error: string | null; startedAt: number; endedAt: number; txs: RunTx[] }[];
   slots: Omit<DemoSlot, "evmKey">[];
 }
 function load(): Saved {
@@ -126,6 +143,8 @@ async function refuel() {
 // ── runs ──
 const recent: { slot: number; runId: string; rescueId: number | null; outcome: string; error: string | null; startedAt: number; endedAt: number }[] = [];
 const running = new Set<number>();
+/** "try to break it" attempts made, runId|action (each once per run). */
+const tried = new Set<string>();
 async function drive(i: number) {
   if (running.has(i)) return;
   running.add(i);
@@ -139,6 +158,10 @@ async function drive(i: number) {
       say(`[slot ${i}] ${STEP_TEXT[s]}${d?.rescueId !== undefined ? ` · rescue ${d.rescueId}` : ""}${d?.tx ? ` · ${d.tx}` : ""}${d?.note ? ` · ${d.note}` : ""}`);
     },
     log: (m: string) => say(`[slot ${i}] ${m}`),
+    tx: (label: string, chain: "near" | "sepolia", hash: string) => {
+      (run().txs ??= []).push({ at: Date.now(), label, chain, hash });
+      save();
+    },
   };
   // resumable: on a failure, say where it stopped, then retry from chain state until the position
   // is back at rest. The slot frees only then, so a stuck run never overlaps the next one.
@@ -152,6 +175,7 @@ async function drive(i: number) {
       if (outcome === "reset_only" && rescueId !== null) outcome = (await view<{ state: string }>("get_rescue", { rescue_id: rescueId }).catch(() => ({ state: "reset_only" }))).state;
       recent.unshift({ slot: i, runId: x.id, rescueId, outcome, error: x.error, startedAt: x.startedAt, endedAt: Date.now() });
       recent.length = Math.min(recent.length, 8);
+      saved.history = [{ slot: i, kind: saved.gate.slots[i].kind ?? DEMO_KINDS[i] ?? "single", runId: x.id, rescueId, outcome, error: x.error, startedAt: x.startedAt, endedAt: Date.now(), txs: x.txs ?? [] }, ...(saved.history ?? [])].slice(0, 30);
       saved.gate.slots[i].run = null;
       save();
       break;
@@ -176,14 +200,53 @@ function status() {
       slot: i,
       kind: s.kind ?? DEMO_KINDS[i] ?? "single",
       positionId: saved.slots[i].positionId,
-      run: s.run && { runId: s.run.id, startedAt: s.run.startedAt, step: s.run.step, stepText: STEP_TEXT[s.run.step], rescueId: s.run.rescueId, error: s.run.error },
+      run: s.run && { runId: s.run.id, startedAt: s.run.startedAt, step: s.run.step, stepText: STEP_TEXT[s.run.step], rescueId: s.run.rescueId, error: s.run.error, txs: s.run.txs ?? [] },
     })),
     free,
     nextStartAt: Math.max(now, saved.gate.lastStartAt + DEMO.gapMs),
     paused: !budget.canPayOne,
     leftToday: Math.max(0, budget.leftToday),
     recent: recent.filter((r) => now - r.endedAt < 30 * 60_000),
+    history: (saved.history ?? []).slice(0, 12),
   };
+}
+
+const nearBalance = async (id: string): Promise<bigint | null> => {
+  const r = await fetch(cfg.nearRpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "query", params: { request_type: "view_account", finality: "final", account_id: id } }), signal: AbortSignal.timeout(10_000) });
+  const j = (await r.json()) as { result?: { amount: string } };
+  return j.result ? BigInt(j.result.amount) : null;
+};
+let faucetBusy = false;
+/** Send one visitor's test funds: NEAR from the sponsor, Sepolia ETH from the reserve, LINK and DAI
+ *  minted from Aave's public faucet. One at a time; every send is returned with its transaction. */
+async function serveFaucet(body: string, origin: string | undefined, visitor: string): Promise<{ status: number; json: unknown }> {
+  if (faucetBusy) return { status: 429, json: { error: "the faucet is serving someone else; try again in a few seconds" } };
+  faucetBusy = true;
+  try {
+    saved.faucet ??= freshFaucet();
+    const [reserveWei, sponsorYocto] = await Promise.all([pub.getBalance({ address: reserve.address }), nearBalance(SPONSOR)]);
+    const v = checkFaucet(saved.faucet, Date.now(), body, origin, ORIGINS, visitor, { reserveWei, sponsorYocto: sponsorYocto ?? 0n });
+    if (!v.ok) return { status: v.status, json: { error: v.error, nextAt: v.nextAt ?? null } };
+    if ((await nearBalance(v.near)) === null) return { status: 400, json: { error: `${v.near} doesn't exist on NEAR testnet` } };
+    recordFaucet(saved.faucet, Date.now(), v.near, v.evm, visitor);
+    save();
+    const A = await marketAssets();
+    const sent: { label: string; chain: "near" | "sepolia"; hash: string }[] = [];
+    const n = await account(SPONSOR).transfer({ receiverId: v.near, amount: FAUCET.nearYocto });
+    sent.push({ label: `${Number(FAUCET.nearYocto / 10n ** 20n) / 10_000} NEAR to ${v.near}`, chain: "near", hash: (n as any).transaction?.hash ?? (n as any).transaction_outcome?.id ?? "" });
+    const h = await reserve.sendTransaction({ to: v.evm as Address, value: FAUCET.ethWei, account: reserve.account!, chain: reserve.chain });
+    await pub.waitForTransactionReceipt({ hash: h });
+    sent.push({ label: `${Number(FAUCET.ethWei) / 1e18} Sepolia ETH`, chain: "sepolia", hash: h });
+    sent.push({ label: `${FAUCET.link / 10n ** 18n} ${A.cSym} (Aave's test faucet)`, chain: "sepolia", hash: await write(reserve, cfg.aave.faucet!, faucetAbi, "mint", [A.collateral, v.evm, FAUCET.link]) });
+    sent.push({ label: `${FAUCET.dai / 10n ** 18n} ${A.dSym} (Aave's test faucet)`, chain: "sepolia", hash: await write(reserve, cfg.aave.faucet!, faucetAbi, "mint", [A.debt, v.evm, FAUCET.dai]) });
+    say(`faucet ${v.near} ${v.evm}: ${sent.map((s) => s.hash.slice(0, 10)).join(" ")}`);
+    return { status: 200, json: { sent } };
+  } catch (e) {
+    say(`faucet failed: ${scrub((e as Error).message)}`);
+    return { status: 502, json: { error: "a send failed; nothing more was sent. Try again in a minute." } };
+  } finally {
+    faucetBusy = false;
+  }
 }
 
 const readBody = (req: IncomingMessage) =>
@@ -205,6 +268,26 @@ createServer(async (req, res) => {
   else if (req.method === "GET" && req.url?.startsWith("/demo/status")) headers["access-control-allow-origin"] = "*";
   if (req.method === "OPTIONS") return void res.writeHead(204, headers).end();
   const body = req.method === "POST" ? await readBody(req) : "";
+  if (req.url?.split("?")[0] === "/demo/faucet") {
+    if (req.method !== "POST") return void res.writeHead(405, headers).end('{"error":"POST only"}');
+    if (!sponsorReady) return void res.writeHead(503, headers).end('{"error":"the faucet is not set up"}');
+    const r = await serveFaucet(body, origin, visitorOf(req.headers, req.socket.remoteAddress));
+    return void res.writeHead(r.status, headers).end(JSON.stringify(r.json));
+  }
+  if (req.url?.split("?")[0] === "/demo/try") {
+    if (req.method !== "POST") return void res.writeHead(405, headers).end('{"error":"POST only"}');
+    const c = checkTry(body, origin, ORIGINS, saved.gate, tried);
+    if (!c.ok) return void res.writeHead(c.status, headers).end(JSON.stringify({ error: c.error }));
+    const run = saved.gate.slots[c.slot].run!;
+    tried.add(`${run.id}|${c.action}`);
+    const r = await new DemoRun(slotOf(c.slot), { step: () => {}, log: () => {} }).tryBreak(c.action);
+    if (r.hash) {
+      (run.txs ??= []).push({ at: Date.now(), label: `A visitor tried: ${BREAK_TEXT[c.action]} : ${r.refused ? `refused by the contract ("${r.message}")` : "ACCEPTED"}`, chain: "near", hash: r.hash });
+      save();
+    }
+    say(`[slot ${c.slot}] try ${c.action}: ${r.refused ? "refused" : "ACCEPTED"} ${r.message} ${r.hash ?? ""}`);
+    return void res.writeHead(200, headers).end(JSON.stringify(r));
+  }
   const out = route(
     { method: req.method ?? "", path: req.url?.split("?")[0] ?? "", origin, body, visitor: visitorOf(req.headers, req.socket.remoteAddress) },
     { allowedOrigins: ORIGINS, now: Date.now(), gate: saved.gate, budget: () => budget, start: (slot) => void drive(slot), status, save },

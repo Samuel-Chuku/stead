@@ -59,7 +59,8 @@ export type RescueLog = {
 };
 
 export type ChainLog = { tsNs: string; tx: string; signer: string; method: string; event: string; data: any };
-export type EvmTransfer = { block: number; ts: number; tx: string; token: string; from: string; to: string; value: string; decimals: number };
+/** `sender`: who sent the transaction (read for supplies into the position, to tell whose top-up it is). */
+export type EvmTransfer = { block: number; ts: number; tx: string; token: string; from: string; to: string; value: string; decimals: number; sender?: string };
 export type RescueRecord = {
   id: number;
   position_id: number;
@@ -71,7 +72,8 @@ export type RescueRecord = {
   cap_bps: number;
   collateral_price_base: string;
   debt_price_base: string;
-  members: { steward: string; premium_bps: number; amount_units: string }[];
+  /** The winners: each one's share, and the Sepolia transaction its top-up was proven by. */
+  members: { steward: string; premium_bps: number; share_units?: string; amount_units?: string; evm_tx?: string | null }[];
 };
 export type ClaimRecord = { token_id: string; owner: string; share_units: string; premium_units: string; owed_units: string; expires_at: string; evm_topup_tx?: string | null; paid_by_tx?: string | null };
 
@@ -87,6 +89,8 @@ export type Inputs = {
   claims: ClaimRecord[];
   logs: ChainLog[];
   transfers: EvmTransfer[];
+  /** Each winner's Sepolia wallet (its registered payout), lowercased → steward account. */
+  stewardWallets?: Record<string, string>;
 };
 
 const WAD = 10n ** 18n;
@@ -129,6 +133,8 @@ export function buildLog(inp: Inputs): RescueLog {
   const rid = rescue.id;
   const pos = position.evm_address.toLowerCase();
   const claimIds = new Set(inp.claims.map((c) => c.token_id));
+  const paidIn = new Map<string, "collateral" | "debt">(); // claim → the asset its buy-back was paid in
+  let refundSide: "collateral" | "debt" = "debt";
   const ev: RescueEvent[] = [];
 
   const logs = [...inp.logs].sort((a, b) => (BigInt(a.tsNs) < BigInt(b.tsNs) ? -1 : BigInt(a.tsNs) > BigInt(b.tsNs) ? 1 : 0));
@@ -205,16 +211,21 @@ export function buildLog(inp: Inputs): RescueLog {
         break;
       case "buyback_committed":
         if (!claimIds.has(d.token_id)) break;
+        paidIn.set(d.token_id, d.asset === "debt" ? "debt" : "collateral");
         ev.push({ t, kind: "BUYBACK", claim: d.token_id, amount: units(d.amount, d.asset === "debt" ? dDec : cDec), asset: d.asset === "debt" ? D : C, evidence: nearEv(net, l.tx) });
         break;
       case "bought_back":
         if (d.rescue_id === rid) ev.push({ t, kind: "BOUGHT_BACK", evidence: nearEv(net, l.tx) });
         break;
+      case "refund_queued":
+        if (d.position_id === pid) refundSide = d.asset === "collateral" ? "collateral" : "debt";
+        break;
       case "payout_sent": {
         if (d.position_id !== pid || !opened) break;
-        // Payouts go out in the debt asset after a debt buy-back, otherwise in collateral.
-        const asset = D;
-        ev.push({ t, kind: "PAYOUT", purpose: d.purpose, amount: units(d.amount, dDec), asset, claim: d.token_id ?? null, evidence: nearEv(net, l.tx) });
+        // The event doesn't name the asset: a buy-back payout goes out in the asset its buy-back was
+        // committed in (the claim asset when the borrower paid in it), a refund in its queued asset.
+        const side = d.token_id ? paidIn.get(d.token_id) ?? "debt" : d.purpose === "refund" ? refundSide : "debt";
+        ev.push({ t, kind: "PAYOUT", purpose: d.purpose, amount: units(d.amount, side === "collateral" ? cDec : dDec), asset: side === "collateral" ? C : D, claim: d.token_id ?? null, evidence: nearEv(net, l.tx) });
         break;
       }
       case "settlement_started":
@@ -229,25 +240,42 @@ export function buildLog(inp: Inputs): RescueLog {
   for (const l of logs) if (l.method === "start_settlement" && l.event === "") ev.push({ t: tOf(l.tsNs), kind: "SETTLE_START", evidence: nearEv(net, l.tx) });
 
   // EVM side: the winner's supply, money into the position, and the payouts' transfers.
-  const open = rescue.members.map((m) => ({ s: stewardOf(m.steward)!, units: m.amount_units, used: false }));
+  // Each winner's top-up is the transaction the contract recorded for it (members[].evm_tx); an amount
+  // match is only the fallback for records without it (several shares can be equal, and Aave's mint
+  // event adds accrued interest to the amount).
+  const open = rescue.members.map((m) => ({ s: stewardOf(m.steward)!, units: m.share_units ?? m.amount_units ?? "", tx: (m.evm_tx ?? "").toLowerCase(), used: false }));
   const lastT = ev.length ? Math.max(...ev.map((e) => e.t)) : 0;
+  const boughtT = ev.find((e) => e.kind === "BOUGHT_BACK")?.t;
   for (const x of [...inp.transfers].sort((a, b) => a.block - b.block)) {
     const t = tOfS(x.ts);
     if (t < -5 || t > lastT + 120) continue;
     const to = x.to.toLowerCase();
     const from = x.from.toLowerCase();
+    // which of the market's two tokens moved (by address: both can have 18 decimals)
+    const tok = x.token.toLowerCase();
+    const side = tok === market.collateral.toLowerCase() ? "collateral" : tok === market.debt.toLowerCase() ? "debt" : null;
     const zero = /^0x0{40}$/.test(from);
     if (zero && to === pos && x.decimals === cDec) {
       // aToken minted to the position = collateral supplied; match a winner by amount
-      const m = open.find((o) => !o.used && o.units === x.value) ?? open.find((o) => !o.used);
+      // whose top-up: the transaction's sender is a winner's wallet (exact); else the recorded tx;
+      // else, for records with neither, a match by amount
+      const who = x.sender ? stewardOf(inp.stewardWallets?.[x.sender.toLowerCase()] ?? "") : null;
+      const bySender = who ? open.find((o) => !o.used && o.s === who) : undefined;
+      const byTx = open.find((o) => !o.used && o.tx.startsWith("0x") && o.tx === x.tx.toLowerCase());
+      const exact = bySender ?? byTx;
+      const m = exact ?? (x.sender && inp.stewardWallets ? undefined : open.find((o) => !o.used && o.units === x.value) ?? open.find((o) => !o.used));
       if (!m) continue;
       m.used = true;
-      ev.push({ t, kind: "TOPUP_SENT", steward: m.s, amount: units(x.value, cDec), asset: C, evidence: evmEv(inp.evmChain, x.tx, x.block) });
-    } else if (to === pos && !zero && x.decimals === dDec && from === position.payout.toLowerCase() && t > 0) {
-      ev.push({ t, kind: "PAYMENT_IN", amount: units(x.value, dDec), asset: D, evidence: evmEv(inp.evmChain, x.tx, x.block) });
-    } else if (from === pos && x.decimals === dDec && t > 0) {
-      // attach the EVM transfer to the payout it carried out (same amount, after it)
-      const p = ev.find((e) => e.kind === "PAYOUT" && e.amount === units(x.value, dDec) && !(e as any).transfer);
+      // the amount supplied is the winner's share (the mint event's value can include accrued interest)
+      ev.push({ t, kind: "TOPUP_SENT", steward: m.s, amount: units(exact && m.units ? m.units : x.value, cDec), asset: C, evidence: evmEv(inp.evmChain, x.tx, x.block) });
+    } else if (to === pos && !zero && side && from === position.payout.toLowerCase() && t > 0 && (boughtT === undefined || t <= boughtT)) {
+      // (after the buy-back commits, money the borrower sends in is a repay of its own, not part of the rescue)
+      // the borrower's buy-back payment, in whichever asset it paid (the claim asset or the debt asset)
+      ev.push({ t, kind: "PAYMENT_IN", amount: units(x.value, side === "collateral" ? cDec : dDec), asset: side === "collateral" ? C : D, evidence: evmEv(inp.evmChain, x.tx, x.block) });
+    } else if (from === pos && side && t > 0) {
+      // attach the EVM transfer to the payout it carried out (same asset and amount, after it)
+      const amt = units(x.value, side === "collateral" ? cDec : dDec);
+      const p = ev.find((e) => e.kind === "PAYOUT" && e.asset === (side === "collateral" ? C : D) && e.amount === amt && !(e as any).transfer);
       if (p) (p as any).transfer = evmEv(inp.evmChain, x.tx, x.block);
     }
   }

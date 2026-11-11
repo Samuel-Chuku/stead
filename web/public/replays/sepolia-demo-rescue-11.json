@@ -191,7 +191,7 @@
   {
    "t": 64.206,
    "kind": "TOPUP_SENT",
-   "steward": "hedged",
+   "steward": "deep",
    "amount": "30",
    "asset": "LINK",
    "evidence": {
@@ -205,7 +205,7 @@
   {
    "t": 64.206,
    "kind": "TOPUP_SENT",
-   "steward": "deep",
+   "steward": "patient",
    "amount": "30",
    "asset": "LINK",
    "evidence": {
@@ -219,7 +219,7 @@
   {
    "t": 64.206,
    "kind": "TOPUP_SENT",
-   "steward": "patient",
+   "steward": "swift",
    "amount": "20.843362359",
    "asset": "LINK",
    "evidence": {
@@ -233,8 +233,8 @@
   {
    "t": 64.206,
    "kind": "TOPUP_SENT",
-   "steward": "swift",
-   "amount": "34.735269663436795389",
+   "steward": "hedged",
+   "amount": "30",
    "asset": "LINK",
    "evidence": {
     "mark": "proven",

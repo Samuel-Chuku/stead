@@ -68,3 +68,22 @@ describe("rescue event log from the chain", () => {
     expect(log.outcome).toBe("bought back");
   });
 });
+
+describe("a pooled rescue bought back in the claim asset (real rescue 14, sepolia-demo)", () => {
+  const raw = JSON.parse(readFileSync(new URL("./fixtures/rescue-14-chain.json", import.meta.url), "utf8"));
+  const log = buildLog(raw);
+  const of = (k: string) => log.events.filter((e) => e.kind === k) as any[];
+  it("ties each top-up to the steward whose wallet sent it, for its exact share", () => {
+    expect(of("TOPUP_SENT").map((e) => [e.steward, e.amount]).sort()).toEqual([["deep", "25"], ["hedged", "25"], ["patient", "13.157771771"]]);
+  });
+  it("records the buy-back paid in LINK, and each payout in LINK, exactly what its claim was owed", () => {
+    const pay = of("PAYMENT_IN");
+    expect(pay.map((e) => [e.amount, e.asset])).toEqual([["64.2604000544628", "LINK"]]); // the reset's later DAI repay is not a buy-back
+    const owed = Object.fromEntries(of("CLAIM_MINTED").map((c) => [c.claim, Number(c.owed) + Number(c.premium)]));
+    for (const p of of("PAYOUT")) {
+      expect(p.asset).toBe("LINK");
+      expect(Number(p.amount)).toBeCloseTo(owed[p.claim], 12);
+      expect(p.transfer?.url).toMatch(/^https:\/\/sepolia\.etherscan\.io\/tx\//);
+    }
+  });
+});

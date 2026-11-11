@@ -13,7 +13,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { env, hasEnv } from "../src/config.js";
 import { buildLog, type ChainLog, type ClaimRecord, type EvmTransfer, type RescueRecord } from "../src/rescuelog.js";
-import { buildRecords, fetchContract, type Records } from "../src/records.js";
+import { buildRecords, fetchContract, linkRecords, type Records } from "../src/records.js";
+import { recordRescue, walletsOf, windowEnd } from "../src/recorder.js";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { contractTxs, evmTransfers, NEARDATA, reader, scrub, sleep, tokenSymbol, txLogs } from "../src/chainread.js";
 import {
   blockLogs, feedRescue, followable, HOLD_ENDED_MS, isStale, modeFor, nextRead, POLL_MS, publishable, shardOf, TERMINAL, txStatusLogs,
@@ -357,6 +360,7 @@ async function cycle() {
       contract: e.contract, nearNetwork: "testnet", evmChain: "sepolia",
       rescue: e.rec, position: e.position, market: e.market, params: e.params, symbols: e.symbols,
       claims: [...e.claims.values()].filter((c): c is ClaimRecord => !!c), logs, transfers: e.transfers,
+      stewardWallets: await walletsCached(e.contract, e.rec.members.map((m) => m.steward)),
     });
     if (!log.events.some((x) => x.kind === "AUCTION_OPEN")) continue; // opening block not read yet
     log.label = "NEAR testnet and Sepolia";
@@ -412,7 +416,7 @@ async function loop() {
 const DEMO_RUNNER = process.env.DEMO_RUNNER_URL ?? "";
 function passToRunner(req: IncomingMessage, res: ServerResponse, path: string) {
   const fail = (code: number, error: string) => void res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify({ error }));
-  if (path !== "/demo/start" && path !== "/demo/status") return fail(404, "not found");
+  if (path !== "/demo/start" && path !== "/demo/status" && path !== "/demo/try" && path !== "/demo/faucet") return fail(404, "not found");
   if (!["GET", "POST", "OPTIONS"].includes(req.method ?? "")) return fail(405, "method not allowed");
   let body = "";
   req.on("data", (c: Buffer) => {
@@ -426,7 +430,7 @@ function passToRunner(req: IncomingMessage, res: ServerResponse, path: string) {
         const v = req.headers[h];
         if (typeof v === "string") fwd[h] = v;
       }
-      const r = await fetch(`${DEMO_RUNNER}${path}`, { method: req.method, headers: fwd, body: req.method === "POST" ? body : undefined, signal: AbortSignal.timeout(10_000) });
+      const r = await fetch(`${DEMO_RUNNER}${path}`, { method: req.method, headers: fwd, body: req.method === "POST" ? body : undefined, signal: AbortSignal.timeout(path === "/demo/try" || path === "/demo/faucet" ? 60_000 : 10_000) });
       const out: Record<string, string> = {};
       r.headers.forEach((v, k) => {
         if (k.startsWith("access-control-") || k === "content-type" || k === "cache-control" || k === "vary") out[k] = v;
@@ -449,6 +453,73 @@ async function passMainnet(res: ServerResponse, headers: Record<string, string>)
   }
 }
 
+/** Every finished rescue, recorded once from the chains and kept on disk (ARCHIVE_DIR), newest
+ *  first, one at a time; a failed recording is retried on a later round. */
+const ARCHIVE = process.env.ARCHIVE_DIR ?? "";
+const archiveFile = (contract: string, id: number) => join(ARCHIVE, `${contract}--${id}.json`);
+let archiveIndex = new Map<string, { events: any[] }>();
+function archived() {
+  return archiveIndex;
+}
+function loadArchive() {
+  if (!ARCHIVE || !existsSync(ARCHIVE)) return;
+  const m = new Map<string, { events: any[] }>();
+  for (const f of readdirSync(ARCHIVE).filter((x) => x.endsWith(".json"))) {
+    const [contract, id] = f.replace(/\.json$/, "").split("--");
+    try {
+      m.set(`${contract}#${id}`, JSON.parse(readFileSync(join(ARCHIVE, f), "utf8")));
+    } catch {
+      /* a half-written file is rewritten next round */
+    }
+  }
+  archiveIndex = m;
+}
+const ENDED = new Set(["bought_back", "settled", "failed"]);
+async function archiveLoop() {
+  if (!ARCHIVE) return;
+  mkdirSync(ARCHIVE, { recursive: true });
+  loadArchive();
+  for (;;) {
+    try {
+      const nowNs = BigInt(Date.now()) * 1_000_000n;
+      for (const c of contracts) {
+        const params = await rd.view(c, "get_params", {});
+        const list: any[] = await rd.view(c, "get_rescues", { from: 0, limit: 500 });
+        for (const r of list.sort((a, b) => b.id - a.id)) {
+          if (!ENDED.has(r.state) || existsSync(archiveFile(c, r.id))) continue;
+          if (windowEnd(r, params.buyback_window_ns, nowNs) >= nowNs) continue; // its last events may still come
+          try {
+            const log = await recordRescue(rd, c, r.id, nowNs);
+            const f = archiveFile(c, r.id);
+            writeFileSync(`${f}.tmp`, JSON.stringify(log));
+            renameSync(`${f}.tmp`, f);
+            archiveIndex.set(`${c}#${r.id}`, log as any);
+            console.log(`${new Date().toISOString()} recorded ${c}#${r.id}: ${log.events.length} events, ${log.outcome}`);
+          } catch (e) {
+            console.error(`${new Date().toISOString()} recording ${c}#${r.id} failed: ${scrub((e as Error).message)}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`${new Date().toISOString()} archive round failed: ${scrub((e as Error).message)}`);
+    }
+    await sleep(120_000);
+  }
+}
+if (port && !once) void archiveLoop();
+
+/** Winners' wallets, read once per contract and steward (payouts change rarely). */
+const walletCache = new Map<string, Record<string, string>>();
+async function walletsCached(contract: string, stewards: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const s of stewards) {
+    const k = `${contract}|${s}`;
+    if (!walletCache.has(k)) walletCache.set(k, await walletsOf(rd, contract, [s]).catch(() => ({})));
+    Object.assign(out, walletCache.get(k));
+  }
+  return out;
+}
+
 /** The list pages' data (positions, rescues, claims, stewards), re-read every 2 minutes; the last
  *  good copy keeps being served if a read fails. */
 let records: string | null = null;
@@ -462,7 +533,7 @@ async function recordsLoop() {
     try {
       const all = [];
       for (const c of contracts) all.push(await fetchContract(c, (ct, m, a) => rd.view(ct, m, a as Record<string, unknown>), symbolOf));
-      const r: Records = buildRecords(all);
+      const r: Records = linkRecords(buildRecords(all), archived());
       records = JSON.stringify(r);
     } catch (e) {
       console.error(`${new Date().toISOString()} records read failed: ${scrub((e as Error).message)}`);
@@ -487,6 +558,16 @@ if (port) {
     }
     // the read-only mainnet panel feed sits behind this address too (GET only)
     if (path === "/mainnet.json" && MAINNET_PANEL) return void passMainnet(res, headers);
+    // any rescue's own page: the recording when it exists, else the live follow of a running one
+    const m = path?.match(/^\/rescue\/([a-z0-9._-]+)\/(\d+)\.json$/);
+    if (m) {
+      const key = `${m[1]}#${m[2]}`;
+      const f = archiveFile(m[1], Number(m[2]));
+      if (existsSync(f)) return void res.writeHead(200, { ...headers, "cache-control": "public, max-age=300" }).end(readFileSync(f, "utf8"));
+      const live = snapshot()?.rescues.find((x) => x.key === key);
+      if (live) return void res.writeHead(200, headers).end(JSON.stringify(live));
+      return void res.writeHead(404, headers).end(JSON.stringify({ error: "not recorded yet", pending: true }));
+    }
     if (path === "/records.json") {
       if (!records) return void res.writeHead(503, headers).end(JSON.stringify({ error: "first read still running" }));
       return void res.writeHead(200, { ...headers, "cache-control": "public, max-age=30" }).end(records);

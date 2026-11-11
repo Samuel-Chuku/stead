@@ -7,6 +7,7 @@ import type { ClaimRow, PositionRow, Records, RescueRow, StewardRow } from "../.
 import type { StewardId } from "../../../stewards/src/rescuelog";
 import { CODE, RISK, RISK_WORD, STEWARD_ORDER } from "../board/model";
 import { crown } from "../crown";
+import { icon } from "../icons";
 
 export type ListRoute = "overview" | "positions" | "rescues" | "claims" | "stewards";
 /** Rescues with a published recording (their own page with timeline, chart and proofs). */
@@ -150,8 +151,10 @@ export function winnersShort(winners: RescueRow["winners"], range: string): stri
   const more = byBps.length - 2;
   return `<span class="st-item-tiles">${byBps.slice(0, 2).map((w) => `<span title="${esc(w.steward)}, ${w.bps} bps">${tile(w.steward)}</span>`).join("")}${more > 0 ? `<span class="st-item-more">+${more} more</span>` : ""}</span><span class="st-item-sub">${range}</span>`;
 }
+const pageHref = (contract: string, id: number) => `?rescue=${contract === "steadfi.testnet" ? "steadfi" : contract.split(".")[0]}:${id}#/rescues`;
+const ext = (url: string | undefined, label: string) => (url ? `<a class="st-textlink st-extlink" href="${url}" target="_blank" rel="noopener">${label}${icon("external", 12)}</a>` : "");
 function rescueItem(r: RescueRow, recorded: Recorded[]): Item {
-  const page = recorded.find((x) => x.contract === r.contract && x.rescueId === r.id);
+  const page = r.recorded || recorded.some((x) => x.contract === r.contract && x.rescueId === r.id) ? pageHref(r.contract, r.id) : null;
   const open = ["auction", "top_up_pending", "open", "settling"].includes(r.state);
   const bps = r.winners.map((w) => w.bps);
   const range = bps.length ? (Math.min(...bps) === Math.max(...bps) ? `${bps[0]} bps` : `${Math.min(...bps)}–${Math.max(...bps)} bps`) : r.state === "auction" ? "bidding" : "no winner";
@@ -171,7 +174,8 @@ function rescueItem(r: RescueRow, recorded: Recorded[]): Item {
       ["Winners", r.winners.length ? [...r.winners].sort((a, b) => a.bps - b.bps).map((w) => `<span class="st-item-winner">${tile(w.steward)} ${esc(w.steward)} ${crown(w.steward, [["Premium", `${w.bps} bps`], ["Share", `${amt(w.share)} ${esc(r.asset)}`]], 13)}</span>`).join("") : "—"],
       ["Premiums", usd(r.premiumUsd)],
       ["Contract", `<span class="st-mono">${esc(r.contract)}</span>`],
-      ...(page ? ([["Recorded", `<a class="st-textlink" href="?rescue=${page.id}#/rescues">Open the rescue page</a> (timeline, cost chart, every proof)`]] as [string, string][]) : open ? ([["Live", `<a class="st-textlink" href="#/live">Watch it on the live board</a>`]] as [string, string][]) : []),
+      ...(page ? ([["The whole story", `<a class="st-textlink" href="${page}">Open rescue #${r.id}</a>: every step from the trigger to the end, each linked to its transaction`]] as [string, string][]) : open ? ([["Live", `<a class="st-textlink" href="#/live">Watch it on the live board</a>`]] as [string, string][]) : ([["The whole story", "being recorded from the chains; it appears a few minutes after the rescue ends"]] as [string, string][])),
+      ...(r.triggerUrl ? ([["Trigger", ext(r.triggerUrl, "The reading that opened the auction, on NearBlocks")]] as [string, string][]) : []),
     ],
   };
 }
@@ -201,7 +205,10 @@ function claimsPage(rec: Records, live: boolean) {
         ["Owed", `${c.owed} ${esc(c.asset)}: ${c.share} supplied + ${c.premium} premium`],
         ["Premium", `${c.bps} bps`],
         ["Buy-back window", c.status === "open" ? `until ${when(c.expiresAtMs)}` : `ended ${when(c.expiresAtMs)}`],
-        ["Rescue", `#${c.rescueId} on position ${c.positionId}`],
+        ["Rescue", `<a class="st-textlink" href="${pageHref(c.contract, c.rescueId)}">Rescue #${c.rescueId}</a> on position ${c.positionId}`],
+        ...(c.topupUrl || c.mintUrl || c.paidUrl
+          ? ([["On chain", [ext(c.topupUrl, "Top-up on Etherscan"), ext(c.mintUrl, "Minted on NearBlocks"), ext(c.paidUrl, "Payout signed on NearBlocks"), ext(c.paidTransferUrl, "Payout transfer on Etherscan")].filter(Boolean).join("<br>")]] as [string, string][])
+          : []),
         ["Contract", `<span class="st-mono">${esc(c.contract)}</span>`],
       ],
     };
