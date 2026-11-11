@@ -85,13 +85,27 @@ async function knownPositions(): Promise<{ id: number; owner: string }[] | null>
 
 type Position = { id: number; owner: string; evm_address: string | null; payout: string; next_nonce: number; pending: unknown; active_auction: number | null; open_rescues: number[] };
 type Rescue = { id: number; state: string; members: { steward: string; claim_id: string | null }[] };
-type Claim = { token_id: string; owed_units: string; status: string };
+type Claim = { token_id: string; owed_units: string; status: string; expires_at?: string };
 type TxRow = { at: number; label: string; chain: "near" | "sepolia"; hash: string; ok: boolean; note?: string; step?: number };
 type Sent = { label: string; chain: "near" | "sepolia"; hash: string };
 type Receipts = { faucet: { at: number; sent: Sent[] } | null; fund: { at: number; sent: Sent[] } | null };
 /** Which step a transaction belongs to (rows saved before steps were recorded: by their label). */
 const stepOfTx = (t: TxRow) => t.step ?? (/^Test funds:/.test(t.label) ? 3 : /^(Register a position|Sponsor: .*(NEAR to|for its gas|into your position \(Aave))/.test(t.label) ? 4 : 0);
 /** "Test funds: 0.0025 Sepolia ETH" → "0.0025 ETH"; "Supply 60 LINK on Aave (the contract…)" → "Supply 60 LINK on Aave". */
+/** What each rescue state means for the borrower, in a sentence. */
+const rescueText = (st: string) =>
+  ({
+    auction: "Stewards are bidding now (a 45-second auction); watch the bids on the board below.",
+    top_up_pending: "The auction is closed. The winner is topping up your position; the contract waits for a proven reading of the new collateral before minting its claim.",
+    open: "Your position is rescued and the claim is open: buy it back by paying exactly what is owed into your position, or do nothing and the claim owner settles when the window ends.",
+    settling: "The buy-back window ended, so the claim owner is settling at the oracle price: it repays part of your debt and takes the collateral it is owed. Your cost is still only the premium.",
+    settled: "Settled at the oracle price: the claim owner took exactly what it was owed.",
+    bought_back: "Bought back: the claim owner was paid exactly what it was owed.",
+  })[st] ?? st.replace(/_/g, " ");
+const countdown = (endMs: number) => {
+  const left = Math.max(0, Math.round((endMs - Date.now()) / 1000));
+  return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+};
 const shortLabel = (l: string) => {
   const x = l.replace(/^(Test funds|Sponsor): /, "");
   const amt = x.match(/^([\d.]+) (?:Sepolia )?([A-Z]{2,5})\b/);
@@ -442,6 +456,9 @@ export function mountOwn(root: HTMLElement): () => void {
     const ended = opened && !rescue && s!.hf !== null && s!.hf >= 1.4; // after a rescue, health is back near 1.50
     const closed = !!pos && s!.coll === 0n && s!.debt === 0n && txs.some((t) => /Withdraw all/.test(t.label));
     const btn = (label: string, attr: string, primary = false, off = false) => `<button type="button" class="${primary ? "st-push" : "st-secondary"} st-cut" ${attr}${busy || off ? ' aria-disabled="true" disabled' : ""}>${primary ? '<span class="st-lamp" aria-hidden="true"></span>' : ""}${label}</button>`;
+    // the buy-back window: the earliest open claim's expiry (ns → ms)
+    const ends = (s?.claims ?? []).filter((c) => c.status === "open" && c.expires_at).map((c) => Number(BigInt(c.expires_at!) / 1_000_000n));
+    const windowEnd = ends.length ? Math.min(...ends) : 0;
     const sentRow = (x: Sent, at: number): TxRow => ({ ...x, at, ok: true });
     const fromServer = (r: { at: number; sent: Sent[] } | null | undefined) => (r ? r.sent.map((x) => sentRow(x, r.at)) : []);
     const mine = (n: number) => txs.filter((t) => stepOfTx(t) === n && t.hash);
@@ -464,8 +481,10 @@ export function mountOwn(root: HTMLElement): () => void {
       stepHtml(4, "Open your protected position", opened, (sponsored ? !!near : funded) && !opened, opened
         ? receipt("Opened", step4, posLinks)
         : `<p>Registers a position on the demo contract; its Sepolia address is derived by NEAR's MPC network, and only the contract can sign for it. Then 60 LINK goes in${sponsored ? " (from the sponsor)" : ""}, and the contract supplies it on Aave and borrows DAI to a health factor of 1.20.${sponsored ? " Every step is a Stead call from your NEAR wallet." : " Two Sepolia confirmations, the rest are Stead calls."}</p>${pos && !opened ? `<p class="st-own-hint">Position ${pos.id} is registered; opening it again picks up where it stopped.</p>` : ""}<div class="st-own-buttons">${btn(pos ? "Continue opening my position" : "Open my position", "data-open", true)}</div>`),
-      stepHtml(5, "Push it under the trigger", triggered || ended, opened && !triggered && !ended, `<p>On mainnet a falling price does this; on Sepolia prices are fixed, so you borrow a little more, to a health factor of 1.14: under Stead's 1.15 trigger. The keeper's proven reading then opens a real auction among the stewards.</p><div class="st-own-buttons">${btn("Borrow to 1.14", "data-trigger", true)}</div>`),
-      stepHtml(6, "Watch your rescue, try to break it, choose the ending", ended, triggered && !ended, `${rescue ? `<p>Rescue <strong>#${rescue.id}</strong>: ${esc(rescue.state.replace(/_/g, " "))}. ${rescue.state === "open" ? `Claims are open: buy them back by paying exactly what is owed into your position, or do nothing and watch the claim settle after the demo contract's 3-minute window.` : "Stewards are bidding and topping up; watch it below."}</p>` : `<p>Waiting for the proven reading to open the auction (30 to 60 seconds).</p>`}
+      stepHtml(5, "Push it under the trigger", triggered || ended, opened && !triggered && !ended, triggered || ended
+        ? receipt("Under the trigger", mine(5))
+        : `<p>On mainnet a falling price does this; on Sepolia prices are fixed, so you borrow a little more, to a health factor of 1.14: under Stead's 1.15 trigger. The keeper's proven reading then opens a real auction among the stewards.</p><div class="st-own-buttons">${btn("Borrow to 1.14", "data-trigger", true)}</div>`),
+      stepHtml(6, "Watch your rescue, try to break it, choose the ending", ended, triggered && !ended, `${rescue ? `<p>Rescue <strong>#${rescue.id}</strong>: ${esc(rescue.state.replace(/_/g, " "))}. ${rescueText(rescue.state)}${rescue.state === "open" && windowEnd ? ` <strong class="st-own-countdown" data-countdown="${windowEnd}">${countdown(windowEnd)}</strong> left to buy back.` : ""}</p>` : `<p>Waiting for the proven reading to open the auction (30 to 60 seconds).</p>`}
         <div class="st-own-buttons">${rescue?.state === "open" ? btn("Buy back now", "data-buyback", true) : ""}${rescue ? btn("Try to withdraw 1 LINK", 'data-break="withdraw"') + btn("Try to borrow 1 DAI", 'data-break="borrow"') : ""}</div>
         <p class="st-own-hint">The live board for your position is below.</p>`),
       stepHtml(7, "Close and get everything back", closed, ended && !closed, `<p>Repay the debt from your DAI, then withdraw all the LINK to your Sepolia wallet.${lastRescue !== null ? ` Your rescue's full story, every step with its transaction: <a class="st-textlink" href="?rescue=sepolia-demo:${lastRescue}#/rescues">rescue #${lastRescue}</a> (it appears a few minutes after the rescue ends).` : ""}</p><div class="st-own-buttons">${btn("Close my position", "data-close", true)}</div>`),
@@ -524,9 +543,14 @@ export function mountOwn(root: HTMLElement): () => void {
     await refresh();
   })();
   const timer = window.setInterval(() => !busy && void refresh(), 8000);
+  // the buy-back countdown ticks every second between refreshes
+  const tick = window.setInterval(() => {
+    for (const el of root.querySelectorAll<HTMLElement>("[data-countdown]")) el.textContent = countdown(Number(el.dataset.countdown));
+  }, 1000);
   return () => {
     gone = true;
     clearInterval(timer);
+    clearInterval(tick);
     stopBoard();
     stopNear();
   };

@@ -46,6 +46,7 @@ const followed = new Set(contracts);
 
 type Entry = {
   contract: string;
+  rebuilding?: boolean; // a history rebuild is under way (opening missed)
   rec: RescueRecord & { state: RescueState };
   position: any;
   market: any;
@@ -362,7 +363,24 @@ async function cycle() {
       claims: [...e.claims.values()].filter((c): c is ClaimRecord => !!c), logs, transfers: e.transfers,
       stewardWallets: await walletsCached(e.contract, e.rec.members.map((m) => m.steward)),
     });
-    if (!log.events.some((x) => x.kind === "AUCTION_OPEN")) continue; // opening block not read yet
+    if (!log.events.some((x) => x.kind === "AUCTION_OPEN")) {
+      // The opening block not read yet. A proven reading's callback can open the auction a few blocks
+      // after the request, past the look-back: after 30 s, rebuild from the contract's transactions
+      // (the recorder path) instead of waiting for a block that was already passed.
+      if (!e.history.length && Date.now() - openedMs > 30_000 && !e.rebuilding) {
+        e.rebuilding = true;
+        try {
+          const txs = await contractTxs(rd, e.contract, BigInt(e.rec.opened_at) - 120_000_000_000n, BigInt(Date.now()) * 1_000_000n);
+          e.history = await txLogs(rd, e.contract, txs);
+          console.log(`${new Date().toISOString()} ${key}: opening not seen in the blocks read; rebuilt from ${txs.length} transactions`);
+        } catch (err) {
+          console.log(`${new Date().toISOString()} ${key}: rebuild failed (${(err as Error).message.slice(0, 80)}); retrying`);
+        } finally {
+          e.rebuilding = false;
+        }
+      }
+      continue;
+    }
     log.label = "NEAR testnet and Sepolia";
     const fr = feedRescue(e.contract, log, e.rec.state);
     if (fr.endedAtMs !== null && Date.now() - fr.endedAtMs > HOLD_ENDED_MS) { entries.delete(key); continue; }

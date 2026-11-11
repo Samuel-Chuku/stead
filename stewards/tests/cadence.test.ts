@@ -1,7 +1,7 @@
 // The keeper's proof cadence near the trigger: pay for a proof when the health moves or is under the
 // trigger, not every minute for a position that sits still. Offline.
 import { describe, expect, it } from "vitest";
-import { nearTriggerCadence } from "../src/keeper.js";
+import { healthDropping, nearTriggerCadence } from "../src/keeper.js";
 
 const W = 10n ** 18n;
 const TRIGGER = (115n * W) / 100n;
@@ -18,3 +18,14 @@ describe("proof cadence near the trigger", () => {
     expect(nearTriggerCadence(hf(1.14), hf(1.14), TRIGGER)).toBe(60_000);
   });
 });
+
+describe("proof right after a relayed transaction", () => {
+  it("a borrower's borrow or withdraw asks for a proof at once; other actions wait for the cadence", () => {
+    expect(healthDropping({ type: "borrower", action: "borrow" })).toBe(true);
+    expect(healthDropping({ type: "borrower", action: "withdraw" })).toBe(true);
+    expect(healthDropping({ type: "borrower", action: "supply" })).toBe(false);
+    expect(healthDropping({ type: "settlement" })).toBe(false);
+    expect(healthDropping(null)).toBe(false);
+  });
+});
+

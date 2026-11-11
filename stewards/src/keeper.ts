@@ -235,6 +235,9 @@ export class Keeper {
       await new Promise((r) => setTimeout(r, 1500));
     }
     const r = await this.callR("confirm_nonce", { position_id: pid, onchain_nonce: onchain, success: rc.status === "success", block: Number(rc.blockNumber) });
+    // a borrow or withdraw lowers the health: prove it as soon as it's deep enough, not at the next
+    // cadence (it may have just crossed the trigger)
+    if (rc.status === "success" && healthDropping(pending.kind) && (await this.isVerified(pid))) this.verifyNow.set(pid, rc.blockNumber);
     return { evmTx: hash, ok: rc.status === "success", nearTx: r.hash };
   }
 
@@ -423,6 +426,9 @@ export class Keeper {
       }
     }
     await this.scanLogs();
+    // auctions past their close time are closed before the (slow) proof requests, so a winner's
+    // top-up clock isn't held up by unrelated positions' proofs
+    await this.housekeep();
     for (const pid of this.positions.keys()) await this.proveEscrow(pid);
     for (const pid of this.positions.keys()) {
       try {
@@ -437,7 +443,6 @@ export class Keeper {
         log("reporter", `report_health position ${pid}: ${(e as Error).message}`);
       }
     }
-    await this.housekeep();
   }
 
   async run(intervalMs = 3000) {
@@ -473,5 +478,11 @@ export function nearTriggerCadence(hfNow: bigint, hfAtLastProof: bigint | undefi
   if (hfNow < triggerWad || hfAtLastProof === undefined) return REPORT_EVERY_MS;
   const diff = hfNow > hfAtLastProof ? hfNow - hfAtLastProof : hfAtLastProof - hfNow;
   return diff >= 10n ** 14n ? REPORT_EVERY_MS : VERIFY_STILL_MS;
+}
+
+/** A borrower action that lowers the health factor (and may cross the trigger). */
+export function healthDropping(kind: unknown): boolean {
+  const k = kind as { type?: string; action?: string } | null;
+  return k?.type === "borrower" && (k.action === "borrow" || k.action === "withdraw");
 }
 
