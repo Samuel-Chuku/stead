@@ -2,18 +2,21 @@
 
 **A liquidation rescue market on NEAR.**
 
-## Try a rescue now: [app.usestead.xyz](https://app.usestead.xyz/#/try)
+## Protect an Aave position now: [app.usestead.xyz](https://app.usestead.xyz/#/try)
 
-Everything runs on testnets (NEAR testnet and Ethereum Sepolia) against Aave V3's real contracts.
-Test funds are sponsored, so nothing needs to be bought.
+A protected position is an Aave position at an address only the Stead contract can sign for, through
+NEAR's chain signatures: your NEAR account owns it, and when its health falls below 1.15, stewards compete
+to rescue it. Everything runs on testnets (NEAR testnet and Ethereum Sepolia) against Aave V3's real
+contracts. Test funds are sponsored, so nothing needs to be bought.
 
-**With your own NEAR wallet** ([Your own rescue](https://app.usestead.xyz/#/try), about 15 to 20 minutes):
+**With your own NEAR wallet** ([Protect a position](https://app.usestead.xyz/#/try), about 15 to 20 minutes):
 1. **Connect** a NEAR testnet wallet (Meteor, Intear, Nightly, Ledger, NEAR CLI and more, through NEAR
    Connector). A Sepolia wallet is optional: without one, the sponsor holds the Sepolia side.
-2. **Open a position**: your NEAR account registers it; its Ethereum address is derived by NEAR's MPC
+2. **Open a protected position**: your NEAR account registers it; its Ethereum address is derived by NEAR's MPC
    network, and only the Stead contract can have a transaction signed for it. The sponsor sends 60 LINK
    and gas; the contract supplies the LINK on Aave and borrows to a health factor of 1.20.
-3. **Trigger**: borrow to 1.14, under the 1.15 trigger. A proven reading opens a real 45-second auction
+3. **Push it under the trigger**: on mainnet a falling price does this; Sepolia's prices are fixed, so
+   borrow to 1.14, under the 1.15 trigger. A proven reading opens a real 45-second auction
    among the stewards; watch the bids on the live board.
 4. **Try to break it**: while the claim is open, ask to withdraw or borrow. The contract refuses on
    chain, and the refusal is linked.
@@ -375,6 +378,15 @@ Planned, not built.
   after a win it borrows against its RHEA deposit and routes the asset through NEAR Intents to refill the
   buffer, the just-in-time pattern RHEA's lending-backed Intents solvers use. Lower idle cost means
   lower premiums for borrowers. Capital parked in RHEA Lending carries that protocol's risk.
+- **Protect positions people already have.** Stead protects positions at an address only the contract
+  signs for, so an existing Aave position has to move in first. A migration would do it in one
+  transaction: a flash loan repays the old loan, the collateral moves into a new protected position, and
+  the debt is re-borrowed there.
+- **Independent stewards on mainnet.** Registration is open, and the five stewards running today are
+  example strategies. Mainnet rescues need outside capital competing, then a contract audit and higher
+  owner limits (the size cap and the allow-list, both bounded in the code).
+- **Other DeFi lending markets.** A market is a lending pool, its two assets and its parameters; Aave V3 on
+  any EVM chain is a configuration, and other lenders need their own action encoding.
 - **Stead markets for RHEA Lending.** RHEA Lending lives on NEAR, so a Stead market there could read
   the health factor directly by cross-contract view: no chain signatures, no proofs, and top-ups
   attributable on chain.

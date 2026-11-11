@@ -88,7 +88,7 @@ export function mountHow(root: HTMLElement): () => void {
         <h1 class="st-page-title">A rescue market for positions about to be liquidated</h1>
         <p class="st-list-sub">When an Aave position nears liquidation, stewards compete to top up its collateral, and the lowest premium wins. The rescue becomes a claim the borrower buys back. A NEAR contract runs the auction, holds the claims and signs the position's Ethereum transactions through NEAR's chain signatures. <strong>A borrower is never worse off than after an Aave liquidation.</strong></p>
       </header>
-      <div class="st-how-cta"><a class="st-push st-cut" href="#/try"><span class="st-lamp" aria-hidden="true"></span>RUN YOUR OWN RESCUE</a><a class="st-secondary st-cut st-secondary--link" href="?demo=#/live">Start a demo rescue</a><a class="st-secondary st-cut st-secondary--link" href="#/rescues">See every rescue</a></div>
+      <div class="st-how-cta"><a class="st-push st-cut" href="#/try"><span class="st-lamp" aria-hidden="true"></span>PROTECT AN AAVE POSITION</a><a class="st-secondary st-cut st-secondary--link" href="?demo=#/live">Start a demo rescue</a><a class="st-secondary st-cut st-secondary--link" href="#/rescues">See every rescue</a></div>
     </section>
 
     <section class="st-panel st-sect">
