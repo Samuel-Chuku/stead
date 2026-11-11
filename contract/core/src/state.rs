@@ -941,6 +941,13 @@ impl Stead {
             return Err(format!("claim open: {} refused", action.name()));
         }
         ensure!(self.book(id).outflows.is_empty(), "payouts queued on this position: pay_next first");
+        // No claim open but the escrow still holds a balance not yet refunded: it's the borrower's,
+        // and it leaves through the contract's refund (a repay or transfer now would spend it first
+        // and leave the refund unpayable)
+        if p.open_rescues.is_empty() {
+            let e = self.book(id).escrow;
+            ensure!(e.free(TokenSide::Collateral) == 0 && e.free(TokenSide::Debt) == 0, "the position's held balance is being refunded: wait for the next reading");
+        }
         // The position's own balances are held for buy-back while a claim is open
         if p.locked() {
             let e = self.book(id).escrow;
@@ -1896,6 +1903,12 @@ impl Stead {
             }
             self.book_mut(pid).stray_repays.clear();
         }
+        self.refund_escrow(pid, borrower);
+        Ok(())
+    }
+
+    /// Queue the refund of whatever the position's escrow still holds unpromised, to the borrower.
+    fn refund_escrow(&mut self, pid: u64, borrower: EvmAddr) {
         let e = self.book(pid).escrow;
         for side in [TokenSide::Collateral, TokenSide::Debt] {
             let left = e.free(side);
@@ -1905,7 +1918,6 @@ impl Stead {
                 self.emit("refund_queued", json!({"position_id": pid, "asset": format!("{side:?}").to_lowercase(), "amount": left.to_string()}));
             }
         }
-        Ok(())
     }
 
     /// Anyone: sign the next queued payout (gas from the position, the usual signed-tx rules apply).
@@ -2232,6 +2244,14 @@ impl Stead {
         if all {
             self.close_rescue(rid, RescueState::Settled)?;
             self.emit("settled", json!({"rescue_id": rid}));
+            // The held balance is refunded the moment the last claim closes, so no borrower request
+            // can spend it first (stray repays need a fresh price: those wait for the next reading,
+            // and the borrower waits with them, see sign_action).
+            let p = self.position(pid)?;
+            if p.open_rescues.is_empty() && self.book(pid).stray_repays.is_empty() {
+                let borrower = p.payout;
+                self.refund_escrow(pid, borrower);
+            }
         }
         Ok(())
     }

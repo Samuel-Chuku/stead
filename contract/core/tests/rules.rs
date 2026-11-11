@@ -1286,3 +1286,46 @@ fn auction_opened_event_names_its_reading_source() {
     let e = opened(&mut g);
     assert!(e.contains("\"trust\":\"TEMPORARY reporter\""), "{e}");
 }
+
+/// A balance held while a claim was open is the borrower's: when a settlement ends the rescue, its
+/// refund is queued in the same call, so no borrower request can spend it first (a repay that did
+/// would leave the refund unpayable and every later request refused).
+#[test]
+fn settlement_end_queues_the_held_balance_refund_at_once() {
+    let mut f = F::new();
+    let rid = f.rescue_with(&[(0, 300, None)]);
+    f.now += 24 * 3600 * SEC;
+    f.report(2_850_000_000);
+    f.s.start_settlement(STEWARDS[0], rid, f.now).unwrap();
+    let s = f.s.rescue(rid).unwrap().settlement.clone().unwrap();
+    f.pay_escrow(0, 59 * E18).unwrap(); // borrowed DAI left in the position: held, never used
+    f.s.confirm_settlement_repay(REPORTER, rid, "0xrepay", s.repay_units, f.block + 1).unwrap();
+    f.report(f.price);
+    f.run_legs(rid);
+    assert_eq!(f.s.rescue(rid).unwrap().state, RescueState::Settled);
+    // no reading in between: the refund is already queued, and the borrower waits for it
+    assert_eq!(f.s.book(f.pid).outflows, vec![Outflow { to: a(PAYOUT), action: OutAction::Transfer(TokenSide::Debt), amount: 59 * E18, purpose: OutPurpose::Refund, token_id: None }]);
+    assert!(err(f.s.sign_action(BORROWER, f.pid, Action::Repay { amount: AmountArg::Max }, gas(), f.now)).contains("pay_next"));
+    f.run_payouts();
+    f.sign_ok(Action::Repay { amount: AmountArg::Max });
+}
+
+/// Whatever path ends the last claim, a held balance not yet refunded blocks borrower requests
+/// (a refusal changes nothing) until a reading queues the refund.
+#[test]
+fn unrefunded_held_balance_blocks_borrower_requests() {
+    let mut f = F::new();
+    f.rescue_with(&[(0, 300, None)]);
+    f.pay_escrow(0, 10 * E18).unwrap();
+    // simulate a path that closed the rescue without refunding (the state this rule guards against)
+    let rid = *f.s.position(f.pid).unwrap().open_rescues.first().unwrap();
+    f.s.positions.get_mut(&f.pid).unwrap().open_rescues.retain(|x| *x != rid);
+    for c in f.s.claims.values_mut() {
+        c.status = ClaimStatus::Settled;
+    }
+    assert!(err(f.s.sign_action(BORROWER, f.pid, Action::Repay { amount: AmountArg::Max }, gas(), f.now)).contains("being refunded"));
+    f.report(f.price); // the next reading queues the refund
+    f.run_payouts();
+    f.sign_ok(Action::Repay { amount: AmountArg::Max });
+}
+
