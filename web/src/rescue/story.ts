@@ -13,7 +13,7 @@ const clock = (log: RescueLog, t: number) => new Date(log.openedAtMs + t * 1000)
 const usd = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** A labelled button to the transaction: where it is and what it proves. */
-function txLink(ev: Evidence | undefined, label: string): string {
+export function txLink(ev: Evidence | undefined, label: string): string {
   if (!ev) return "";
   const where = ev.chain.startsWith("near") ? "NearBlocks" : ev.chain === "sepolia" ? "Etherscan (Sepolia)" : "Etherscan";
   if (!ev.url) return `<span class="st-txlink is-local">${esc(label)} · local fork, not public</span>`;
@@ -21,7 +21,7 @@ function txLink(ev: Evidence | undefined, label: string): string {
   return `<a class="st-txlink" href="${ev.url}" target="_blank" rel="noopener"><span>${esc(label)}</span><span class="st-txlink-where">${where}${ev.block ? ` · block ${ev.block.toLocaleString("en-US")}` : ""}${mark}</span>${icon("external", 13)}</a>`;
 }
 
-type Step = { t: number; tone: "exposure" | "acting" | "safe" | "plain"; title: string; body: string; links: string };
+type Step = { t: number; tone: "exposure" | "acting" | "safe" | "plain"; title: string; titleHtml?: string; body: string; links: string };
 
 export function storySteps(log: RescueLog): Step[] {
   const all = <K extends RescueEvent["kind"]>(k: K) => log.events.filter((e) => e.kind === k) as Ev<K>[];
@@ -60,9 +60,16 @@ export function storySteps(log: RescueLog): Step[] {
   if (esc_) steps.push({ t: esc_.t, tone: "safe", title: "Payment proven", body: "A proven reading of the position's balance commits the buy-back.", links: txLink(esc_.evidence, "Proof of the payment") });
   const bought = all("BOUGHT_BACK")[0];
   if (bought) steps.push({ t: bought.t, tone: "safe", title: "Bought back: claims closed, position unlocked", body: "The claims are burned. Payouts follow, each exactly the owed amount.", links: txLink(bought.evidence, "Buy-back committed") });
+  const holderOf = new Map(claims.map((c) => [c.claim, c.holder]));
   for (const p of all("PAYOUT")) {
-    const to = p.purpose === "buyback" ? `the owner of claim ${p.claim ?? ""}` : p.purpose === "refund" ? "the borrower (overpayment refunded)" : "a steward (reimbursed at par)";
-    steps.push({ t: p.t, tone: "plain", title: `${fmtAmt(p.amount)} ${p.asset} paid to ${to}`, body: "Signed by the contract through NEAR's chain signatures; the transfer lands on Sepolia.", links: txLink(p.evidence, "Payout signed") + txLink((p as any).transfer, "Transfer") });
+    const holder = p.claim ? holderOf.get(p.claim) : undefined;
+    const titleHtml =
+      p.purpose === "buyback"
+        ? `${fmtAmt(p.amount)} ${esc(p.asset)} paid back to ${holder ? `${tile(holder)} ${esc(holder)}` : "the claim owner"} <small>(owner of claim ${esc(p.claim ?? "")})</small>`
+        : p.purpose === "refund"
+          ? `${fmtAmt(p.amount)} ${esc(p.asset)} refunded to the borrower <small>(paid more than owed)</small>`
+          : `${fmtAmt(p.amount)} ${esc(p.asset)} reimbursed to a steward <small>(at par)</small>`;
+    steps.push({ t: p.t, tone: "plain", title: "", titleHtml, body: "Signed by the contract through NEAR's chain signatures; the transfer lands on Sepolia.", links: txLink(p.evidence, "Payout signed") + txLink((p as any).transfer, "Transfer") });
   }
   for (const s of ends("SETTLE_START")) steps.push({ t: s.t, tone: "exposure", title: "Settlement started", body: "The buy-back window ended (or the borrower's own health fell below 1.10). A claim owner closes the claim at the oracle price: it repays debt and withdraws the collateral it is owed, principal first, premiums last.", links: txLink(s.evidence, "Settlement started") });
   for (const s of ends("SETTLED")) steps.push({ t: s.t, tone: "safe", title: "Settled", body: "Every claim was paid from the position at the oracle price; the borrower kept the rest.", links: txLink(s.evidence, "Settled") });
@@ -73,20 +80,24 @@ export function storySteps(log: RescueLog): Step[] {
 export function story(log: RescueLog): string {
   const steps = storySteps(log);
   const readings = log.events.filter((e) => e.kind === "READING") as Ev<"READING">[];
+  const last = steps[steps.length - 1];
   return `
-  <section class="st-panel st-sect st-story" aria-labelledby="story-h">
-    <div class="st-sect-head"><div><div class="st-label">WHAT HAPPENED</div><h2 class="st-panel-title" id="story-h">Step by step, every step on chain</h2></div></div>
+  <details class="st-panel st-sect st-story">
+    <summary class="st-story-summary"><div><div class="st-label">WHAT HAPPENED</div><h2 class="st-panel-title">Step by step, every step on chain</h2>
+      <p class="st-story-gist">${steps.length} steps, ${clock(log, 0)} to ${clock(log, last?.t ?? 0)} UTC, each linked to its transaction. Open to read them.</p></div>
+      <span class="st-story-toggle" aria-hidden="true"></span></summary>
     <ol class="st-story-list">
       ${steps
         .map(
           (s) => `<li class="st-story-step st-story-step--${s.tone}">
         <span class="st-story-dot" aria-hidden="true"></span>
         <div class="st-story-time">${clock(log, s.t)} UTC<span>+${Math.round(s.t)} s</span></div>
-        <div class="st-story-main"><h3>${esc(s.title)}</h3><p>${s.body}</p><div class="st-story-links">${s.links}</div></div>
+        <div class="st-story-main"><h3>${s.titleHtml ?? esc(s.title)}</h3><p>${s.body}</p></div>
+        <div class="st-story-links">${s.links}</div>
       </li>`,
         )
         .join("")}
     </ol>
     ${readings.length ? `<details class="st-story-more"><summary>${readings.length} health readings along the way</summary><div class="st-story-links">${readings.map((r) => `<div class="st-story-sub"><span>${clock(log, r.t)} · health ${r.hf.toFixed(3)}</span>${txLink(r.evidence, "Reading")}</div>`).join("")}</div></details>` : ""}
-  </section>`;
+  </details>`;
 }

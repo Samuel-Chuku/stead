@@ -5,7 +5,7 @@ import type { Evidence, RescueEvent, RescueLog, StewardId } from "../../../stewa
 import { CODE, fmtAmt } from "../board/model";
 import { icon } from "../icons";
 import { crown } from "../crown";
-import { story } from "./story";
+import { story, txLink } from "./story";
 
 type Ev<K extends RescueEvent["kind"]> = Extract<RescueEvent, { kind: K }>;
 export type ProofKind = "readings" | "auction" | "topup" | "claim" | "payouts";
@@ -176,6 +176,7 @@ export function render(log: RescueLog, path: CostPath | null): string {
       return `<div class="st-tag st-cut st-cut--l${bought ? " is-closed" : ""}">
         <div class="st-tag-top">${tile(c.holder, 22)}<span class="st-tag-title">CLAIM${pct !== null ? ` · ${pct}%` : ""}</span></div>
         <div class="st-tag-lines">Owed ${fmtAmt(c.owed)} + ${fmtAmt(c.premium)} ${c.asset} premium<br>${c.holder}.steadfi.testnet · token ${esc(c.claim)}${paid ? `<br>Paid ${fmtAmt(paid.amount)} ${paid.asset}` : ""}</div>
+        <div class="st-tag-links">${txLink(c.evidence, "Minted")}${paid ? txLink(paid.evidence, "Payout") + txLink((paid as any).transfer, "Transfer") : ""}</div>
       </div>`;
     })
     .join("")}</div>`;
@@ -194,6 +195,7 @@ export function render(log: RescueLog, path: CostPath | null): string {
             ? `The borrower paid ${pay ? fmtAmt(pay.amount) + " " + pay.asset : "the buy-back"} into the position. Once the payment was proven, the contract paid each of the ${toOwners.length} claim owners exactly what its claim was owed, ${fmtAmt(sum(toOwners))} ${toOwners[0].asset} in all${refund ? `, and refunded ${fmtAmt(refund.amount)} ${refund.asset} to the borrower` : ""}. The claims are burned and withdrawals are unlocked.`
             : "The borrower can buy the claims back until the window ends; after that they settle."
         }</p>
+        <div class="st-tag-links">${pay ? txLink(pay.evidence, "Borrower's payment") : ""}${txLink(all(log, "ESCROW_PROVEN")[0]?.evidence, "Payment proven")}${bought ? txLink(bought.evidence, "Buy-back committed") : ""}</div>
         <button type="button" class="st-push st-cut" aria-disabled="true" disabled><span class="st-lamp" aria-hidden="true"></span>BUY BACK FOR ${esc(buyTotal)}</button>
         <span class="st-disabled-reason">${bought ? `Bought back at ${clock(log, bought.t)} UTC · claims closed` : "Replay: buy-back opens from a borrower's own position"}</span>
       </div>
@@ -213,6 +215,7 @@ export function render(log: RescueLog, path: CostPath | null): string {
             <div><dt>WINDOW</dt><dd>${fmtDur(claim.windowEndsT - claim.t)} from ${clock(log, claim.t)} UTC${bought ? ` · closed ${clock(log, bought.t)}` : ""}</dd></div>
           </dl>
           <div class="st-tag-id">STEAD-${log.rescueId}-P${log.positionId} · token ${esc(claim.claim)}</div>
+          <div class="st-tag-links">${txLink(claim.evidence, "Minted")}${toOwner ? txLink(toOwner.evidence, "Payout") + txLink((toOwner as any).transfer, "Transfer") : ""}</div>
         </div>
         <div class="st-buyback">
           <span class="st-chip st-chip--${bought ? "rescued" : "open"}">${outcome}</span>
@@ -221,7 +224,8 @@ export function render(log: RescueLog, path: CostPath | null): string {
               ? `The borrower paid ${pay ? pay.amount + " " + pay.asset : "the buy-back"} into the position. Once the payment was proven, the contract paid the claim owner exactly ${toOwner.amount} ${toOwner.asset}${refund ? ` and refunded ${refund.amount} ${refund.asset} to the borrower` : ""}. The claim is burned and withdrawals are unlocked.`
               : "The borrower can buy the claim back until the window ends; after that it settles."
           }</p>
-          <button type="button" class="st-push st-cut" aria-disabled="true" disabled><span class="st-lamp" aria-hidden="true"></span>BUY BACK FOR ${esc(buyback?.amount ?? toOwner?.amount ?? "")} ${esc(m.debt)}</button>
+          <div class="st-tag-links">${pay ? txLink(pay.evidence, "Borrower's payment") : ""}${txLink(all(log, "ESCROW_PROVEN")[0]?.evidence, "Payment proven")}${bought ? txLink(bought.evidence, "Buy-back committed") : ""}</div>
+          <button type="button" class="st-push st-cut" aria-disabled="true" disabled><span class="st-lamp" aria-hidden="true"></span>BUY BACK FOR ${esc(buyback?.amount ?? toOwner?.amount ?? "")} ${esc(buyback?.asset ?? toOwner?.asset ?? m.debt)}</button>
           <span class="st-disabled-reason">${bought ? `Bought back at ${clock(log, bought.t)} UTC · claim closed` : "Replay: buy-back opens from a borrower's own position"}</span>
         </div>
       </div>

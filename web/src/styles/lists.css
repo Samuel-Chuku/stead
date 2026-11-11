@@ -96,3 +96,5 @@
 .st-own-hint { font-size: 13px; color: var(--st-quiet); margin: 8px 0 0; }
 .st-own-board { margin-top: var(--st-space-16); }
 .st-own-board[hidden] { display: none; }
+/* a row that opens a page: the whole row is the link, the caret opens the details */
+.st-items > li[data-href] > .st-item > summary { cursor: pointer; }

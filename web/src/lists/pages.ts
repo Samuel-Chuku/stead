@@ -103,9 +103,10 @@ const chainSelect = (c: Record<"real" | "fork" | "all", number>) =>
 const counts = (rows: { chain: string }[]) => ({ real: byChain(rows, "real").length, fork: byChain(rows, "fork").length, all: rows.length });
 /** One item: a summary line of cells that opens to a details list. */
 /** `group` is what the page's dropdown filters on ("real" / "fork" by default, from the chain). */
-export type Item = { chain: string; group?: string; cells: string[]; details: [string, string][] };
+/** `href`: clicking the row opens this page (the caret still opens the details). */
+export type Item = { chain: string; group?: string; cells: string[]; details: [string, string][]; href?: string };
 const itemHtml = (it: Item) => `
-    <li data-chain="${it.group ?? (it.chain === "local fork" ? "fork" : "real")}"><details class="st-item">
+    <li data-chain="${it.group ?? (it.chain === "local fork" ? "fork" : "real")}"${it.href ? ` data-href="${it.href}"` : ""}><details class="st-item">
       <summary>${it.cells.map((c) => `<span class="st-item-cell">${c}</span>`).join("")}<span class="st-item-caret" aria-hidden="true"></span></summary>
       <dl class="st-item-details">${it.details.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
     </details></li>`;
@@ -160,6 +161,7 @@ function rescueItem(r: RescueRow, recorded: Recorded[]): Item {
   const range = bps.length ? (Math.min(...bps) === Math.max(...bps) ? `${bps[0]} bps` : `${Math.min(...bps)}–${Math.max(...bps)} bps`) : r.state === "auction" ? "bidding" : "no winner";
   return {
     chain: r.chain,
+    href: page ?? undefined,
     cells: [
       `<span class="st-num">#${r.id}</span><span class="st-item-sub">${day(r.openedAtMs)}</span>`,
       `<span class="st-item-main">${amt(r.topUp)} ${esc(r.asset)}</span><span class="st-item-sub">${usd(r.topUpUsd)}</span>`,
@@ -280,6 +282,22 @@ function overviewPage(rec: Records, live: boolean, recorded: Recorded[]) {
 
 /** The chain dropdown and the pager: ten visible items at a time. */
 export function wire(root: HTMLElement, signal: AbortSignal) {
+  // a row with a page opens it; its caret opens the details; opening one item closes the others
+  root.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    const summary = t.closest("summary");
+    const li = summary?.closest<HTMLLIElement>("li[data-href]");
+    if (!summary || !li || t.closest("a, button")) return;
+    // the caret's end of the row (the last 56 px) opens the details instead
+    if ((e as MouseEvent).clientX > summary.getBoundingClientRect().right - 56) return;
+    e.preventDefault();
+    location.href = li.dataset.href!;
+  }, { signal });
+  root.addEventListener("toggle", (e) => {
+    const d = e.target as HTMLDetailsElement;
+    if (!d.matches?.("details.st-item") || !d.open) return;
+    for (const o of root.querySelectorAll<HTMLDetailsElement>("details.st-item[open]")) if (o !== d) o.open = false;
+  }, { capture: true, signal });
   for (const sect of root.querySelectorAll<HTMLElement>("[data-list]")) {
     const items = [...sect.querySelectorAll<HTMLLIElement>("[data-items] > li")];
     const select = sect.querySelector<HTMLSelectElement>("[data-chain-select]");
