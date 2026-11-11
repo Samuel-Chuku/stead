@@ -62,6 +62,10 @@ export class Keeper {
 
   /** The plain health read when each position's last proof was asked for (to skip identical proofs). */
   private provenAt = new Map<number, bigint>();
+  /** Proofs in a row the contract refused, per position (for the back-off). */
+  private refusals = new Map<number, number>();
+  /** Proof requests sent and not yet answered: when, the verified block before, the request tx. */
+  private inflight = new Map<number, { at: number; block: number; hash: string }>();
 
   /** Account that pays for verified reads (any account may; it must be on the OutLayer secret's access list). */
   public verifyPayer: string;
@@ -133,15 +137,38 @@ export class Keeper {
 
   /** Verified market: ask the contract to run the pinned proof program on OutLayer. The result
    *  goes straight to the contract's callback; this keeper only pays for the run and can't alter it. */
-  async verify(pid: number, force = false): Promise<{ hash: string; note: string } | undefined> {
+  async verify(pid: number, force = false, onlyBusy = false): Promise<{ hash: string; note: string } | undefined> {
     const p = this.positions.get(pid);
     if (!p?.evm_address) return;
     const last = this.lastVerify.get(pid);
     const evidence = this.verifyNow.get(pid);
+    // A proof in flight: OutLayer answers the contract's callback, not us. Check whether the
+    // contract's verified block moved; until then (at most 90 s) don't ask again.
+    const inflight = this.inflight.get(pid);
+    if (inflight) {
+      const now = await view<{ last_block: number } | null>("get_verified", { position_id: pid });
+      if ((now?.last_block ?? 0) > inflight.block) {
+        this.inflight.delete(pid);
+        this.refusals.delete(pid);
+        if (evidence !== undefined && BigInt(now!.last_block) >= evidence) this.verifyNow.delete(pid);
+        const h = (await view<Position>("get_position", { position_id: pid })).health as { hf_wad?: string } | null;
+        const hf = h?.hf_wad ? (Number(BigInt(h.hf_wad) / 10n ** 12n) / 1e6).toFixed(4) : "n/a";
+        return { hash: inflight.hash, note: `applied: block ${now!.last_block}, HF ${hf} (${Math.round((Date.now() - inflight.at) / 1000)} s)` };
+      }
+      if (Date.now() - inflight.at < 90_000) return;
+      this.inflight.delete(pid);
+      this.refusals.set(pid, (this.refusals.get(pid) ?? 0) + 1);
+      return { hash: inflight.hash, note: "not applied within 90 s (refused, or OutLayer slow): backing off" };
+    }
     // the proof reads head − 3 (re-org margin): wait until the evidence is that deep, then go at once
     const deep = evidence !== undefined && (await pub.getBlockNumber()) - VERIFY_DEPTH >= evidence;
     if (last !== undefined && Date.now() - last < (deep ? 8_000 : VERIFY_MIN_GAP_MS)) return;
     const busy = p.active_auction !== null || p.open_rescues.length > 0;
+    // while another position's auction runs, the keeper's time goes to that rescue
+    if (onlyBusy && !busy && evidence === undefined && !force) return;
+    // a proof the contract keeps refusing (e.g. "no price" for an emptied position): back off
+    const refusals = this.refusals.get(pid) ?? 0;
+    if (refusals > 0 && !busy && evidence === undefined && !force && last !== undefined && Date.now() - last < Math.min(30 * 60_000, 60_000 * 2 ** refusals)) return;
     const [v, books] = await Promise.all([view<{ last_block: number } | null>("get_verified", { position_id: pid }), this.books(pid)]);
     const behind = BigInt(books.last_event_block) > BigInt(v?.last_block ?? 0);
     // Idle cadence: a plain (unverified) RPC read is only a TRIGGER for paying for a proof; the
@@ -153,6 +180,8 @@ export class Keeper {
     if (!busy) {
       const [d, params] = await Promise.all([accountData(p.evm_address as Address), view<{ trigger_hf_bps: number }>("get_params")]);
       hfNow = d.hfWad;
+      // an empty position (closed, or not opened yet) has nothing to prove
+      if (d.collateralBase === 0n && d.debtBase === 0n && evidence === undefined && !force) return;
       const trigger = BigInt(params.trigger_hf_bps) * 10n ** 14n;
       if (d.debtBase > 0n && d.hfWad < (trigger * 105n) / 100n) idleMs = nearTriggerCadence(d.hfWad, this.provenAt.get(pid), trigger);
     }
@@ -162,15 +191,11 @@ export class Keeper {
     this.lastVerify.set(pid, Date.now());
     if (hfNow !== undefined) this.provenAt.set(pid, hfNow);
     // The payer must be allowed to use the proof program's OutLayer secret (the keyed RPC)
-    const r = await call(this.verifyPayer, "request_verified", { position_id: pid }, { gas: 300n * TGAS, deposit: NEAR / 10n });
-    for (const e of r.events) this.onEvent?.(e, r.hash);
-    const ev = r.events.find((e) => e.event === "health_verified")?.data;
-    if (ev && evidence !== undefined && BigInt(ev.block) >= evidence) this.verifyNow.delete(pid);
-    const refused = r.logs.find((l) => /verified read (not applied|refused|unreadable|failed)/.test(l));
-    const note = ev
-      ? `block ${ev.block}, HF ${(Number(BigInt(ev.hf_wad) / 10n ** 12n) / 1e6).toFixed(4)}, ${ev.rpcs_agreeing} RPCs agreeing`
-      : refused ?? "no reading applied";
-    return { hash: r.hash, note };
+    // returns once NEAR includes the request (seconds), not when OutLayer's answer lands (30–90 s):
+    // the keeper's loop keeps relaying and closing auctions meanwhile
+    const r = await call(this.verifyPayer, "request_verified", { position_id: pid }, { gas: 300n * TGAS, deposit: NEAR / 10n, waitUntil: "INCLUDED_FINAL" });
+    this.inflight.set(pid, { at: Date.now(), block: v?.last_block ?? 0, hash: r.hash });
+    return { hash: r.hash, note: "requested" };
   }
 
   /** Read Aave health for one position and report it if it changed (or is getting old). */
@@ -237,7 +262,9 @@ export class Keeper {
     const r = await this.callR("confirm_nonce", { position_id: pid, onchain_nonce: onchain, success: rc.status === "success", block: Number(rc.blockNumber) });
     // a borrow or withdraw lowers the health: prove it as soon as it's deep enough, not at the next
     // cadence (it may have just crossed the trigger)
-    if (rc.status === "success" && healthDropping(pending.kind) && (await this.isVerified(pid))) this.verifyNow.set(pid, rc.blockNumber);
+    // (and a later transaction on a position already waiting for a proof moves the evidence forward:
+    // a proof older than the position's newest event is refused)
+    if (rc.status === "success" && (healthDropping(pending.kind) || this.verifyNow.has(pid)) && (await this.isVerified(pid))) this.verifyNow.set(pid, rc.blockNumber);
     return { evmTx: hash, ok: rc.status === "success", nearTx: r.hash };
   }
 
@@ -430,10 +457,11 @@ export class Keeper {
     // top-up clock isn't held up by unrelated positions' proofs
     await this.housekeep();
     for (const pid of this.positions.keys()) await this.proveEscrow(pid);
+    const hot = [...this.positions.values()].some((q) => q.active_auction !== null);
     for (const pid of this.positions.keys()) {
       try {
         if (await this.isVerified(pid)) {
-          const v = await this.verify(pid);
+          const v = await this.verify(pid, false, hot);
           if (v) log("verifier", `position ${pid}: verified read ${short(v.hash)} → ${v.note}`);
           continue;
         }

@@ -20,7 +20,9 @@ const REPLAYS = [
   { id: "8", label: "RESCUE 8", url: "/replays/sepolia-demo-rescue-8.json" },
   { id: "10", label: "RESCUE 10 · POOLED", url: "/replays/sepolia-demo-rescue-10.json" },
   { id: "11", label: "RESCUE 11 · POOLED", url: "/replays/sepolia-demo-rescue-11.json" },
+  { id: "14", label: "RESCUE 14 · POOLED", url: "https://live.usestead.xyz/rescue/sepolia-demo.steadfi.testnet/14.json" },
 ];
+let replayNote = ""; // shown once on the replay that opened because nothing was live
 const replayId = () => {
   const r = new URLSearchParams(location.search).get("replay");
   return REPLAYS.some((x) => x.id === r) ? r! : REPLAYS[0].id;
@@ -36,6 +38,9 @@ function setBoardMode(m: BoardMode) {
   else u.searchParams.delete("replay");
   if (m === "demo") u.searchParams.set("demo", "");
   else u.searchParams.delete("demo");
+  // choosing LIVE sticks even when nothing is live (otherwise the page opens on a replay)
+  if (m === "live") u.searchParams.set("live", "");
+  else u.searchParams.delete("live");
   u.searchParams.delete("t");
   history.replaceState(null, "", u);
   fill("live");
@@ -181,6 +186,32 @@ function fill(r: Route) {
   unmount();
   unmount = () => {};
   const content = document.querySelector<HTMLElement>("#content")!;
+  const q = new URLSearchParams(location.search);
+  if (r === "live" && boardMode() === "live" && !q.has("live")) {
+    // nothing live right now: open on a recorded rescue instead of an empty board (LIVE is one click)
+    let gone = false;
+    unmount = () => void (gone = true);
+    content.innerHTML = `<section class="st-panel st-page"><div class="st-label">LIVE AUCTIONS</div><p class="st-empty">Looking for a live rescue…</p></section>`;
+    void fetch(`${liveFeedUrl()}/live.json`, { signal: AbortSignal.timeout(4000), cache: "no-store" })
+      .then((x) => x.json())
+      .then((j) => (j.rescues ?? []).length > 0, () => false)
+      .then((isLive) => {
+        if (gone) return;
+        if (isLive) {
+          unmount = mountLive(content, setBoardMode, "live");
+          return;
+        }
+        replayNote = "No rescue is running right now, so this is a recorded one, replayed from its events. LIVE shows the next real rescue; DEMO starts one.";
+        fill2();
+      });
+    const fill2 = () => {
+      const u = new URL(location.href);
+      u.searchParams.set("replay", replayId());
+      history.replaceState(null, "", u);
+      fill("live");
+    };
+    return;
+  }
   if (r === "live" && boardMode() !== "replay") {
     unmount = mountLive(content, setBoardMode, boardMode() === "demo" ? "demo" : "live");
   } else if (r === "live") {
@@ -188,9 +219,12 @@ function fill(r: Route) {
     let gone = false;
     unmount = () => { gone = true; stop(); };
     const cur = replayId();
+    const note = replayNote;
+    replayNote = "";
     void mountReplay(content, REPLAYS.find((x) => x.id === cur)!.url, {
       replays: REPLAYS,
       current: cur,
+      note,
       onMode: setBoardMode,
       onPick(id) {
         const u = new URL(location.href);

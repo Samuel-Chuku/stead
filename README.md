@@ -9,19 +9,19 @@ NEAR's chain signatures: your NEAR account owns it, and when its health falls be
 to rescue it. Everything runs on testnets (NEAR testnet and Ethereum Sepolia) against Aave V3's real
 contracts. Test funds are sponsored, so nothing needs to be bought.
 
-**With your own NEAR wallet** ([Protect a position](https://app.usestead.xyz/#/try), about 15 to 20 minutes):
+**With your own NEAR wallet** ([Protect a position](https://app.usestead.xyz/#/try), about 10 minutes):
 1. **Connect** a NEAR testnet wallet (Meteor, Intear, Nightly, Ledger, NEAR CLI and more, through NEAR
    Connector). A Sepolia wallet is optional: without one, the sponsor holds the Sepolia side.
 2. **Open a protected position**: your NEAR account registers it; its Ethereum address is derived by NEAR's MPC
    network, and only the Stead contract can have a transaction signed for it. The sponsor sends 60 LINK
-   and gas; the contract supplies the LINK on Aave and borrows to a health factor of 1.20.
-3. **Push it under the trigger**: on mainnet a falling price does this; Sepolia's prices are fixed, so
-   borrow to 1.14, under the 1.15 trigger. A proven reading opens a real 45-second auction
-   among the stewards; watch the bids on the live board.
+   and gas; the contract supplies the LINK on Aave and borrows straight to a health factor of 1.14, just
+   under the 1.15 trigger (on mainnet a falling price takes it there; Sepolia's prices are fixed).
+3. **Watch the rescue**: a proven reading opens a real 45-second auction among the stewards; watch the
+   bids, the winner's top-up and its proof on the live board.
 4. **Try to break it**: while the claim is open, ask to withdraw or borrow. The contract refuses on
    chain, and the refusal is linked.
 5. **Choose the ending**: buy back (the owed LINK goes into the position, and the steward is paid exactly
-   what it is owed), or wait 3 minutes and watch the claim settle at the oracle price.
+   what it is owed), or wait out the 5-minute window and watch the claim settle at the oracle price.
 6. **Close** and read your rescue's story: every step from the trigger to the payouts, each linked to
    its NEAR or Sepolia transaction.
 
@@ -215,7 +215,8 @@ decision came from the proof program.
 
 **Expiry settlement and buy-back on Sepolia** (2026-11-06, demo contract
 [`sepolia-demo.steadfi.testnet`](https://testnet.nearblocks.io/address/sepolia-demo.steadfi.testnet),
-position 1). Its buy-back window is **3 minutes, a demo setting** (the main contract keeps 24 h), so
+position 1). Its buy-back window was **3 minutes, a demo setting** (5 minutes since 2026-11-11, so a
+visitor has time to choose; the main contract keeps 24 h), so
 both endings can be shown in one sitting. Readings verified as above; the stewards joined through
 `register_steward`.
 

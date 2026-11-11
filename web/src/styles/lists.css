@@ -169,3 +169,5 @@
 .st-own-chip-where { font-family: var(--st-font-head); font-size: 10px; letter-spacing: .06em; color: var(--st-quiet); text-transform: uppercase; }
 .st-own-chip.is-refused { border-color: var(--st-trip); }
 .st-own-more { margin-top: 10px; }
+.st-own-elapsed { font-family: var(--st-font-mono, monospace); font-weight: 500; color: var(--st-quiet); margin-left: 6px; }
+.st-own-notice { border: 1.5px solid var(--st-line); border-left-width: 4px; padding: 10px 12px; margin: 0; font-size: 14px; line-height: 1.5; }

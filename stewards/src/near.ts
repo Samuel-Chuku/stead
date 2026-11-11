@@ -116,7 +116,7 @@ export const NEAR = 10n ** 24n;
 
 /** Call the Stead contract as `signer`. Waits for every receipt (MPC callbacks included). Throws
  *  with the contract's panic message on failure. */
-export async function call<T = unknown>(signer: string, method: string, args: Record<string, unknown>, opts: { gas?: bigint; deposit?: bigint; contract?: string } = {}): Promise<CallResult<T>> {
+export async function call<T = unknown>(signer: string, method: string, args: Record<string, unknown>, opts: { gas?: bigint; deposit?: bigint; contract?: string; waitUntil?: "INCLUDED_FINAL" | "FINAL" } = {}): Promise<CallResult<T>> {
   viewCache.clear();
   // another contract (e.g. USDC's ft_transfer for NEAR Intents) goes through the same path, so the
   // evidence trail records it like every Stead call
@@ -130,7 +130,7 @@ export async function call<T = unknown>(signer: string, method: string, args: Re
       args,
       gas: opts.gas ?? 100n * TGAS,
       deposit: opts.deposit ?? 0n,
-      waitUntil: "FINAL",
+      waitUntil: opts.waitUntil ?? "FINAL",
     }));
   } catch (e) {
     // a refused transaction still has a hash (it's on chain): near-api-js keeps it on the error

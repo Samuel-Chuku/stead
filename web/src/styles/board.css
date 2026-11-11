@@ -439,3 +439,7 @@
   .st-runlog li { grid-template-columns: 1fr; gap: 4px; }
   .st-demo-history li { grid-template-columns: 1fr 1fr; }
 }
+
+/* replays: why a replay is showing, and when it fast-forwards */
+.st-replay-note { margin: 0 0 12px; border: var(--st-border); border-left-width: 4px; background: var(--st-panel); padding: 10px 12px; font-size: 14px; line-height: 1.5; }
+.st-ff { align-self: center; font-family: var(--st-font-head); font-weight: 600; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--st-quiet); }

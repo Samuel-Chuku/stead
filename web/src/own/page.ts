@@ -102,6 +102,10 @@ const rescueText = (st: string) =>
     settled: "Settled at the oracle price: the claim owner took exactly what it was owed.",
     bought_back: "Bought back: the claim owner was paid exactly what it was owed.",
   })[st] ?? st.replace(/_/g, " ");
+const elapsed = (fromMs: number) => {
+  const s = Math.max(0, Math.round((Date.now() - fromMs) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
 const countdown = (endMs: number) => {
   const left = Math.max(0, Math.round((endMs - Date.now()) / 1000));
   return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
@@ -139,6 +143,8 @@ export function mountOwn(root: HTMLElement): () => void {
   let busy = "";
   let error = "";
   let txs: TxRow[] = [];
+  let notice = ""; // a plain explanation (not an error) shown above the steps
+  let busySince = 0;
   let showAllTxs = false; // the list shows the latest 5 until the visitor asks for the rest
   let stepNow = 0; // the step whose button is running: its transactions are filed under it
   let receipts: Receipts | null = null; // what the faucet and the sponsor sent this visitor (any device)
@@ -153,14 +159,24 @@ export function mountOwn(root: HTMLElement): () => void {
   const boardHost = root.querySelector<HTMLElement>("[data-own-board]")!;
   const KEY = () => `stead-own-${near}`;
 
-  try {
-    txs = JSON.parse(localStorage.getItem("stead-own-txs") ?? "[]");
-  } catch {
+  // each NEAR account's transactions are kept apart (and shown only while it's connected)
+  const TXKEY = () => `stead-own-txs-${near}`;
+  const loadTxs = () => {
     txs = [];
-  }
-  const saveTxs = () => {
+    if (!near) return;
     try {
-      localStorage.setItem("stead-own-txs", JSON.stringify(txs.slice(-60)));
+      const old = localStorage.getItem("stead-own-txs"); // the list from before it was kept per account
+      if (old && !localStorage.getItem(TXKEY())) localStorage.setItem(TXKEY(), old);
+      localStorage.removeItem("stead-own-txs");
+      txs = JSON.parse(localStorage.getItem(TXKEY()) ?? "[]");
+    } catch {
+      txs = [];
+    }
+  };
+  const saveTxs = () => {
+    if (!near) return;
+    try {
+      localStorage.setItem(TXKEY(), JSON.stringify(txs.slice(-60)));
     } catch {
       /* the list still shows; it just won't survive a reload */
     }
@@ -176,9 +192,11 @@ export function mountOwn(root: HTMLElement): () => void {
   async function initNear() {
     near = await nearAccount();
     loadMode();
+    loadTxs();
     stopNear = onNearAccount((a) => {
       near = a;
       loadMode();
+      loadTxs();
       void refresh();
     });
   }
@@ -331,7 +349,9 @@ export function mountOwn(root: HTMLElement): () => void {
   async function run(label: string, fn: () => Promise<void>) {
     if (busy) return;
     busy = `${label}…`;
+    busySince = Date.now();
     error = "";
+    notice = "";
     render();
     try {
       await fn();
@@ -364,7 +384,14 @@ export function mountOwn(root: HTMLElement): () => void {
     const pd = await pub.readContract({ address: ORACLE, abi: oracleAbi, functionName: "getAssetPrice", args: [DAI] });
     const units = ((target - d[1]) * E18) / pd;
     await signAction(pid, { type: "borrow", amount: units.toString() }, `Borrow ${fmt(units, 18, 2)} DAI (health to ${(Number(hfBps) / 10_000).toFixed(2)})`);
-    await signAction(pid, { type: "transfer_debt", amount: units.toString() }, `Move the borrowed DAI to your Sepolia wallet`);
+    try {
+      await signAction(pid, { type: "transfer_debt", amount: units.toString() }, `Move the borrowed DAI to your Sepolia wallet`);
+    } catch (e) {
+      if (!(e as any).refused) throw e;
+      // under the trigger, the auction can open before this lands: from then on the contract signs
+      // only repays and supplies, so the DAI stays in the position and is refunded when the rescue ends
+      notice = `The auction opened before the borrowed ${fmt(units, 18, 2)} DAI left your position. While a rescue runs the contract only signs repays and supplies, so it stays there; the contract refunds it to your wallet when the rescue ends.`;
+    }
   }
   const open = () =>
     run("Opening your position", async () => {
@@ -391,9 +418,10 @@ export function mountOwn(root: HTMLElement): () => void {
       if (mode === "own" && (await pub.getBalance({ address: addr })) < POSITION_GAS_WEI) await evmSend("Send 0.0015 ETH to your position for its gas", () => evmWallet().sendTransaction({ to: addr, value: POSITION_GAS_WEI }));
       const allowed = (t: Address) => pub.readContract({ address: t, abi: erc20, functionName: "allowance", args: [addr, POOL] });
       if ((await allowed(LINK)) < COLLATERAL) await signAction(p.id, { type: "approve", token: "collateral", amount: "max" }, "Let Aave take the position's LINK");
-      if ((await allowed(DAI)) === 0n) await signAction(p.id, { type: "approve", token: "debt", amount: "max" }, "Let Aave take DAI repays");
       if (d0[0] === 0n) await signAction(p.id, { type: "supply", amount: COLLATERAL.toString() }, "Supply 60 LINK on Aave");
-      await borrowTo(p.id, 12_000n, "Open");
+      // straight to 1.14, just under the 1.15 trigger: on mainnet a falling price would take it there
+      stepNow = 5;
+      await borrowTo(p.id, 11_400n, "Open");
     });
   const trigger = () =>
     run("Triggering a rescue", async () => {
@@ -422,6 +450,15 @@ export function mountOwn(root: HTMLElement): () => void {
       stepNow = 7;
       const p = state!.pos!;
       const addr = p.evm_address as Address;
+      // the contract refuses the borrower's requests while it still owes payouts (e.g. a refund): wait
+      for (let i = 0; i < 60; i++) {
+        const books = await nearView<{ outflows: unknown[] }>("get_books", { position_id: p.id });
+        if (!books.outflows.length) break;
+        busy = `Waiting for the contract to finish its ${books.outflows.length} queued payout${books.outflows.length > 1 ? "s" : ""} (the keeper relays them)…`;
+        render();
+        await sleep(5000);
+      }
+      if ((await pub.readContract({ address: DAI, abi: erc20, functionName: "allowance", args: [addr, POOL] })) === 0n) await signAction(p.id, { type: "approve", token: "debt", amount: "max" }, "Let Aave take the DAI repay");
       const d = await pub.readContract({ address: POOL, abi: poolAbi, functionName: "getUserAccountData", args: [addr] });
       if (d[1] > 0n && mode === "sponsored") {
         await sponsor("repay").catch((e) => {
@@ -480,30 +517,36 @@ export function mountOwn(root: HTMLElement): () => void {
         : `<p>You need about 0.03 NEAR, 0.002 Sepolia ETH and 60 LINK (+20 LINK if you buy back). We sponsor one set per wallet per day: 0.04 NEAR, 0.0025 Sepolia ETH, 80 LINK and 5 DAI.</p><div class="st-own-buttons">${btn("Send me test funds", "data-faucet", true)}</div>`),
       stepHtml(4, "Open your protected position", opened, (sponsored ? !!near : funded) && !opened, opened
         ? receipt("Opened", step4, posLinks)
-        : `<p>Registers a position on the demo contract; its Sepolia address is derived by NEAR's MPC network, and only the contract can sign for it. Then 60 LINK goes in${sponsored ? " (from the sponsor)" : ""}, and the contract supplies it on Aave and borrows DAI to a health factor of 1.20.${sponsored ? " Every step is a Stead call from your NEAR wallet." : " Two Sepolia confirmations, the rest are Stead calls."}</p>${pos && !opened ? `<p class="st-own-hint">Position ${pos.id} is registered; opening it again picks up where it stopped.</p>` : ""}<div class="st-own-buttons">${btn(pos ? "Continue opening my position" : "Open my position", "data-open", true)}</div>`),
+        : `<p>Registers a position on the demo contract; its Sepolia address is derived by NEAR's MPC network, and only the contract can sign for it. Then 60 LINK goes in${sponsored ? " (from the sponsor)" : ""}, the contract supplies it on Aave and borrows DAI straight to a health factor of 1.14, just under Stead's 1.15 trigger: on mainnet a falling price would take it there. <strong>About 3 minutes</strong>${sponsored ? "; every step is a Stead call from your NEAR wallet" : "; two Sepolia confirmations in your wallet, the rest are Stead calls"}. The rescue starts on its own.</p>${pos && !opened ? `<p class="st-own-hint">Position ${pos.id} is registered; opening it again picks up where it stopped.</p>` : ""}<div class="st-own-buttons">${btn(pos ? "Continue opening my position" : "Open my position", "data-open", true)}</div>`),
       stepHtml(5, "Push it under the trigger", triggered || ended, opened && !triggered && !ended, triggered || ended
-        ? receipt("Under the trigger", mine(5))
+        ? mine(5).length
+          ? receipt("Under the trigger", mine(5))
+          : `<p>Done (health under 1.15).</p>`
         : `<p>On mainnet a falling price does this; on Sepolia prices are fixed, so you borrow a little more, to a health factor of 1.14: under Stead's 1.15 trigger. The keeper's proven reading then opens a real auction among the stewards.</p><div class="st-own-buttons">${btn("Borrow to 1.14", "data-trigger", true)}</div>`),
       stepHtml(6, "Watch your rescue, try to break it, choose the ending", ended, triggered && !ended, `${rescue ? `<p>Rescue <strong>#${rescue.id}</strong>: ${esc(rescue.state.replace(/_/g, " "))}. ${rescueText(rescue.state)}${rescue.state === "open" && windowEnd ? ` <strong class="st-own-countdown" data-countdown="${windowEnd}">${countdown(windowEnd)}</strong> left to buy back.` : ""}</p>` : `<p>Waiting for the proven reading to open the auction (30 to 60 seconds).</p>`}
         <div class="st-own-buttons">${rescue?.state === "open" ? btn("Buy back now", "data-buyback", true) : ""}${rescue ? btn("Try to withdraw 1 LINK", 'data-break="withdraw"') + btn("Try to borrow 1 DAI", 'data-break="borrow"') : ""}</div>
         <p class="st-own-hint">The live board for your position is below.</p>`),
-      stepHtml(7, "Close and get everything back", closed, ended && !closed, `<p>Repay the debt from your DAI, then withdraw all the LINK to your Sepolia wallet.${lastRescue !== null ? ` Your rescue's full story, every step with its transaction: <a class="st-textlink" href="?rescue=sepolia-demo:${lastRescue}#/rescues">rescue #${lastRescue}</a> (it appears a few minutes after the rescue ends).` : ""}</p><div class="st-own-buttons">${btn("Close my position", "data-close", true)}</div>`),
+      stepHtml(7, "Close and get everything back", closed, ended && !closed, `<p>Repay the debt from your DAI, then withdraw all the LINK to your Sepolia wallet. <strong>About 2 minutes.</strong>${lastRescue !== null ? ` Your rescue's full story, every step with its transaction: <a class="st-textlink" href="?rescue=sepolia-demo:${lastRescue}#/rescues">rescue #${lastRescue}</a> (it appears a few minutes after the rescue ends).` : ""}</p><div class="st-own-buttons">${btn("Close my position", "data-close", true)}</div>`),
     ];
     main.innerHTML = `
       <section class="st-panel st-sect st-own">
         <header class="st-list-head"><div class="st-label">PROTECT AN AAVE POSITION · NEAR TESTNET AND SEPOLIA</div><h1 class="st-page-title">Protect an Aave position, then watch it get rescued</h1>
           <p class="st-list-sub">A protected position is an Aave position at an address only the Stead contract can sign for, through NEAR's chain signatures; your NEAR account owns it. When its health falls below 1.15, stewards compete to top it up, and you buy the rescue back. Everything below is real, on testnets; Sepolia's prices don't move, so step 5 pushes the position under the trigger by borrowing more. About 15 to 20 minutes: each Aave step waits for Sepolia.</p></header>
-        ${busy ? `<p class="st-own-busy" role="status"><span class="st-live-dot" aria-hidden="true"></span>${esc(busy)}</p>` : ""}
+        ${busy ? `<p class="st-own-busy" role="status"><span class="st-live-dot" aria-hidden="true"></span>${esc(busy)} <span class="st-own-elapsed" data-elapsed="${busySince}">${elapsed(busySince)}</span></p>` : ""}
+        ${notice ? `<p class="st-own-notice" role="status">${esc(notice)}</p>` : ""}
         ${error ? `<p class="st-own-error" role="alert">${esc(error)}</p>` : ""}
         <ol class="st-own-steps">${steps.join("")}</ol>
-        ${txs.length ? `<div class="st-label st-runlog-head">YOUR TRANSACTIONS</div><ol class="st-runlog">${txs
+        ${near && txs.length ? `<div class="st-label st-runlog-head">YOUR TRANSACTIONS</div><ol class="st-runlog">${txs
           .slice()
           .reverse()
           .slice(0, showAllTxs ? undefined : 5)
           .map((t) => `<li><span class="st-runlog-time">${new Date(t.at).toISOString().slice(11, 19)}</span><span class="st-runlog-label">${esc(t.label)}</span>${t.hash ? `<a class="st-txlink" href="${txHref(t)}" target="_blank" rel="noopener"><span>${t.chain === "near" ? "NearBlocks" : "Etherscan"}</span><span class="st-txlink-where">${t.hash.slice(0, 8)}…</span>${icon("external", 12)}</a>` : ""}</li>`)
           .join("")}</ol>${txs.length > 5 ? `<button type="button" class="st-secondary st-cut st-own-more" data-more-txs>${showAllTxs ? "Show the latest 5" : `See all ${txs.length}`}</button>` : ""}` : ""}
       </section>`;
-    main.querySelector("[data-near]")?.addEventListener("click", () => run("Connecting your NEAR wallet", async () => void (near = await connectNear())));
+    main.querySelector("[data-near]")?.addEventListener("click", () => run("Connecting your NEAR wallet", async () => {
+      near = await connectNear();
+      loadTxs();
+    }));
     main.querySelector("[data-sponsored]")?.addEventListener("click", () => {
       setMode("sponsored");
       render();
@@ -546,6 +589,7 @@ export function mountOwn(root: HTMLElement): () => void {
   // the buy-back countdown ticks every second between refreshes
   const tick = window.setInterval(() => {
     for (const el of root.querySelectorAll<HTMLElement>("[data-countdown]")) el.textContent = countdown(Number(el.dataset.countdown));
+    for (const el of root.querySelectorAll<HTMLElement>("[data-elapsed]")) el.textContent = elapsed(Number(el.dataset.elapsed));
   }, 1000);
   return () => {
     gone = true;

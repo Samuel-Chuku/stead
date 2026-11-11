@@ -162,6 +162,23 @@ export class Steward {
 
   /** Outbid while the auction is open: re-bid one step below the best, never under the floor, at
    *  most three times, never in the last 5 s. Same amount; the bond is kept (no new deposit). */
+  /** The window has passed: anyone may close the auction (the contract checks only the time). The
+   *  steward with the lowest bid does it at once, so its top-up clock starts without waiting for the
+   *  keeper's next pass; anyone else leaves it (the keeper still closes it if nobody does). */
+  private closing = new Set<number>();
+  private async closeIfLeading(r: Rescue) {
+    const best = [...r.bids].sort((a, b) => a.premium_bps - b.premium_bps || (a.seq ?? 0) - (b.seq ?? 0))[0];
+    if (!best || best.steward !== this.account || this.closing.has(r.id)) return;
+    this.closing.add(r.id);
+    try {
+      const c = await call(this.account, "close_auction", { rescue_id: r.id });
+      log(this.name, `auction ${r.id}: window passed, closed it (lowest bid) ${short(c.hash)}`);
+    } catch (e) {
+      // someone closed it first: nothing to do
+      if (!/auction not open/.test((e as Error).message)) log(this.name, `auction ${r.id}: close failed (${(e as Error).message.slice(0, 80)})`);
+    }
+  }
+
   private async maybeUndercut(r: Rescue) {
     const mine = r.bids.find((b) => b.steward === this.account);
     if (!mine) return;
@@ -286,7 +303,10 @@ export class Steward {
   private rebids = new Map<number, number>();
 
   private async onAuction(r: Rescue, params: Params) {
-    if (this.bid.has(r.id) || r.bids.some((b) => b.steward === this.account)) return this.maybeUndercut(r);
+    if (this.bid.has(r.id) || r.bids.some((b) => b.steward === this.account)) {
+      if (nowNs() >= BigInt(r.closes_at)) return this.closeIfLeading(r);
+      return this.maybeUndercut(r);
+    }
     const [nh, pos, market] = await Promise.all([
       view<[string, string, string] | null>("get_net_health", { position_id: r.position_id }),
       view<Position>("get_position", { position_id: r.position_id }),

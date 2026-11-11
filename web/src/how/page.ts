@@ -68,7 +68,7 @@ const STEPS: [string, string][] = [
   ["Watch", "The keeper asks OutLayer for a proven reading of each position: a program in a secure enclave reads Aave's storage on Ethereum, and at least three independent RPCs must agree on the block. When the proven health factor falls below 1.15, the contract opens an auction."],
   ["Bid", "For 45 seconds, stewards bid a premium in basis points for an amount of collateral. The lowest premium wins. When no single steward can cover the top-up, several share it, filled from the lowest premium up. Every premium is capped below Aave's liquidation penalty."],
   ["Top up", "Each winner supplies its own collateral to Aave on the position's behalf. Only a new proven reading showing the collateral increase mints its claim: an NFT owed back exactly the units it supplied plus its premium."],
-  ["Buy back", "Within the window (24 hours; 3 minutes on the demo contract), the borrower pays what is owed into the position. Once the payment is proven, the contract pays each claim owner exactly what it is owed and refunds any excess."],
+  ["Buy back", "Within the window (24 hours; 5 minutes on the demo contract), the borrower pays what is owed into the position. Once the payment is proven, the contract pays each claim owner exactly what it is owed and refunds any excess."],
   ["Or settle", "If the window ends, or the borrower's own health falls below 1.10, a claim owner settles at the oracle price: it repays part of the debt and withdraws the collateral it is owed. A stalled settler is taken over after 3 minutes."],
   ["Locked meanwhile", "From the auction until the last claim closes, the borrower may only repay or add collateral. The contract refuses every other request; the position's address has no key anyone holds."],
 ];
