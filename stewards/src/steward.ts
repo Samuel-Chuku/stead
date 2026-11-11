@@ -4,10 +4,10 @@ import { type Address, type Hex } from "viem";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { cfg, env, hasEnv, REPO, stewardAccount, type StewardName } from "./config.js";
-import { call, view, viewReport, NEAR, TGAS } from "./near.js";
+import { call, view, viewAt, viewReport, NEAR, TGAS } from "./near.js";
 import { wallet, write, ensureTokens, fundEth, poolAbi, erc20Abi, MAX, pub, price } from "./fork.js";
 import { strategies, undercut, type AuctionView } from "./strategy.js";
-import { sourceCapital } from "./intents.js";
+import { deliverViaIntents, sourceCapital, type Delivery } from "./intents.js";
 import { DEFAULTS, clamp, type RiskSettings } from "./risk.js";
 import { marketAssets, units } from "./market.js";
 import { FINAL, RescueCursor, pollDelay } from "./rescues.js";
@@ -18,6 +18,7 @@ import { log, short, fmt } from "./log.js";
 import { nowNs, settlementRepayUnits, type Rescue, type Position, type Params, type Claim, type Watch } from "./types.js";
 
 const TAKEOVER_AFTER_NS = 180n * 1_000_000_000n;
+const WETH_ABI = [{ type: "function", name: "deposit", stateMutability: "payable", inputs: [], outputs: [] }] as const;
 const TOPUP_MARGIN_NS = 30n * 1_000_000_000n; // a top-up needs this long left to land before the deadline
 /** The time of the steward's last logged AI request (logs/ai-<name>.jsonl), or 0. */
 function lastAiAsk(name: string): number {
@@ -57,6 +58,13 @@ export class Steward {
 
   /** Positions to act on; undefined = all (long-running bot). The local-fork demo script scopes it to its own run. */
   public scope?: Set<number>;
+
+  /** Real NEAR Intents capital (Ethereum + NEAR mainnet only, WETH collateral): when this steward wins,
+   *  its share is bought with USDC on NEAR and delivered as ETH, which it wraps. If delivery isn't
+   *  confirmed within `maxWaitMs`, it tops up from its own WETH (it must hold enough anyway). */
+  intents?: { maxWaitMs: number };
+  /** Every Intents outcome, for the run's evidence (the solver's delivery is not from our addresses). */
+  public onIntents?: (d: Delivery) => void;
 
   /** Risk limit per rescue, in whole collateral tokens (STEWARD_<NAME>_CAPACITY; may be fractional, e.g. 0.5 WBTC). */
   capacity?: number;
@@ -320,6 +328,46 @@ export class Steward {
     this.onAction?.(`bid ${d.bps} bps`, c.hash);
   }
 
+  /** Buy the share through NEAR Intents and wrap it; any outcome but a confirmed delivery falls back to
+   *  the WETH already held. Time left for the top-up itself is protected: at least 45 s. */
+  private async capitalViaIntents(weth: Address, share: bigint, r: Rescue) {
+    const leftMs = Number((BigInt(r.topup_deadline) - nowNs()) / 1_000_000n) - 45_000;
+    const budget = Math.min(this.intents!.maxWaitMs, leftMs);
+    if (budget < 15_000) {
+      log(this.name, `capital: too little time left for NEAR Intents (${Math.round(leftMs / 1000)} s): own WETH`);
+      return;
+    }
+    log(this.name, `capital: buying ${fmt(share, 18, 6)} ETH with USDC on NEAR through NEAR Intents (real, mainnet), waiting up to ${Math.round(budget / 1000)} s`);
+    const d = await deliverViaIntents(
+      {
+        fetch,
+        nearView: (c, m, a) => viewAt(c, m, a),
+        nearCall: async (c, m, a, deposit) => (await call(this.account, m, a, { contract: c, deposit, gas: 30n * TGAS })).hash,
+        sleep: (ms) => new Promise((ok) => setTimeout(ok, ms)),
+        now: () => Date.now(),
+      },
+      share,
+      this.evm.address,
+      this.account,
+      budget,
+    );
+    this.onIntents?.(d);
+    const q = d.quote ? ` (${Number(d.quote.amountIn) / 1e6} USDC quoted, ${d.quote.costBps.toFixed(0)} bps, ~${d.quote.seconds} s)` : "";
+    if (d.status !== "SUCCESS") {
+      log(this.name, `capital: NEAR Intents ${d.status.toLowerCase()}: ${d.note}${q}; topping up from its own WETH`);
+      return;
+    }
+    log(this.name, `capital: NEAR Intents delivered ${fmt(share, 18, 6)} ETH${q}: ${d.deliveryTxs.map((h) => short(h)).join(" ")}`);
+    const eth = await pub.getBalance({ address: this.evm.address });
+    if (eth < share) {
+      log(this.name, `capital: delivered ETH not visible yet (${fmt(eth, 18, 6)}): own WETH`);
+      return;
+    }
+    const h = await this.evm.writeContract({ address: weth, abi: WETH_ABI, functionName: "deposit", args: [], value: share, account: this.evm.account!, chain: this.evm.chain } as any);
+    const rc = await pub.waitForTransactionReceipt({ hash: h });
+    log(this.name, `capital: wrapped ${fmt(share, 18, 6)} ETH into WETH (${short(h)})${rc.status === "success" ? "" : " REVERTED: own WETH"}`);
+  }
+
   private async onTopUp(r: Rescue) {
     const m = r.members.find((m) => m.steward === this.account && !m.confirmed);
     if (!m) return;
@@ -333,7 +381,8 @@ export class Steward {
     let sent = false;
     try {
       const a = await marketAssets();
-      await sourceCapital(this.name, this.evm, a.collateral, a.cSym, BigInt(m.share_units), a.cDec);
+      if (this.intents && cfg.evm === "ethereum" && cfg.nearNetwork === "mainnet" && a.cSym === "WETH") await this.capitalViaIntents(a.collateral, BigInt(m.share_units), r);
+      else await sourceCapital(this.name, this.evm, a.collateral, a.cSym, BigInt(m.share_units), a.cDec);
       await this.approveOnce(a.collateral);
       const tx = await write(this.evm, cfg.aave.pool, poolAbi, "supply", [a.collateral, BigInt(m.share_units), pos.evm_address, 0], () => {
         sent = true;

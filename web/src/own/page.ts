@@ -125,6 +125,7 @@ export function mountOwn(root: HTMLElement): () => void {
   let busy = "";
   let error = "";
   let txs: TxRow[] = [];
+  let showAllTxs = false; // the list shows the latest 5 until the visitor asks for the rest
   let stepNow = 0; // the step whose button is running: its transactions are filed under it
   let receipts: Receipts | null = null; // what the faucet and the sponsor sent this visitor (any device)
   let receiptsAt = 0;
@@ -479,8 +480,9 @@ export function mountOwn(root: HTMLElement): () => void {
         ${txs.length ? `<div class="st-label st-runlog-head">YOUR TRANSACTIONS</div><ol class="st-runlog">${txs
           .slice()
           .reverse()
+          .slice(0, showAllTxs ? undefined : 5)
           .map((t) => `<li><span class="st-runlog-time">${new Date(t.at).toISOString().slice(11, 19)}</span><span class="st-runlog-label">${esc(t.label)}</span>${t.hash ? `<a class="st-txlink" href="${txHref(t)}" target="_blank" rel="noopener"><span>${t.chain === "near" ? "NearBlocks" : "Etherscan"}</span><span class="st-txlink-where">${t.hash.slice(0, 8)}…</span>${icon("external", 12)}</a>` : ""}</li>`)
-          .join("")}</ol>` : ""}
+          .join("")}</ol>${txs.length > 5 ? `<button type="button" class="st-secondary st-cut st-own-more" data-more-txs>${showAllTxs ? "Show the latest 5" : `See all ${txs.length}`}</button>` : ""}` : ""}
       </section>`;
     main.querySelector("[data-near]")?.addEventListener("click", () => run("Connecting your NEAR wallet", async () => void (near = await connectNear())));
     main.querySelector("[data-sponsored]")?.addEventListener("click", () => {
@@ -489,6 +491,10 @@ export function mountOwn(root: HTMLElement): () => void {
     });
     main.querySelector("[data-evm]")?.addEventListener("click", () => run("Connecting your Sepolia wallet", connectEvm));
     main.querySelector("[data-faucet]")?.addEventListener("click", faucet);
+    main.querySelector("[data-more-txs]")?.addEventListener("click", () => {
+      showAllTxs = !showAllTxs;
+      render();
+    });
     main.querySelector("[data-open]")?.addEventListener("click", open);
     main.querySelector("[data-trigger]")?.addEventListener("click", trigger);
     main.querySelector("[data-buyback]")?.addEventListener("click", buyBack);

@@ -67,6 +67,12 @@ export async function view<T>(method: string, args: Record<string, unknown> = {}
   return p as Promise<T>;
 }
 
+/** A view on another contract (e.g. a token's storage_balance_of): uncached, with the same fallbacks. */
+export async function viewAt<T>(contractId: string, method: string, args: Record<string, unknown> = {}): Promise<T> {
+  const ask = (pr: JsonRpcProvider) => withRetry(() => pr.callFunction({ contractId, method, args }), fallbacks.length ? 3 : 8, true);
+  return fallbacks.reduce<Promise<unknown>>((acc, fb) => acc.catch(() => ask(fb)), ask(provider)) as Promise<T>;
+}
+
 /** One line per period: how many views went to the RPC, busiest methods first. */
 export function viewReport(periodMs: number): string {
   const total = [...viewStats.values()].reduce((a, b) => a + b, 0);
@@ -110,13 +116,16 @@ export const NEAR = 10n ** 24n;
 
 /** Call the Stead contract as `signer`. Waits for every receipt (MPC callbacks included). Throws
  *  with the contract's panic message on failure. */
-export async function call<T = unknown>(signer: string, method: string, args: Record<string, unknown>, opts: { gas?: bigint; deposit?: bigint } = {}): Promise<CallResult<T>> {
+export async function call<T = unknown>(signer: string, method: string, args: Record<string, unknown>, opts: { gas?: bigint; deposit?: bigint; contract?: string } = {}): Promise<CallResult<T>> {
   viewCache.clear();
-  const sent = { signer, contract: cfg.contract, method, args, sentAt: new Date().toISOString() };
+  // another contract (e.g. USDC's ft_transfer for NEAR Intents) goes through the same path, so the
+  // evidence trail records it like every Stead call
+  const contractId = opts.contract ?? cfg.contract;
+  const sent = { signer, contract: contractId, method, args, sentAt: new Date().toISOString() };
   let res: any;
   try {
     res = await withRetry(() => account(signer).callFunctionRaw({
-      contractId: cfg.contract,
+      contractId,
       methodName: method,
       args,
       gas: opts.gas ?? 100n * TGAS,

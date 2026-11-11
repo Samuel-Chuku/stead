@@ -58,7 +58,7 @@ export interface TrailState {
 
 // the keeper's housekeeping (readings, confirmations, asking for the next payout or leg) is in the
 // full trail; its effects on Ethereum are key steps of their own
-const KEY_NEAR = new Set(["add_market", "set_limits", "register_position", "sign_action", "bid", "start_settlement", "take_over_settlement", "DeleteKey"]);
+const KEY_NEAR = new Set(["add_market", "set_limits", "register_position", "sign_action", "bid", "start_settlement", "take_over_settlement", "DeleteKey", "ft_transfer"]);
 
 /** A NEAR call in plain words. */
 export function describeNear(c: Pick<CallRecord, "method" | "args">): string {
@@ -87,6 +87,8 @@ export function describeNear(c: Pick<CallRecord, "method" | "args">): string {
     case "set_evm_payout": return "sets its Ethereum payout address";
     case "burn_nonce": return `burns a stuck nonce of ${pos}`;
     case "replace_pending": return `re-signs ${pos}'s pending transaction with a higher fee`;
+    case "storage_deposit": return `registers ${a.account_id ? `${String(a.account_id).slice(0, 8)}…` : "an account"} on the USDC contract (NEAR Intents deposit address)`;
+    case "ft_transfer": return `sends ${a.amount !== undefined ? `${Number(BigInt(a.amount)) / 1e6} USDC` : "USDC"} to the NEAR Intents deposit address ${String(a.receiver_id ?? "").slice(0, 8)}…`;
     default: return `${c.method}${pos || res ? ` (${pos || res})` : ""}`;
   }
 }
@@ -98,6 +100,7 @@ const abi = parseAbi([
   "function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) returns (uint256)",
   "function approve(address, uint256) returns (bool)",
   "function transfer(address, uint256) returns (bool)",
+  "function deposit() payable",
 ]);
 const MAXISH = 2n ** 255n;
 
@@ -150,6 +153,8 @@ export function describeEvm(tx: { from: string; to: string | null; input: Hex; v
   const t = tok(to);
   if (t && d.functionName === "transfer") return { what: `sends ${amount(a[1], t.decimals)} ${t.sym} to ${name(a[0])}`, key: true };
   if (t && d.functionName === "approve") return { what: `approves ${name(a[0])} to spend its ${t.sym}`, key: false };
+  // WETH's deposit(): ETH delivered by NEAR Intents, wrapped for the top-up
+  if (t && d.functionName === "deposit") return { what: `wraps ${amount(tx.value, 18)} ETH into ${t.sym}`, key: true };
   return { what: `${d.functionName} on ${name(to)}`, key: true };
 }
 
@@ -213,6 +218,12 @@ export class Trail {
       method: c.method,
       ...(c.error ? { error: c.error } : {}),
     });
+    this.save();
+  }
+
+  /** An Ethereum transaction not sent from our addresses (e.g. a NEAR Intents solver's delivery), added by hash. */
+  addEvm(e: Omit<TrailEntry, "chain" | "at" | "step"> & { step?: string }) {
+    this.file.entries.push({ chain: this.file.evmChain, at: new Date().toISOString(), step: e.step ?? this.step, ...e });
     this.save();
   }
 

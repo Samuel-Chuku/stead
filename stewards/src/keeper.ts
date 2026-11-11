@@ -35,6 +35,7 @@ const VERIFIED_EXPIRY_GRACE_NS = 15n * 60n * 1_000_000_000n;
 const VERIFY_BUSY_MS = 30_000; // verified reading cadence while an auction or claim is open
 const VERIFY_IDLE_MS = 30 * 60_000; // HF comfortably above the trigger: one proof per 30 min
 const VERIFY_DEPTH = 3n; // the proof program reads head − 3
+const VERIFY_STILL_MS = 10 * 60_000; // near the trigger but not moving: one proof per 10 min
 const VERIFY_MIN_GAP_MS = 20_000; // never faster (each run costs NEAR; Sepolia blocks are 12 s)
 
 export class Keeper {
@@ -58,6 +59,9 @@ export class Keeper {
   /** Positions to manage; undefined = all (the long-running keeper). The local-fork demo script scopes it to its own
    *  run, since positions from older runs point at EVM state on forks that no longer exist. */
   public scope?: Set<number>;
+
+  /** The plain health read when each position's last proof was asked for (to skip identical proofs). */
+  private provenAt = new Map<number, bigint>();
 
   /** Account that pays for verified reads (any account may; it must be on the OutLayer secret's access list). */
   public verifyPayer: string;
@@ -141,16 +145,22 @@ export class Keeper {
     const [v, books] = await Promise.all([view<{ last_block: number } | null>("get_verified", { position_id: pid }), this.books(pid)]);
     const behind = BigInt(books.last_event_block) > BigInt(v?.last_block ?? 0);
     // Idle cadence: a plain (unverified) RPC read is only a TRIGGER for paying for a proof; the
-    // contract decides on the proof alone. Near the trigger: every minute; comfortable: every 30 min.
+    // contract decides on the proof alone. Near the trigger: every minute while the health moves (or
+    // is under the trigger), every 10 min while it sits still (a parked demo position would otherwise
+    // pay for an identical proof every minute); comfortable: every 30 min.
     let idleMs = VERIFY_IDLE_MS;
+    let hfNow: bigint | undefined;
     if (!busy) {
       const [d, params] = await Promise.all([accountData(p.evm_address as Address), view<{ trigger_hf_bps: number }>("get_params")]);
-      if (d.debtBase > 0n && d.hfWad < (BigInt(params.trigger_hf_bps) * 105n * 10n ** 14n) / 100n) idleMs = REPORT_EVERY_MS;
+      hfNow = d.hfWad;
+      const trigger = BigInt(params.trigger_hf_bps) * 10n ** 14n;
+      if (d.debtBase > 0n && d.hfWad < (trigger * 105n) / 100n) idleMs = nearTriggerCadence(d.hfWad, this.provenAt.get(pid), trigger);
     }
     const due = last === undefined || Date.now() - last >= (busy ? VERIFY_BUSY_MS : idleMs);
     if (!force && !behind && !due && !deep) return;
     if (evidence !== undefined && !deep && !due) return;
     this.lastVerify.set(pid, Date.now());
+    if (hfNow !== undefined) this.provenAt.set(pid, hfNow);
     // The payer must be allowed to use the proof program's OutLayer secret (the keyed RPC)
     const r = await call(this.verifyPayer, "request_verified", { position_id: pid }, { gas: 300n * TGAS, deposit: NEAR / 10n });
     for (const e of r.events) this.onEvent?.(e, r.hash);
@@ -456,3 +466,12 @@ export class Keeper {
     this.running = false;
   }
 }
+
+/** Near the trigger: a proof every minute while the plain health moves (≥ 1 bp since the last proof)
+ *  or sits under the trigger; every 10 min while it stays where the last proof found it. */
+export function nearTriggerCadence(hfNow: bigint, hfAtLastProof: bigint | undefined, triggerWad: bigint): number {
+  if (hfNow < triggerWad || hfAtLastProof === undefined) return REPORT_EVERY_MS;
+  const diff = hfNow > hfAtLastProof ? hfNow - hfAtLastProof : hfAtLastProof - hfNow;
+  return diff >= 10n ** 14n ? REPORT_EVERY_MS : VERIFY_STILL_MS;
+}
+

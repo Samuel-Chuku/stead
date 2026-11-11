@@ -168,3 +168,4 @@
 .st-own-chip:focus-visible { outline: 2px solid var(--st-ink); outline-offset: 2px; }
 .st-own-chip-where { font-family: var(--st-font-head); font-size: 10px; letter-spacing: .06em; color: var(--st-quiet); text-transform: uppercase; }
 .st-own-chip.is-refused { border-color: var(--st-trip); }
+.st-own-more { margin-top: 10px; }
