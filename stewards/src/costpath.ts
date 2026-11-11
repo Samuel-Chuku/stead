@@ -2,7 +2,7 @@
 // Testnet oracle prices don't move, so the path comes from real hourly closes (the evidence
 // harness's Binance data). The window is chosen by a fixed rule, never by eye: among every hour
 // where the price then fell far enough within the horizon to liquidate this position as it stood
-// at the trigger, take the fastest liquidation (ties: the earliest hour).
+// at the trigger, take the fastest liquidation (or the deepest fall; ties: the earliest hour).
 // Health factor scales linearly with the collateral price for a single-collateral position with
 // a stable debt, so HF(t) = HF(0) × price(t) / price(0) on both lines.
 
@@ -22,28 +22,53 @@ export type CostPath = {
   savedUsd: { low: number; high: number };
 };
 
-export function pickWindow(series: Hourly, hfTrigger: number, horizon: number): { i: number; k: number } | null {
+/** Which liquidating window to show: the fastest liquidation, or the deepest fall within the
+ *  horizon among the windows that liquidate. Ties go to the earliest hour. */
+export type WindowRule = "fastest" | "deepest";
+
+/** Every start hour whose price then fell far enough within the horizon to liquidate a position
+ *  at `hfTrigger`: k = hours to the liquidation, low = the lowest price / start over the horizon. */
+export function liquidatingWindows(series: Hourly, hfTrigger: number, horizon: number): { i: number; k: number; low: number }[] {
   const need = 1 / hfTrigger;
-  let best: { i: number; k: number } | null = null;
+  const out: { i: number; k: number; low: number }[] = [];
   for (let i = 0; i + horizon < series.length; i++) {
     const p0 = series[i][1];
-    for (let k = 1; k <= horizon; k++) {
-      if (series[i + k][1] / p0 < need) {
-        if (!best || k < best.k) best = { i, k };
-        break;
-      }
+    let k = 0;
+    let low = 1;
+    for (let j = 1; j <= horizon; j++) {
+      const r = series[i + j][1] / p0;
+      if (!k && r < need) k = j;
+      low = Math.min(low, r);
     }
+    if (k) out.push({ i, k, low });
   }
-  return best;
+  return out;
+}
+
+export function pickWindow(series: Hourly, hfTrigger: number, horizon: number, rule: WindowRule = "fastest"): { i: number; k: number } | null {
+  let best: { i: number; k: number; low: number } | null = null;
+  for (const w of liquidatingWindows(series, hfTrigger, horizon)) {
+    const better = !best || (rule === "fastest" ? w.k < best.k : w.low < best.low);
+    if (better) best = w;
+  }
+  return best && { i: best.i, k: best.k };
+}
+
+/** The same position on every liquidating window of the series: how many there were, in how many
+ *  the rescued position stayed above 1.00 for the whole horizon, and its lowest HF across them all. */
+export function windowStats(series: Hourly, o: { hfTrigger: number; hfAfter: number; horizon?: number }): { windows: number; held: number; worstWith: number } {
+  const ws = liquidatingWindows(series, o.hfTrigger, o.horizon ?? 24);
+  const lows = ws.map((w) => o.hfAfter * w.low);
+  return { windows: ws.length, held: lows.filter((x) => x >= 1).length, worstWith: lows.length ? Math.min(...lows) : o.hfAfter };
 }
 
 export function costPath(
   series: Hourly,
-  o: { source: string; hfTrigger: number; hfAfter: number; debtUsd: number; liqBonusBps: number; premiumUsd: number; before?: number; horizon?: number },
+  o: { source: string; hfTrigger: number; hfAfter: number; debtUsd: number; liqBonusBps: number; premiumUsd: number; before?: number; horizon?: number; rule?: WindowRule },
 ): CostPath | null {
   const before = o.before ?? 6;
   const horizon = o.horizon ?? 24;
-  const w = pickWindow(series.slice(before), o.hfTrigger, horizon);
+  const w = pickWindow(series.slice(before), o.hfTrigger, horizon, o.rule);
   if (!w) return null;
   const i0 = w.i + before;
   const p0 = series[i0][1];
@@ -78,3 +103,26 @@ export function costPath(
     savedUsd: { low: penalty.low - o.premiumUsd, high: penalty.high - o.premiumUsd },
   };
 }
+
+/** One recorded rescue run along a real price fall, as the "How it works" chart shows it. */
+export type ChartRun = {
+  key: string; // "<contract>:<id>", the rescue page's address
+  rescueId: number;
+  positionId: number;
+  collateral: string; // the Sepolia asset (WBTC)
+  sym: string; // its real-market twin (BTC)
+  pair: string;
+  about: string;
+  stewards: string[];
+  claims: number;
+  rule: WindowRule;
+  triggerHf: number;
+  hfAfter: number;
+  debtUsd: number;
+  priceUsd: number;
+  premium: string; // every claim's premium, in collateral units
+  premiumUsd: number;
+  capBps: number;
+  path: CostPath;
+  year: { windows: number; held: number; worstWith: number } | null; // every liquidating fall of the year
+};

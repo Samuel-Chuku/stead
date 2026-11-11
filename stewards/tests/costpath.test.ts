@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { costPath, pickWindow, type Hourly } from "../src/costpath.js";
+import { costPath, pickWindow, windowStats, type Hourly } from "../src/costpath.js";
 
 const H = 3_600_000;
 const series = (closes: number[]): Hourly => closes.map((c, i) => [i * H, c]);
@@ -33,5 +33,27 @@ describe("cost chart price path", () => {
     const p = costPath(s, { source: "test", hfTrigger: 1.2, hfAfter: 1.5, debtUsd: 1000, liqBonusBps: 1000, premiumUsd: 5, before: 2 })!;
     expect(p.penaltyUsd).toEqual({ low: 50, high: 100 });
     expect(p.savedUsd).toEqual({ low: 45, high: 95 });
+  });
+
+  it("can pick the deepest liquidating fall instead of the fastest", () => {
+    // hour 2: a one-hour fall to 79 that recovers; 30 hours later, a slower fall that reaches 60
+    const s = series([100, 100, 100, 79, ...flat(30, 100), 90, 79, 60, ...flat(40, 100)]);
+    expect(pickWindow(s, 1.25, 24, "fastest")).toEqual({ i: 2, k: 1 });
+    const d = pickWindow(s, 1.25, 24, "deepest")!;
+    expect(d.i).toBeGreaterThan(3);
+    // the earliest hour whose 24 hours reach the 60 (ties go to the earliest)
+    expect(d.i).toBe(36 - 24);
+  });
+
+  it("counts every liquidating window and whether the rescued position held in each", () => {
+    // HF 1.25 liquidates below 80 %; HF 1.5 after the rescue survives down to 66.7 %
+    const held = windowStats(series([...flat(3), 79, ...flat(30, 100)]), { hfTrigger: 1.25, hfAfter: 1.5 });
+    expect(held.windows).toBeGreaterThan(0);
+    expect(held.held).toBe(held.windows);
+    expect(held.worstWith).toBeCloseTo(1.5 * 0.79, 9);
+    // a fall to 60 % beats the rescue too: counted, not hidden
+    const broke = windowStats(series([...flat(3), 60, ...flat(30, 100)]), { hfTrigger: 1.25, hfAfter: 1.5 });
+    expect(broke.held).toBeLessThan(broke.windows);
+    expect(broke.worstWith).toBeLessThan(1);
   });
 });

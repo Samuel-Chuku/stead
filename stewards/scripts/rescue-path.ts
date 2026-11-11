@@ -18,7 +18,8 @@ const prices = resolve(arg("--prices") ?? join(REPO, `evidence/data/${sym}USDT-1
 
 const trigger = log.events.find((e) => e.kind === "TRIGGER") as any;
 const after = log.events.find((e) => e.kind === "READING" && e.hf >= log.params.triggerHf) as any;
-const claim = log.events.find((e) => e.kind === "CLAIM_MINTED") as any;
+const claims = log.events.filter((e) => e.kind === "CLAIM_MINTED") as any[];
+const claim = claims[0];
 if (!trigger || !after || !claim || !log.atOpen) throw new Error("the replay needs a trigger, a proven reading above the trigger, a claim and the opening position");
 
 const out = costPath(JSON.parse(readFileSync(prices, "utf8")), {
@@ -27,7 +28,8 @@ const out = costPath(JSON.parse(readFileSync(prices, "utf8")), {
   hfAfter: after.hf,
   debtUsd: log.atOpen.debtUsd,
   liqBonusBps: log.market.liqBonusBps,
-  premiumUsd: Number(claim.premium) * log.atOpen.priceUsd,
+  // every claim's premium: a pooled rescue has one claim per steward
+  premiumUsd: claims.reduce((t, c) => t + Number(c.premium), 0) * log.atOpen.priceUsd,
 });
 if (!out) throw new Error(`no window in ${prices} liquidates this position within the horizon`);
 const file = replay.replace(/\.json$/, "-path.json");

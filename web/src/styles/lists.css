@@ -130,3 +130,4 @@
 .st-faq-item > summary:hover { background: var(--st-inset); }
 .st-faq-item[open] .st-item-caret { transform: rotate(225deg); margin-top: 4px; }
 .st-faq-item p { margin: 0 4px 16px; line-height: 1.6; max-width: 90ch; }
+.st-faq-item p a.st-textlink { font-size: inherit; text-decoration: underline; text-underline-offset: 3px; }

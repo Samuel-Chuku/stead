@@ -1,6 +1,11 @@
 // "How it works": the system in two diagrams, a rescue in plain steps, what is proven and by whom,
-// a worked example of the cost, and the questions people ask. Static: every number here is either a
-// contract parameter or a recorded run (README › Recorded runs).
+// a worked example of the cost, recorded rescues run along real price falls, and the questions people
+// ask. Every number here is either a contract parameter or a recorded run (README › Recorded runs).
+import type { ChartRun } from "../../../stewards/src/costpath";
+import { costChart, dateOf, wireCostChart } from "../rescue/costchart";
+
+// links in the answers open in a new tab, so the page stays where the reader was
+const out = (href: string, text: string) => `<a class="st-textlink" href="${href}" target="_blank" rel="noopener">${text}</a>`;
 
 const box = (x: number, y: number, w: number, h: number, title: string, sub: string, tone = "") => `
   <g class="st-dg-node ${tone}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="0"/>
@@ -71,12 +76,12 @@ const STEPS: [string, string][] = [
 const FAQ: [string, string][] = [
   ["Who holds the keys to my position?", "Nobody. The position is an Ethereum address derived by NEAR's MPC network for the Stead contract. Only the contract can have a transaction signed for it, and only from a fixed list: Aave supply, borrow, repay and withdraw, approvals to the Aave pool, sending borrowed debt to your own payout address, and the payouts the contract itself queues."],
   ["Why would a steward rescue my position?", "For the premium: a few percent of the top-up at most, because the contract caps every premium below Aave's liquidation penalty. The steward's collateral comes back to it in the same units it supplied, so it is not betting on the price; the premium pays for its capital and for the risk that the price falls too fast for a rescue to help."],
-  ["Can the borrower walk away with the steward's top-up?", "No. From the moment the auction opens until the last claim closes, the contract will only sign a repay or a supply for the position. A borrow or a withdrawal is refused on chain: try it on the demo, every refusal is a real NEAR transaction."],
-  ["What does a rescue cost me, compared with a liquidation?", "Only the premium. In the recorded settlement on our fork, the borrower paid 0.6233 LINK ($12.96 at the trigger) against $90 that an Aave liquidation would have taken from the same position. On Ethereum mainnet today, the panel 'On mainnet' shows the same comparison for every real liquidation of the last 24 hours."],
+  ["Can the borrower walk away with the steward's top-up?", `No. From the moment the auction opens until the last claim closes, the contract will only sign a repay or a supply for the position. A borrow or a withdrawal is refused on chain: ${out("?demo=#/live", "try it on the demo")}, every refusal is a real NEAR transaction.`],
+  ["What does a rescue cost me, compared with a liquidation?", `Only the premium. In the ${out("?rescue=steadfi:7#/rescues", "recorded settlement on our fork")}, the borrower paid 0.6233 LINK ($12.96 at the trigger) against $90 that an Aave liquidation would have taken from the same position. On Ethereum mainnet today, the ${out("#/mainnet", "On mainnet")} page shows the same comparison for every real liquidation of the last 24 hours.`],
   ["What if nobody bids, or the winner never tops up?", "No bid: the position goes back to waiting and a new auction opens on the next proven reading below 1.15. A winner that misses its top-up deadline loses its bond to the borrower, and the position can be auctioned again."],
   ["What if the price keeps falling after the rescue?", "If the borrower's own health, net of what the claims are owed, falls below 1.10, a claim owner may settle early instead of waiting for the window. If Aave liquidates the position anyway, every claim shrinks to the units supplied: the premium is forfeited, so the borrower never pays both a premium and Aave's penalty."],
   ["How do you know the health factor is real?", "On Sepolia every decision that moves money waits for a proof: an OutLayer program, running in a secure enclave with a pinned hash, reads Aave's storage at a block that at least three independent RPCs agree on. No steward and no bot is trusted to say 'health is low', 'the top-up landed' or 'the payment arrived'."],
-  ["Is it live on mainnet?", "The rescues run on testnets (NEAR testnet and Ethereum Sepolia), with real Aave V3 contracts. The 'On mainnet' page applies Stead's formulas to real Aave positions on Ethereum, read-only. Two small capped rescues on Ethereum mainnet are planned, each recorded with every transaction."],
+  ["Is it live on mainnet?", `The rescues run on testnets (NEAR testnet and Ethereum Sepolia), with real Aave V3 contracts. The ${out("#/mainnet", "On mainnet")} page applies Stead's formulas to real Aave positions on Ethereum, read-only. Two small capped rescues on Ethereum mainnet are planned, each recorded with every transaction.`],
 ];
 
 export function mountHow(root: HTMLElement): () => void {
@@ -114,6 +119,18 @@ export function mountHow(root: HTMLElement): () => void {
       </div>
     </section>
 
+    <section class="st-panel st-sect st-how-runs" data-runs>
+      <div class="st-sect-head">
+        <div>
+          <div class="st-label">IN A REAL CRASH</div>
+          <h2 class="st-panel-title">Recorded rescues, run along real 2026 price falls</h2>
+          <p class="st-list-sub">Sepolia's test prices never move, so each recorded rescue's position (its health at the trigger, its proven health after the top-up, its debt and premium) is replayed on a real hourly fall of its collateral, picked by a fixed rule. Pick a run.</p>
+        </div>
+        <label class="st-select"><span class="st-select-label">Run</span><select data-run-select disabled><option>Loading…</option></select></label>
+      </div>
+      <div data-run-chart><p class="st-empty">Loading the runs…</p></div>
+    </section>
+
     <section class="st-panel st-sect">
       <div class="st-label">QUESTIONS</div>
       <h2 class="st-panel-title">What people ask</h2>
@@ -127,5 +144,36 @@ export function mountHow(root: HTMLElement): () => void {
     for (const o of root.querySelectorAll<HTMLDetailsElement>("details.st-faq-item[open]")) if (o !== d) o.open = false;
   };
   root.addEventListener("toggle", onToggle, true);
+  void mountRuns(root);
   return () => root.removeEventListener("toggle", onToggle, true);
+}
+
+const runLabel = (r: ChartRun) => `Rescue ${r.rescueId} · ${r.about} · ${r.sym}'s ${r.rule} fall, ${dateOf(r.path.startMs)}`;
+
+/** The run picker: one chart, redrawn for the chosen run. */
+async function mountRuns(root: HTMLElement) {
+  const slot = root.querySelector<HTMLElement>("[data-run-chart]");
+  const select = root.querySelector<HTMLSelectElement>("[data-run-select]");
+  if (!slot || !select) return;
+  let runs: ChartRun[];
+  try {
+    const r = await fetch("/replays/chart-runs.json");
+    if (!r.ok) throw new Error(String(r.status));
+    runs = await r.json();
+  } catch {
+    slot.innerHTML = `<p class="st-empty">The runs could not be loaded. Reload the page to try again.</p>`;
+    return;
+  }
+  select.innerHTML = runs.map((r, i) => `<option value="${i}">${runLabel(r)}</option>`).join("");
+  select.disabled = false;
+  const draw = () => {
+    const run = runs[Number(select.value)] ?? runs[0];
+    const page = `?rescue=${run.key}#/rescues`;
+    slot.innerHTML = costChart(run, {
+      caption: `<p class="st-site-caption">The rescue itself: ${out(page, `rescue ${run.rescueId}'s page`)}, with every transaction.</p>`,
+    });
+    wireCostChart(slot, run);
+  };
+  select.addEventListener("change", draw);
+  draw();
 }

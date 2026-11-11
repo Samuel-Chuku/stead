@@ -6,6 +6,7 @@ import { CODE, fmtAmt } from "../board/model";
 import { icon } from "../icons";
 import { crown } from "../crown";
 import { story, txLink } from "./story";
+import { chartRunOf, costChart, wireCostChart } from "./costchart";
 
 type Ev<K extends RescueEvent["kind"]> = Extract<RescueEvent, { kind: K }>;
 export type ProofKind = "readings" | "auction" | "topup" | "claim" | "payouts";
@@ -84,7 +85,7 @@ export async function mountRescue(root: HTMLElement, urls: string | string[]) {
     return () => {};
   }
   root.innerHTML = render(log, path);
-  if (path) wireChart(root, path);
+  if (path) wireCostChart(root, chartRunOf(log, path));
   wireProofs(root);
   return () => {};
 }
@@ -290,7 +291,7 @@ export function render(log: RescueLog, path: CostPath | null): string {
       ${timeline}
     </section>
     ${story(log)}
-    ${path ? chart(log, path, premiumUsd, claim, open.capBps) : ""}
+    ${path ? costChart(chartRunOf(log, path)) : ""}
     ${results}
     ${claimBlock}
     <details class="st-records"><summary>Every record behind this rescue, filterable</summary>${proofs}</details>
@@ -307,133 +308,6 @@ function fmtDur(s: number): string {
   const m = Math.floor(s / 60);
   const r = Math.round(s % 60);
   return m ? `${m}:${String(r).padStart(2, "0")}` : `${r} s`;
-}
-
-// ───────────────────────────── cost chart (§24) ─────────────────────────────
-
-const X0 = 48, X1 = 752, Y0 = 12, Y1 = 266;
-
-function chart(log: RescueLog, p: CostPath, premiumUsd: number, claim: Ev<"CLAIM_MINTED"> | undefined, capBps: number): string {
-  const hMin = p.hours[0], hMax = p.hours[p.hours.length - 1];
-  const yMax = Math.max(1.6, Math.ceil(Math.max(...p.with) * 10) / 10);
-  const yMin = 0.9;
-  const x = (h: number) => X0 + ((h - hMin) / (hMax - hMin)) * (X1 - X0);
-  const y = (v: number) => Y1 - ((v - yMin) / (yMax - yMin)) * (Y1 - Y0);
-  const f = (n: number) => n.toFixed(1);
-
-  const withPts: string[] = [];
-  p.hours.forEach((h, j) => {
-    if (h === 0) withPts.push(`${f(x(0))},${f(y(p.without[j]!))}`); // the step up at the rescue
-    withPts.push(`${f(x(h))},${f(y(p.with[j]))}`);
-  });
-  const withoutPts = p.hours.map((h, j) => (p.without[j] === null ? null : `${f(x(h))},${f(y(p.without[j]!))}`)).filter(Boolean);
-  const liqX = x(p.liqHour), liqY = y(p.hfAtLiq);
-  const resX = x(0), resY = y(p.with[p.hours.indexOf(0)]);
-  const ticks = p.hours.filter((h) => h % 6 === 0);
-  const grid = [
-    { v: 1.6, cls: "st-grid", label: "1.60" },
-    { v: 1.5, cls: "st-grid", label: "1.50" },
-    { v: log.params.triggerHf, cls: "st-grid st-grid--dash", label: "trig" },
-    { v: 1.0, cls: "st-grid st-grid--dash st-grid--trip", label: "trip" },
-  ].filter((g) => g.v <= yMax);
-  const date = new Date(p.startMs);
-  const when = `${date.getUTCDate()} ${date.toLocaleString("en-US", { month: "short", timeZone: "UTC" })} ${date.getUTCFullYear()}, ${String(date.getUTCHours()).padStart(2, "0")}:00 UTC`;
-  const asset = log.market.collateral.replace(/^W/, "");
-  const lo = Math.round(p.savedUsd.low), hi = Math.round(p.savedUsd.high);
-  const aria = `Health factor of position ${log.positionId} along ${asset}'s real hourly prices from ${when}. Without Stead it falls below 1.00 at ${p.liqHour} hours and is liquidated, costing ${usd(p.penaltyUsd.low, 0)} to ${usd(p.penaltyUsd.high, 0)}. With the rescue it steps to ${p.with[p.hours.indexOf(0)].toFixed(2)} and its lowest point is ${p.lowestWith.toFixed(2)}; the premium was ${usd(premiumUsd)}.`;
-  const max = p.penaltyUsd.high;
-  const rescuedLabel = claim ? `RESCUED · ${claim.premium} ${claim.asset}` : "RESCUED";
-  const liqLabel = `LIQUIDATED · −${usd(p.penaltyUsd.low, 0)} TO −${usd(p.penaltyUsd.high, 0)}`;
-
-  return `
-  <section class="st-panel st-chart-panel" aria-labelledby="chart-h">
-    <div class="st-chart-main">
-      <div class="st-chart-head">
-        <div>
-          <div class="st-label">HEALTH FACTOR, WITH AND WITHOUT STEAD</div>
-          <h2 class="st-chart-title" id="chart-h">On ${asset}'s real fall of ${esc(when.split(",")[0])}, rescue ${log.rescueId} would have kept position ${log.positionId} out of liquidation</h2>
-        </div>
-        <div class="st-legend" aria-hidden="true"><span><i class="st-leg-with"></i>With Stead</span><span><i class="st-leg-without"></i>Without</span></div>
-      </div>
-      <div class="st-chart-box">
-        <svg class="st-chart" viewBox="0 0 760 300" role="img" aria-label="${esc(aria)}">
-          ${grid.map((g) => `<line class="${g.cls}" x1="${X0}" x2="${X1}" y1="${f(y(g.v))}" y2="${f(y(g.v))}"/><text class="st-axis-t${g.label === "trip" ? " st-axis-trip" : ""}" x="${X0 - 6}" y="${f(y(g.v) + 4)}" text-anchor="end">${g.label}</text>`).join("")}
-          ${ticks.map((h) => `<text class="st-axis-t" x="${f(x(h))}" y="290" text-anchor="middle">${h === 0 ? "0" : (h > 0 ? "+" : "−") + Math.abs(h) + "h"}</text>`).join("")}
-          <rect class="st-band" x="${f(resX - 13)}" y="${Y0}" width="26" height="${Y1 - Y0}"/>
-          <line class="st-band-line" x1="${f(resX)}" x2="${f(resX)}" y1="${Y0}" y2="${Y1}"/>
-          <rect class="st-band st-band--trip" x="${f(liqX - 13)}" y="${Y0}" width="26" height="${Y1 - Y0}"/>
-          <line class="st-band-line st-band-line--trip" x1="${f(liqX)}" x2="${f(liqX)}" y1="${Y0}" y2="${Y1}"/>
-          <polyline class="st-line-without" points="${withoutPts.join(" ")}"/>
-          <polyline class="st-line-with" points="${withPts.join(" ")}"/>
-          <g class="st-callout st-callout--with">
-            <rect x="${f(Math.max(X0, resX - 200))}" y="${f(resY - 44)}" width="194" height="30" rx="0"/>
-            <text x="${f(Math.max(X0, resX - 200) + 10)}" y="${f(resY - 24)}">${esc(rescuedLabel)}</text>
-          </g>
-          <g class="st-callout st-callout--trip">
-            <rect x="${f(Math.min(X1 - 236, liqX + 10))}" y="${f(Math.min(Y1 - 34, liqY + 12))}" width="236" height="30" rx="0"/>
-            <text x="${f(Math.min(X1 - 236, liqX + 10) + 10)}" y="${f(Math.min(Y1 - 34, liqY + 12) + 20)}">${esc(liqLabel)}</text>
-          </g>
-          <circle class="st-marker" cx="${f(resX)}" cy="${f(resY)}" r="4"/>
-          <circle class="st-marker st-marker--trip" cx="${f(liqX)}" cy="${f(liqY)}" r="4"/>
-          <line class="st-cross" x1="0" x2="0" y1="${Y0}" y2="${Y1}" visibility="hidden"/>
-          <rect class="st-hit" x="${X0}" y="${Y0}" width="${X1 - X0}" height="${Y1 - Y0}"/>
-        </svg>
-        <div class="st-tip" role="status" hidden></div>
-      </div>
-      <p class="st-chart-note">Sepolia's test price for ${esc(log.market.collateral)} is fixed at ${usd(log.atOpen?.priceUsd ?? 0, 0)}, so the real rescue never faced a falling market. This chart runs position ${log.positionId}, exactly as it stood at the trigger (HF ${(p.without[p.hours.indexOf(0)] ?? 0).toFixed(2)}, ${usd(log.atOpen?.debtUsd ?? 0)} of debt) and after the proven top-up, along ${esc(p.source)}, starting ${esc(when)}: the fastest 2026 fall that would have liquidated it within 24 hours.</p>
-      <details class="st-values">
-        <summary>Show the hourly values</summary>
-        <div class="st-table-wrap"><table class="st-proofs st-values-table"><thead><tr><th>HOUR</th><th>PRICE / START</th><th>WITH STEAD</th><th>WITHOUT</th></tr></thead><tbody>
-          ${p.hours.map((h, j) => `<tr><td>${h > 0 ? "+" : ""}${h}h</td><td>${p.ratio[j].toFixed(4)}</td><td>${p.with[j].toFixed(3)}</td><td>${p.without[j] === null ? "liquidated" : p.without[j]!.toFixed(3)}</td></tr>`).join("")}
-        </tbody></table></div>
-      </details>
-    </div>
-    <div class="st-chart-summary">
-      <div class="st-label">BORROWER SAVED</div>
-      <div class="st-saved">${num(`$${lo}–${hi}`)}</div>
-      <p class="st-saved-line">Aave's liquidation bonus on this debt is ${usd(p.penaltyUsd.low, 0)}–${usd(p.penaltyUsd.high, 0)}. The winning premium was ${usd(premiumUsd)}.</p>
-      <div class="st-bars">
-        <div class="st-bar-label">Liquidation penalty</div>
-        <div class="st-cbar"><span class="st-cbar-low" style="width:${f((p.penaltyUsd.low / max) * 100)}%"></span><span class="st-cbar-range" style="left:${f((p.penaltyUsd.low / max) * 100)}%; width:${f(((p.penaltyUsd.high - p.penaltyUsd.low) / max) * 100)}%"></span></div>
-        <div class="st-bar-label">Rescue premium</div>
-        <div class="st-cbar"><span class="st-cbar-premium" style="width:${f(Math.max(0.6, (premiumUsd / max) * 100))}%"></span></div>
-      </div>
-      <dl class="st-sum-rows">
-        <div><dt>PREMIUM CAP</dt><dd>${capBps.toLocaleString("en-US")} bps</dd></div>
-        <div><dt>LOWEST HF AFTER RESCUE</dt><dd>${p.lowestWith.toFixed(2)}</dd></div>
-        <div><dt>GUARANTEE</dt><dd>never worse than liquidation</dd></div>
-      </dl>
-    </div>
-  </section>`;
-}
-
-export function wireChart(root: HTMLElement, p: CostPath) {
-  const svg = root.querySelector<SVGSVGElement>(".st-chart");
-  const tip = root.querySelector<HTMLElement>(".st-tip");
-  const cross = root.querySelector<SVGLineElement>(".st-cross");
-  const hit = root.querySelector<SVGRectElement>(".st-hit");
-  if (!svg || !tip || !cross || !hit) return;
-  const hMin = p.hours[0], hMax = p.hours[p.hours.length - 1];
-  const show = (clientX: number) => {
-    const box = svg.getBoundingClientRect();
-    const vx = ((clientX - box.left) / box.width) * 760;
-    const h = Math.round(hMin + ((vx - X0) / (X1 - X0)) * (hMax - hMin));
-    const j = p.hours.indexOf(Math.max(hMin, Math.min(hMax, h)));
-    const hx = X0 + ((p.hours[j] - hMin) / (hMax - hMin)) * (X1 - X0);
-    cross.setAttribute("x1", String(hx));
-    cross.setAttribute("x2", String(hx));
-    cross.setAttribute("visibility", "visible");
-    const wo = p.without[j];
-    tip.hidden = false;
-    tip.innerHTML = `<b>${p.hours[j] > 0 ? "+" : ""}${p.hours[j]}h</b> · with Stead ${p.with[j].toFixed(2)} · without ${wo === null ? "liquidated" : wo.toFixed(2)}`;
-    const left = (hx / 760) * box.width;
-    tip.style.left = `${Math.min(box.width - tip.offsetWidth, Math.max(0, left - tip.offsetWidth / 2))}px`;
-  };
-  hit.addEventListener("pointermove", (e) => show(e.clientX));
-  hit.addEventListener("pointerleave", () => {
-    tip.hidden = true;
-    cross.setAttribute("visibility", "hidden");
-  });
 }
 
 /** Proofs a page: ten on a desktop, six on a phone. */
@@ -480,14 +354,6 @@ function wireProofs(root: HTMLElement) {
     draw();
   });
   draw();
-}
-
-/** The cost chart section for a rescue (the homepage shows the latest real one). */
-export function costChartSection(log: RescueLog, p: CostPath): string {
-  const claim = all(log, "CLAIM_MINTED")[0];
-  const open = all(log, "AUCTION_OPEN")[0];
-  const premiumUsd = claim ? Number(claim.premium) * (log.atOpen?.priceUsd ?? 0) : 0;
-  return chart(log, p, premiumUsd, claim, open.capBps);
 }
 
 /** The Proofs page: every record behind every published recording, newest first, one table with

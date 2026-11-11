@@ -5,7 +5,7 @@ import type { RescueLog, StewardId } from "../../../stewards/src/rescuelog";
 import type { SiteStats } from "../../../stewards/src/sitestats";
 import { boardAt, CODE, consequence, RISK, RISK_WORD, RULE, STEWARD_ORDER } from "../board/model";
 import { logo } from "../icons";
-import { costChartSection, wireChart } from "../rescue/page";
+import { chartRunOf, costChart, wireCostChart } from "../rescue/costchart";
 import { loadRecords } from "../lists/pages";
 import type { PanelFeed } from "../../../stewards/src/panel";
 import type { Records } from "../../../stewards/src/records";
@@ -57,8 +57,9 @@ export function mountHome(root: HTMLElement, replayUrl: string): () => void {
       raf = requestAnimationFrame(frame);
       if (path) {
         const slot = root.querySelector<HTMLElement>("[data-chart]")!;
-        slot.innerHTML = costChartSection(log, path) + `<p class="st-site-caption">From <a class="st-textlink" href="?rescue=${log.rescueId}#/rescues">rescue ${log.rescueId}</a>, the latest recorded rescue.</p>`;
-        wireChart(slot, path);
+        const run = chartRunOf(log, path);
+        slot.innerHTML = costChart(run, { caption: `<p class="st-site-caption">From <a class="st-textlink" href="?rescue=${log.rescueId}#/rescues">rescue ${log.rescueId}</a>. More runs, on other real falls: <a class="st-textlink" href="#/how">How it works</a>.</p>` });
+        wireCostChart(slot, run);
       }
     }
   })();
