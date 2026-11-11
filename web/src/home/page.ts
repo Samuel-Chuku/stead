@@ -6,13 +6,22 @@ import type { SiteStats } from "../../../stewards/src/sitestats";
 import { boardAt, CODE, consequence, RISK, RISK_WORD, RULE, STEWARD_ORDER } from "../board/model";
 import { logo } from "../icons";
 import { costChartSection, wireChart } from "../rescue/page";
+import { loadRecords } from "../lists/pages";
+import type { PanelFeed } from "../../../stewards/src/panel";
+import type { Records } from "../../../stewards/src/records";
 
 const REPO_URL = "https://github.com/Samuel-Chuku/stead";
-const LOOP_FROM = -3; // seconds before the trigger
+let LOOP_FROM = -3; // seconds before the first bid (set from the log), so the replay opens on the bidding
 const LOOP_TO = 54; // a few seconds after the close, then the loop restarts
 const tile = (s: StewardId, size: number) => `<span class="st-tile st-tile--${size}" style="--sc: var(--st-steward-${s})" aria-hidden="true">${CODE[s]}</span>`;
 const num = (n: string) => `<span class="st-num">${n}</span>`;
 const fmtDur = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+const usdK = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `$${Math.round(n / 1e3)}k` : `$${Math.round(n).toLocaleString("en-US")}`);
+const ago = (ms: number) => {
+  const m = Math.round((Date.now() - ms) / 60_000);
+  return m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+};
+const feedUrl = () => (import.meta as any).env?.VITE_LIVE_FEED ?? (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? "http://127.0.0.1:8788" : "https://live.usestead.xyz");
 
 export function mountHome(root: HTMLElement, replayUrl: string): () => void {
   let raf = 0;
@@ -25,8 +34,15 @@ export function mountHome(root: HTMLElement, replayUrl: string): () => void {
       getJson<SiteStats>("/stats.json"),
     ]);
     if (stopped) return;
-    fillTotals(root, stats);
+    // live totals from the contracts' records (through the feed), else the snapshot
+    const rec = await loadRecords().then((r) => r, () => null);
+    if (stopped) return;
+    if (rec) fillLive(root, rec.rec, rec.live);
+    else fillTotals(root, stats);
+    void getJson<PanelFeed>(`${feedUrl()}/mainnet.json`).then((m) => m ?? getJson<PanelFeed>("/mainnet.json")).then((m) => !stopped && fillMainnet(root, m));
     if (log) {
+      const firstBid = log.events.find((e) => e.kind === "BIDDING" || e.kind === "BID");
+      LOOP_FROM = firstBid ? Math.max(-3, firstBid.t - 2) : -3;
       const mini = root.querySelector<HTMLElement>("[data-mini]")!;
       mini.innerHTML = miniBoard(log);
       const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -75,22 +91,24 @@ function skeleton(): string {
       <a class="st-brand" href="#/" aria-label="Stead, home">${logo(26)}</a>
       <nav class="st-site-links" aria-label="Site">
         <a class="st-site-link" href="#/how">How it works</a>
-        <a class="st-site-link" href="#stewards" data-scroll="stewards">Stewards</a>
-        <a class="st-site-link" href="#proof" data-scroll="proof">Proofs</a>
-        <a class="st-site-link" href="${REPO_URL}" target="_blank" rel="noopener">Docs</a>
+        <a class="st-site-link" href="#/try">Protect a position</a>
+        <a class="st-site-link" href="#/rescues">Rescues</a>
+        <a class="st-site-link" href="#/mainnet">On mainnet</a>
+        <a class="st-site-link" href="${REPO_URL}" target="_blank" rel="noopener">Code</a>
       </nav>
-      <a class="st-push st-push--small st-cut" href="#/live"><span class="st-lamp" aria-hidden="true"></span>OPEN CONTROL ROOM</a>
+      <a class="st-push st-push--small st-cut" href="#/live"><span class="st-lamp" aria-hidden="true"></span>OPEN THE APP</a>
     </header>
 
     <div class="st-hero">
       <section class="st-panel st-hero-main" aria-labelledby="hero-h">
         <div class="st-label">LIQUIDATION RESCUE MARKET · BUILT ON NEAR</div>
         <h1 class="st-hero-h" id="hero-h">Liquidation is not the only way out.</h1>
-        <p class="st-hero-lead">When your Aave loan nears liquidation, a market of agent stewards bids to top it up for a premium that is always smaller than the penalty. A NEAR contract signs only what the rules allow, and every reading it acts on is proven, not reported.</p>
+        <p class="st-hero-lead">Protect your Aave position with Stead. If it nears liquidation, agent stewards compete to top it up, for a premium always smaller than the liquidation penalty, and you buy the rescue back. A NEAR contract signs only what the rules allow, and every reading it acts on is proven, not reported.</p>
         <div class="st-hero-actions">
           <a class="st-push st-cut" href="#/try"><span class="st-lamp" aria-hidden="true"></span>PROTECT AN AAVE POSITION</a>
-          <a class="st-secondary st-cut st-secondary--link" href="#how" data-scroll="how">See a rescue, step by step</a>
+          <a class="st-secondary st-cut st-secondary--link" href="?demo=#/live">Watch a demo rescue, no wallet</a>
         </div>
+        <p class="st-hero-trust"><span class="st-live-dot" aria-hidden="true"></span><span data-live-line>Live on NEAR testnet and Ethereum Sepolia, with Aave V3's real contracts.</span></p>
       </section>
       <section class="st-panel st-hero-mini" aria-label="A recorded rescue auction, replayed" data-mini>
         <p class="st-empty">Loading the recorded auction…</p>
@@ -98,7 +116,7 @@ function skeleton(): string {
     </div>
 
     <section class="st-site-totals" aria-labelledby="totals-h">
-      <h2 class="st-visually-hidden" id="totals-h">Totals</h2>
+      <h2 class="st-visually-hidden" id="totals-h">So far</h2>
       <dl class="st-kpis st-kpis--site" data-totals>
         <div><dt>RESCUES</dt><dd>${num("—")}</dd></div>
         <div><dt>BORROWERS WORSE OFF THAN LIQUIDATION</dt><dd>${num("—")}</dd></div>
@@ -106,6 +124,20 @@ function skeleton(): string {
         <div><dt>MEDIAN TRIGGER TO CLAIM</dt><dd>${num("—")}</dd></div>
       </dl>
       <p class="st-site-caption" data-totals-caption>Reading the contracts…</p>
+    </section>
+
+    <section class="st-panel st-site-sect st-site-mainnet" aria-labelledby="mn-h" data-mainnet hidden>
+      <div class="st-site-mn-num"><div class="st-label">ETHEREUM MAINNET · LAST 24 HOURS</div><div class="st-num st-site-big" data-mn-kept>—</div><p data-mn-kept-sub>that borrowers would have kept with Stead</p></div>
+      <div class="st-site-mn-text"><h2 class="st-site-h2" id="mn-h">Liquidations are happening now</h2><p data-mn-text>Real Aave V3 liquidations on Ethereum, read from public RPCs, beside what a Stead rescue of the same position would have cost.</p><a class="st-secondary st-cut st-secondary--link" href="#/mainnet">See each liquidation</a></div>
+    </section>
+
+    <section class="st-site-ways" aria-labelledby="ways-h">
+      <h2 class="st-site-h2" id="ways-h">Three ways to see it work</h2>
+      <div class="st-site-ways-grid">
+        <a class="st-panel st-way" href="#/try"><div class="st-label">YOUR NEAR WALLET · ABOUT 15 MIN</div><h3 class="st-proof-t">Protect an Aave position</h3><p class="st-proof-b">Open a protected position with your own NEAR account, push it under the trigger, try to break it, and buy the rescue back. Test funds are sponsored; a Sepolia wallet is optional.</p><span class="st-way-go">Start</span></a>
+        <a class="st-panel st-way" href="?demo=#/live"><div class="st-label">NO WALLET · ABOUT 5 MIN</div><h3 class="st-proof-t">Start a demo rescue</h3><p class="st-proof-b">A demo borrower falls under the trigger on Aave Sepolia; watch the real auction, every transaction it sends, and the contract refusing what a locked position forbids.</p><span class="st-way-go">Start</span></a>
+        <a class="st-panel st-way" href="#/rescues"><div class="st-label">ONE CLICK</div><h3 class="st-proof-t">Read any rescue's story</h3><p class="st-proof-b">Every rescue so far, from the proven trigger to the last payout, each step linked to its NEAR or Sepolia transaction.</p><span class="st-way-go">Open</span></a>
+      </div>
     </section>
 
     <section class="st-panel st-site-sect" id="how" aria-labelledby="how-h">
@@ -149,6 +181,7 @@ function skeleton(): string {
 
     <footer class="st-site-foot">
       <a class="st-brand-plain" href="#/" aria-label="Stead, home">${logo(22)}</a>
+      <nav class="st-site-foot-links" aria-label="Pages"><a class="st-textlink" href="#/how">How it works</a><a class="st-textlink" href="#/try">Protect a position</a><a class="st-textlink" href="#/live">Live auctions</a><a class="st-textlink" href="#/rescues">Rescues</a><a class="st-textlink" href="#/proofs">Proofs</a><a class="st-textlink" href="#/mainnet">On mainnet</a></nav>
       <p class="st-site-foot-line">Testnet build for NEAR HACKATHON 2026. Unaudited.</p>
       <span class="st-mono st-site-foot-id">steadfi.testnet</span>
       <div class="st-seg st-seg--foot" role="group" aria-label="Theme">
@@ -157,6 +190,36 @@ function skeleton(): string {
       </div>
     </footer>
   </div>`;
+}
+
+/** The live band: the contracts' own records, read through the feed. "Worse off" is computed from
+ *  each rescue's numbers (premiums against its cap), not asserted. */
+function fillLive(root: HTMLElement, r: Records, live: boolean) {
+  const real = r.rescues.filter((x) => x.chain !== "local fork");
+  const done = real.filter((x) => x.state === "bought_back" || x.state === "settled");
+  const worse = done.filter((x) => x.premiumUsd > (x.topUpUsd * x.capBps) / 10_000 + 0.01).length;
+  const lows = done.map((x) => Math.min(...x.winners.map((w) => w.bps))).filter(Number.isFinite).sort((a, b) => a - b);
+  const median = lows.length ? lows[Math.floor(lows.length / 2)] : null;
+  const last = real.reduce((m, x) => Math.max(m, x.openedAtMs), 0);
+  const positions = r.positions.filter((p) => p.chain !== "local fork").length;
+  const cells = [
+    ["RESCUES ON SEPOLIA", num(String(done.length)), `${done.filter((x) => x.state === "bought_back").length} bought back, ${done.filter((x) => x.state === "settled").length} settled`],
+    ["BORROWERS WORSE OFF THAN LIQUIDATION", num(String(worse)), "every premium checked against its cap"],
+    ["MEDIAN WINNING PREMIUM", median === null ? num("—") : `${num(String(median))}<span class="st-unit">bps</span>`, "the lowest winning bid of each rescue"],
+    ["LAST RESCUE", last ? num(ago(last).replace(" ago", "")) : num("—"), last ? `ago · ${positions} positions protected` : ""],
+  ];
+  root.querySelector<HTMLElement>("[data-totals]")!.innerHTML = cells.map(([dt, dd, sub]) => `<div><dt>${dt}</dt><dd>${dd}</dd><dd class="st-kpi-sub">${sub}</dd></div>`).join("");
+  root.querySelector<HTMLElement>("[data-totals-caption]")!.innerHTML = `${live ? "Read from the contracts" : "Snapshot of the contracts"} at ${new Date(r.generated).toISOString().slice(0, 16).replace("T", " ")} UTC · <a class="st-textlink" href="#/rescues">every rescue, every transaction</a>`;
+  root.querySelector<HTMLElement>("[data-live-line]")!.textContent = `Live on NEAR testnet and Ethereum Sepolia, with Aave V3's real contracts. Last rescue ${ago(last)}.`;
+}
+function fillMainnet(root: HTMLElement, m: PanelFeed | null) {
+  const sect = root.querySelector<HTMLElement>("[data-mainnet]");
+  if (!sect || !m || !m.summary.compared24h) return;
+  const s = m.summary;
+  sect.hidden = false;
+  sect.querySelector("[data-mn-kept]")!.textContent = usdK(s.saved24hUsd);
+  sect.querySelector("[data-mn-kept-sub]")!.textContent = `that borrowers would have kept with Stead, on ${s.compared24h} of ${s.liquidations24h} real liquidations`;
+  sect.querySelector("[data-mn-text]")!.textContent = `In the 24 hours to ${new Date(m.blockTime).toISOString().slice(11, 16)} UTC, Aave liquidators took ${usdK(s.bonusPaid24hUsd)} in bonuses on Ethereum. On the same positions, Stead's stewards would have charged ${usdK(s.steadPremium24hUsd)} in premiums. ${s.nearTrigger} positions sit near the trigger right now. Read-only, from public RPCs: no Stead transaction.`;
 }
 
 function fillTotals(root: HTMLElement, s: SiteStats | null) {

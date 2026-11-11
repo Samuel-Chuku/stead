@@ -382,9 +382,11 @@ Planned, not built.
   signs for, so an existing Aave position has to move in first. A migration would do it in one
   transaction: a flash loan repays the old loan, the collateral moves into a new protected position, and
   the debt is re-borrowed there.
-- **Independent stewards on mainnet.** Registration is open, and the five stewards running today are
-  example strategies. Mainnet rescues need outside capital competing, then a contract audit and higher
-  owner limits (the size cap and the allow-list, both bounded in the code).
+- **Opening mainnet.** The mainnet contract starts closed on purpose: a $150 size cap and an allow-list
+  with only our borrower, for the two recorded runs. Both are owner settings, bounded in the code. After
+  the runs: a modest cap with the allow-list off, so anyone can protect a position; then higher caps as
+  independent stewards bring capital (registration is open; the five running today are example
+  strategies) and after a contract audit.
 - **Other DeFi lending markets.** A market is a lending pool, its two assets and its parameters; Aave V3 on
   any EVM chain is a configuration, and other lenders need their own action encoding.
 - **Stead markets for RHEA Lending.** RHEA Lending lives on NEAR, so a Stead market there could read
