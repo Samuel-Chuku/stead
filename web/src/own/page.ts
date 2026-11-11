@@ -531,7 +531,7 @@ export function mountOwn(root: HTMLElement): () => void {
     main.innerHTML = `
       <section class="st-panel st-sect st-own">
         <header class="st-list-head"><div class="st-label">PROTECT AN AAVE POSITION · NEAR TESTNET AND SEPOLIA</div><h1 class="st-page-title">Protect an Aave position, then watch it get rescued</h1>
-          <p class="st-list-sub">A protected position is an Aave position at an address only the Stead contract can sign for, through NEAR's chain signatures; your NEAR account owns it. When its health falls below 1.15, stewards compete to top it up, and you buy the rescue back. Everything below is real, on testnets; Sepolia's prices don't move, so step 5 pushes the position under the trigger by borrowing more. About 15 to 20 minutes: each Aave step waits for Sepolia.</p></header>
+          <p class="st-list-sub">A protected position is an Aave position at an address only the Stead contract can sign for, through NEAR's chain signatures; your NEAR account owns it. When its health falls below 1.15, stewards compete to top it up, and you buy the rescue back. Everything below is real, on testnets; Sepolia's prices don't move, so opening borrows straight under the trigger. About 12 minutes in all: each Aave step waits for a Sepolia block and a proof.</p></header>
         ${busy ? `<p class="st-own-busy" role="status"><span class="st-live-dot" aria-hidden="true"></span>${esc(busy)} <span class="st-own-elapsed" data-elapsed="${busySince}">${elapsed(busySince)}</span></p>` : ""}
         ${notice ? `<p class="st-own-notice" role="status">${esc(notice)}</p>` : ""}
         ${error ? `<p class="st-own-error" role="alert">${esc(error)}</p>` : ""}

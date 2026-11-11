@@ -73,6 +73,12 @@ export async function viewAt<T>(contractId: string, method: string, args: Record
   return fallbacks.reduce<Promise<unknown>>((acc, fb) => acc.catch(() => ask(fb)), ask(provider)) as Promise<T>;
 }
 
+/** The logs of every receipt of a transaction so far (it may still be running). */
+export async function txLogs(hash: string, sender: string): Promise<string[]> {
+  const r: any = await withRetry(() => (provider as any).sendJsonRpc("EXPERIMENTAL_tx_status", { tx_hash: hash, sender_account_id: sender, wait_until: "NONE" }), 3, true);
+  return (r?.receipts_outcome ?? []).flatMap((o: any) => o.outcome?.logs ?? []);
+}
+
 /** One line per period: how many views went to the RPC, busiest methods first. */
 export function viewReport(periodMs: number): string {
   const total = [...viewStats.values()].reduce((a, b) => a + b, 0);

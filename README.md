@@ -9,7 +9,7 @@ NEAR's chain signatures: your NEAR account owns it, and when its health falls be
 to rescue it. Everything runs on testnets (NEAR testnet and Ethereum Sepolia) against Aave V3's real
 contracts. Test funds are sponsored, so nothing needs to be bought.
 
-**With your own NEAR wallet** ([Protect a position](https://app.usestead.xyz/#/try), about 10 minutes):
+**With your own NEAR wallet** ([Protect a position](https://app.usestead.xyz/#/try), about 12 minutes):
 1. **Connect** a NEAR testnet wallet (Meteor, Intear, Nightly, Ledger, NEAR CLI and more, through NEAR
    Connector). A Sepolia wallet is optional: without one, the sponsor holds the Sepolia side.
 2. **Open a protected position**: your NEAR account registers it; its Ethereum address is derived by NEAR's MPC
@@ -25,8 +25,8 @@ contracts. Test funds are sponsored, so nothing needs to be bought.
 6. **Close** and read your rescue's story: every step from the trigger to the payouts, each linked to
    its NEAR or Sepolia transaction.
 
-**Without a wallet** ([Live auctions › DEMO](https://app.usestead.xyz/?demo=#/live), about 5 or 9
-minutes): press **One steward** or **Pooled rescue**. A demo borrower runs the same rescue; the page shows
+**Without a wallet** ([Live auctions › DEMO](https://app.usestead.xyz/?demo=#/live), about 5 minutes
+from the trigger to the payout): press **One steward** or **Pooled rescue**. A demo borrower runs the same rescue; the page shows
 every transaction it sends and lets you try the same forbidden actions.
 
 **Read first?** [How it works](https://app.usestead.xyz/#/how): two diagrams, the rescue step by step, and
@@ -347,16 +347,41 @@ share, bid timing). It's off unless an API key is set. Any OpenAI-compatible cha
   about 12 %/min the rescue can't land before Aave liquidates: no steward money is at risk then, but
   there is no rescue either. If a settling steward goes silent and another takes over after 3 minutes,
   up to **5 %/min**; if nobody takes over, the fallback only protects in slow markets (≤ 0.5 %/min).
-- **NEAR Intents delivery is simulated; the quote is real.** NEAR Intents has no testnet. When a steward
-  lacks the asset, it asks the real 1Click API for a **dry** quote (nothing deposited) for the same asset
-  on Ethereum mainnet, paid in USDC on NEAR, and logs it (e.g. 31.58 LINK for 344.49 USDC, about 134 bps
-  all-in, ~19 s). A faucet mint then delivers the test tokens, and the log says so.
+- **NEAR Intents delivery is simulated on testnets; the quote is real.** NEAR Intents has no testnet.
+  When a steward lacks the asset, it asks the real 1Click API for a **dry** quote (nothing deposited)
+  for the same asset on Ethereum mainnet, paid in USDC on NEAR, and logs it (e.g. 31.58 LINK for 344.49
+  USDC, about 134 bps all-in, ~19 s). A faucet mint then delivers the test tokens, and the log says so.
+  On Ethereum mainnet the delivery is real: USDC on NEAR is swapped through 1Click and delivered as ETH,
+  capped per swap, with the steward's own capital as the fallback if it arrives late.
 - **Sepolia prices are fixed.** Its Aave oracle is admin-only, so on Sepolia a borrow moves the health
   factor; price falls are staged on the fork.
 - **Bids are public.** NEAR contract state and transaction arguments are public, so every steward can
   see the others' premiums. Undercutting is what lowers the borrower's premium, but open bids also let
   a steward wait and undercut the best bid by a hair at the last moment, which discourages honest early
   bids.
+
+## When something outside Stead fails
+
+Stead leans on services it doesn't run. When one of them fails, a rescue is delayed; nobody's money
+or bond is lost because of it.
+
+- **OutLayer fails or is slow.** A proof request that fails is refunded by OutLayer and asked again.
+  A top-up is confirmed by the first proof that shows the collateral increase, whenever it lands, and a
+  rescue on a verified market can only be expired by a proof from after the deadline that shows no
+  top-up, or by anyone after a 15-minute grace. So a steward that topped up in time keeps its bond
+  through an outage. Seen once on testnet (2026-11-11): about 7 minutes of failed executions; the
+  rescue's claim opened late, nothing was lost.
+- **The keeper stops.** It's only one caller among many: anyone can ask for a verified reading
+  (`request_verified`, paying OutLayer's fee) or send the next queued payout (`pay_next`). The contract
+  checks the proof or the queue, not who called. Until the temporary reporter's nonce confirmations are
+  replaced by proofs, a stopped keeper does hold up the borrower's own signed transactions.
+- **A public RPC throttles or drops.** Bots back off and retry; the site's pages fall back to a second
+  public RPC. Decisions never rest on a single RPC: a proof needs at least three that agree.
+- **A NEAR Intents solver is late (mainnet).** The steward tops up from its own capital after 60 s; a
+  late delivery arrives as ETH in its wallet and isn't lost.
+- **Ethereum is congested.** Transactions wait longer; each position's transactions still land in
+  nonce order; a stuck settlement leg can be re-signed with a higher fee, and a stuck borrower
+  transaction cancelled after 10 minutes (a zero-value transaction takes its nonce).
 
 ## Roadmap
 

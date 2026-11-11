@@ -6,7 +6,7 @@
 //  - closes auctions, expires missed top-ups, advances settlement legs (anyone may)
 import { type Address, type Hex, decodeEventLog } from "viem";
 import { AAVE_BOOK, cfg } from "./config.js";
-import { call, view, NEAR, TGAS } from "./near.js";
+import { call, txLogs, view, NEAR, TGAS } from "./near.js";
 import { accountData, price, pub, poolAbi, balance } from "./fork.js";
 import { log, short, fmt } from "./log.js";
 import { nowNs, type Position, type Rescue, type Books, type Watch } from "./types.js";
@@ -65,7 +65,7 @@ export class Keeper {
   /** Proofs in a row the contract refused, per position (for the back-off). */
   private refusals = new Map<number, number>();
   /** Proof requests sent and not yet answered: when, the verified block before, the request tx. */
-  private inflight = new Map<number, { at: number; block: number; hash: string }>();
+  private inflight = new Map<number, { at: number; checkedAt: number; block: number; hash: string }>();
 
   /** Account that pays for verified reads (any account may; it must be on the OutLayer secret's access list). */
   public verifyPayer: string;
@@ -155,6 +155,20 @@ export class Keeper {
         const hf = h?.hf_wad ? (Number(BigInt(h.hf_wad) / 10n ** 12n) / 1e6).toFixed(4) : "n/a";
         return { hash: inflight.hash, note: `applied: block ${now!.last_block}, HF ${hf} (${Math.round((Date.now() - inflight.at) / 1000)} s)` };
       }
+      // the request's own receipts say early if OutLayer failed or the contract refused the proof
+      if (Date.now() - inflight.checkedAt >= 10_000) {
+        inflight.checkedAt = Date.now();
+        const logs = await txLogs(inflight.hash, this.verifyPayer).catch(() => [] as string[]);
+        const failed = logs.find((l) => /Execution promise failed/.test(l));
+        const refused = logs.find((l) => /verified read (not applied|refused|unreadable|failed)/.test(l));
+        if (failed || refused) {
+          this.inflight.delete(pid);
+          // OutLayer failing is not this position's fault: ask again at once; a contract refusal
+          // other than "older than the last event" counts toward the back-off
+          if (!failed && refused && !/older than the last event/.test(refused)) this.refusals.set(pid, (this.refusals.get(pid) ?? 0) + 1);
+          return { hash: inflight.hash, note: failed ? `OutLayer failed this run (refunded): asking again (${Math.round((Date.now() - inflight.at) / 1000)} s)` : `${refused!.slice(0, 120)}` };
+        }
+      }
       if (Date.now() - inflight.at < 90_000) return;
       this.inflight.delete(pid);
       this.refusals.set(pid, (this.refusals.get(pid) ?? 0) + 1);
@@ -194,7 +208,7 @@ export class Keeper {
     // returns once NEAR includes the request (seconds), not when OutLayer's answer lands (30–90 s):
     // the keeper's loop keeps relaying and closing auctions meanwhile
     const r = await call(this.verifyPayer, "request_verified", { position_id: pid }, { gas: 300n * TGAS, deposit: NEAR / 10n, waitUntil: "INCLUDED_FINAL" });
-    this.inflight.set(pid, { at: Date.now(), block: v?.last_block ?? 0, hash: r.hash });
+    this.inflight.set(pid, { at: Date.now(), checkedAt: Date.now(), block: v?.last_block ?? 0, hash: r.hash });
     return { hash: r.hash, note: "requested" };
   }
 
@@ -265,6 +279,8 @@ export class Keeper {
     // (and a later transaction on a position already waiting for a proof moves the evidence forward:
     // a proof older than the position's newest event is refused)
     if (rc.status === "success" && (healthDropping(pending.kind) || this.verifyNow.has(pid)) && (await this.isVerified(pid))) this.verifyNow.set(pid, rc.blockNumber);
+    // a proof asked before this transaction will be refused as older than it: don't wait for it
+    if (rc.status === "success") this.inflight.delete(pid);
     return { evmTx: hash, ok: rc.status === "success", nearTx: r.hash };
   }
 

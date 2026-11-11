@@ -507,7 +507,13 @@ async function archiveLoop() {
         const list: any[] = await rd.view(c, "get_rescues", { from: 0, limit: 500 });
         for (const r of list.sort((a, b) => b.id - a.id)) {
           if (!ENDED.has(r.state) || existsSync(archiveFile(c, r.id))) continue;
-          if (windowEnd(r, params.buyback_window_ns, nowNs) >= nowNs) continue; // its last events may still come
+          // its last events may still come: wait out the margin, unless the position is already quiet
+          // (no payout queued, no transaction in flight): an ended rescue's story is then complete
+          if (windowEnd(r, params.buyback_window_ns, nowNs) >= nowNs) {
+            const [pos, books] = await Promise.all([rd.view(c, "get_position", { position_id: r.position_id }), rd.view(c, "get_books", { position_id: r.position_id })]);
+            const quiet = pos && pos.pending === null && books && books.outflows.length === 0 && !(pos.open_rescues ?? []).includes(r.id);
+            if (!quiet) continue;
+          }
           try {
             const log = await recordRescue(rd, c, r.id, nowNs);
             const f = archiveFile(c, r.id);

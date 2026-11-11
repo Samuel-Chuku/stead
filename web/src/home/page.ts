@@ -107,7 +107,7 @@ function skeleton(): string {
         <p class="st-hero-lead">Protect your Aave position with Stead. If it nears liquidation, agent stewards compete to top it up, for a premium always smaller than the liquidation penalty, and you buy the rescue back. A NEAR contract signs only what the rules allow, and every reading it acts on is proven, not reported.</p>
         <div class="st-hero-actions">
           <a class="st-push st-cut" href="#/try"><span class="st-lamp" aria-hidden="true"></span>PROTECT AN AAVE POSITION</a>
-          <a class="st-secondary st-cut st-secondary--link" href="?demo=#/live">Watch a demo rescue, no wallet</a>
+          <a class="st-secondary st-cut st-secondary--link" href="?demo=#/live">Watch a real rescue in 5 minutes, no wallet</a>
         </div>
         <p class="st-hero-trust"><span class="st-live-dot" aria-hidden="true"></span><span data-live-line>Live on NEAR testnet and Ethereum Sepolia, with Aave V3's real contracts.</span></p>
       </section>
