@@ -74,9 +74,13 @@ export function recordFaucet(st: FaucetState, now: number, near: string, evm: st
 // payout, so withdrawals and borrowed DAI come back to the sponsor. The sponsor funds the position
 // (gas + collateral), pays the buy-back when asked, and sends the DAI to repay at close.
 
-export type SponsorWhat = "fund" | "buyback" | "repay";
+export type SponsorWhat = "fund" | "buyback" | "repay" | "gas";
 export const SPONSOR = {
   positionGasWei: 1_500_000_000_000_000n, // 0.0015 ETH: one signed transaction's maximum fee up front, plus spend
+  // every contract-signed transaction needs gas limit × max fee available up front (600k × 2 gwei)
+  txUpfrontWei: 1_200_000_000_000_000n,
+  gasTopUpWei: 2_000_000_000_000_000n, // 0.002 ETH when a position runs short
+  gasEveryMs: 30 * 60_000, // at most once per 30 minutes per position
   collateral: 60n * 10n ** 18n, // 60 LINK
 } as const;
 
@@ -90,12 +94,16 @@ export function checkSponsor(body: string, origin: string | undefined, allowedOr
     b = JSON.parse(body);
     if (!b || typeof b !== "object" || Array.isArray(b) || Object.keys(b).some((k) => !["near", "positionId", "what"].includes(k))) throw new Error();
   } catch {
-    return { ok: false, status: 400, error: 'body must be {"near": "…", "positionId": n, "what": "fund" | "buyback" | "repay"}' };
+    return { ok: false, status: 400, error: 'body must be {"near": "…", "positionId": n, "what": "fund" | "buyback" | "repay" | "gas"}' };
   }
   const near = typeof b.near === "string" ? b.near.toLowerCase() : "";
   if (!near.endsWith(".testnet") || near.length > 64 || !NEAR_ACCOUNT_RE.test(near)) return { ok: false, status: 400, error: "a NEAR testnet account is needed" };
   if (typeof b.positionId !== "number" || !Number.isInteger(b.positionId) || b.positionId < 0 || b.positionId > 1_000_000) return { ok: false, status: 400, error: "bad positionId" };
-  if (b.what !== "fund" && b.what !== "buyback" && b.what !== "repay") return { ok: false, status: 400, error: "bad what" };
+  if (b.what !== "fund" && b.what !== "buyback" && b.what !== "repay" && b.what !== "gas") return { ok: false, status: 400, error: "bad what" };
+  if (b.what === "gas") {
+    const t = done[`gas:${b.positionId}`];
+    if (t !== undefined && now - t < SPONSOR.gasEveryMs) return { ok: false, status: 429, error: "gas was sent to this position in the last 30 minutes" };
+  }
   const key = b.what === "fund" ? `fund:${near}` : b.what === "repay" ? `repay:${b.positionId}` : null;
   if (key && done[key] !== undefined && now - done[key] < FAUCET.perWalletMs) return { ok: false, status: 429, error: "already done for this account or position today" };
   return { ok: true, near, positionId: b.positionId, what: b.what };

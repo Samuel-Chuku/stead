@@ -64,6 +64,8 @@ export class Keeper {
   private provenAt = new Map<number, bigint>();
   /** Proofs in a row the contract refused, per position (for the back-off). */
   private refusals = new Map<number, number>();
+  /** Positions whose relay keeps failing: retried on their own back-off. */
+  private relayHold = new Map<number, { until: number; n: number }>();
   /** Proof requests sent and not yet answered: when, the verified block before, the request tx. */
   private inflight = new Map<number, { at: number; checkedAt: number; block: number; hash: string }>();
 
@@ -464,15 +466,35 @@ export class Keeper {
     for (const pid of this.positions.keys()) {
       const p = this.positions.get(pid)!;
       if (p.pending?.signed_raw) {
-        const r = await this.relay(pid);
-        if (r) log("relayer", `position ${pid} nonce ${p.pending.tx.nonce}: ${cfg.evm} ${short(r.evmTx)} ${r.ok ? "ok" : "REVERTED"} → confirm_nonce ${short(r.nearTx)}`);
+        // one position's trouble (e.g. its address out of gas) must never hold up the others: catch it,
+        // retry that position on its own back-off, and say what's wrong once a minute
+        const hold = this.relayHold.get(pid);
+        if (hold && Date.now() < hold.until) continue;
+        try {
+          const r = await this.relay(pid);
+          this.relayHold.delete(pid);
+          if (r) log("relayer", `position ${pid} nonce ${p.pending.tx.nonce}: ${cfg.evm} ${short(r.evmTx)} ${r.ok ? "ok" : "REVERTED"} → confirm_nonce ${short(r.nearTx)}`);
+        } catch (e) {
+          const msg = (e as Error).message;
+          const why = /insufficient funds/i.test(msg) ? "the position's address can't pay the gas: send it Sepolia ETH" : msg.split("\n")[0].slice(0, 140);
+          const n = (hold?.n ?? 0) + 1;
+          this.relayHold.set(pid, { until: Date.now() + Math.min(60_000, 5_000 * n), n });
+          if (n === 1 || n % 12 === 0) log("relayer", `position ${pid} nonce ${p.pending.tx.nonce}: not sent (${why}); retrying, other positions go on`);
+        }
       }
     }
-    await this.scanLogs();
+    // a log scan that fails (e.g. an RPC a block behind the head) is retried next pass, not fatal
+    await this.scanLogs().catch((e) => log("keeper", `log scan skipped this pass (${(e as Error).message.split("\n")[0].slice(0, 120)})`));
     // auctions past their close time are closed before the (slow) proof requests, so a winner's
     // top-up clock isn't held up by unrelated positions' proofs
     await this.housekeep();
-    for (const pid of this.positions.keys()) await this.proveEscrow(pid);
+    for (const pid of this.positions.keys()) {
+      try {
+        await this.proveEscrow(pid);
+      } catch (e) {
+        log("keeper", `position ${pid}: escrow check skipped this pass (${(e as Error).message.split("\n")[0].slice(0, 120)})`);
+      }
+    }
     const hot = [...this.positions.values()].some((q) => q.active_auction !== null);
     for (const pid of this.positions.keys()) {
       try {

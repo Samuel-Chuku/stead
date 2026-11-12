@@ -82,3 +82,20 @@ describe("receipts", () => {
     expect(receiptsFor(store, { near: "alice.testnet" }).faucet).toBeNull();
   });
 });
+
+describe("sponsored gas", () => {
+  it("accepts a gas request for a position at most once per 30 minutes", async () => {
+    const { checkSponsor, SPONSOR } = await import("../src/faucet.js");
+    const body = JSON.stringify({ near: "alice.testnet", positionId: 8, what: "gas" });
+    const done: Record<string, number> = {};
+    const ok = checkSponsor(body, "https://app.usestead.xyz", ["https://app.usestead.xyz"], done, 1_000);
+    expect(ok.ok && ok.what).toBe("gas");
+    done["gas:8"] = 1_000;
+    const again = checkSponsor(body, "https://app.usestead.xyz", ["https://app.usestead.xyz"], done, 1_000 + 10 * 60_000);
+    expect(again.ok).toBe(false);
+    const later = checkSponsor(body, "https://app.usestead.xyz", ["https://app.usestead.xyz"], done, 1_000 + SPONSOR.gasEveryMs);
+    expect(later.ok).toBe(true);
+    // a transaction's gas up front: 600k gas × 2 gwei
+    expect(SPONSOR.txUpfrontWei).toBe(600_000n * 2_000_000_000n);
+  });
+});

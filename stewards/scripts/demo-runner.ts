@@ -265,6 +265,7 @@ async function serveSponsor(body: string, origin: string | undefined, visitor: s
     saved.sponsorDone ??= {};
     const now = Date.now();
     for (const [k, t] of Object.entries(saved.sponsorDone)) if (now - t >= FAUCET.perWalletMs && !k.startsWith("buyback:")) delete saved.sponsorDone[k];
+    // (gas keys age out after a day like the others; the 30-minute spacing is checked in checkSponsor)
     const v = checkSponsor(body, origin, ORIGINS, saved.sponsorDone, now);
     if (!v.ok) return { status: v.status, json: { error: v.error } };
     const p = await view<{ owner: string; payout: string; evm_address: string | null; active_auction: number | null; open_rescues: number[] } | null>("get_position", { position_id: v.positionId });
@@ -292,6 +293,17 @@ async function serveSponsor(body: string, origin: string | undefined, visitor: s
       }
       const held = await balance(A.collateral, pos);
       if ((await accountData(pos)).collateralBase === 0n && held < SPONSORED.collateral) sent.push({ label: `${(SPONSORED.collateral - held) / 10n ** 18n} ${A.cSym} into your position (Aave's test faucet)`, chain: "sepolia", hash: await mint(A.collateral, SPONSORED.collateral - held) });
+    } else if (v.what === "gas") {
+      // a position whose address can't pay its next signed transaction's gas up front
+      const eth = await pub.getBalance({ address: pos });
+      if (eth >= SPONSORED.txUpfrontWei) return { status: 409, json: { error: "the position already has enough gas" } };
+      const reserveWei = await pub.getBalance({ address: reserve.address });
+      if (reserveWei < FAUCET.reserveFloorWei + SPONSORED.gasTopUpWei) return { status: 503, json: { error: "the sponsor is being refilled" } };
+      saved.sponsorDone[`gas:${v.positionId}`] = now;
+      save();
+      const h = await reserve.sendTransaction({ to: pos, value: SPONSORED.gasTopUpWei, account: reserve.account!, chain: reserve.chain });
+      await pub.waitForTransactionReceipt({ hash: h });
+      sent.push({ label: "0.002 Sepolia ETH to your position for its gas", chain: "sepolia", hash: h });
     } else if (v.what === "buyback") {
       const rid = p.open_rescues[0];
       if (rid === undefined) return { status: 409, json: { error: "no open claim to buy back" } };
