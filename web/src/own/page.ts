@@ -92,7 +92,7 @@ async function knownPositions(): Promise<{ id: number; owner: string }[] | null>
 type Position = { id: number; owner: string; evm_address: string | null; payout: string; next_nonce: number; pending: unknown; active_auction: number | null; open_rescues: number[] };
 type Rescue = { id: number; state: string; members: { steward: string; claim_id: string | null }[] };
 type Claim = { token_id: string; owed_units: string; status: string; expires_at?: string };
-type TxRow = { at: number; label: string; chain: "near" | "sepolia"; hash: string; ok: boolean; note?: string; step?: number };
+type TxRow = { at: number; label: string; chain: "near" | "sepolia"; hash: string; ok: boolean; note?: string; step?: number; pos?: number };
 type Sent = { label: string; chain: "near" | "sepolia"; hash: string };
 type Receipts = { faucet: { at: number; sent: Sent[] } | null; fund: { at: number; sent: Sent[] } | null };
 /** Which step a transaction belongs to (rows saved before steps were recorded: by their label). */
@@ -210,8 +210,16 @@ export function mountOwn(root: HTMLElement): () => void {
       /* the list still shows; it just won't survive a reload */
     }
   };
+  /** This position's transactions. Rows saved before positions were tagged: those after the last
+   *  "Register a position" (any earlier ones belong to older runs). */
+  const shown = (): TxRow[] => {
+    const id = state?.pos?.id;
+    if (id === undefined) return [];
+    const reg = txs.filter((t) => /^Register a position/.test(t.label) && (t.pos === undefined || t.pos === id)).reduce((m, t) => Math.max(m, t.at), 0);
+    return txs.filter((t) => (t.pos !== undefined ? t.pos === id : t.at >= reg));
+  };
   const addTx = (t: Omit<TxRow, "at">) => {
-    txs.push({ ...t, at: Date.now(), step: stepNow });
+    txs.push({ ...t, at: Date.now(), step: stepNow, pos: state?.pos?.id });
     saveTxs();
     render();
   };
@@ -459,11 +467,21 @@ export function mountOwn(root: HTMLElement): () => void {
     else if (s.hf !== null && s.hf < 1.15) now = "Under the 1.15 trigger: waiting for the proven reading that opens the auction (usually under a minute).";
     else if (s.debt > 0n) now = `Protected: health ${hf}. If it falls under 1.15, stewards compete to rescue it.`;
     else now = "Opened, no debt.";
-    const position = pos && s ? `Position ${pos.id} · health <strong>${hf}</strong> · ${usd8(s.coll)} collateral · ${usd8(s.debt)} debt` : "";
+    // amber only for exposure: under the trigger, or a claim open on the position
+    const exposed = (s?.hf != null && s.hf < 1.15 && s.debt > 0n) || (r?.contractState === "open");
+    const fall = s?.hf != null && s.debt > 0n ? `LINK can fall ${((1 - 1 / s.hf) * 100).toFixed(1)}% before liquidation` : "no debt: nothing to liquidate";
+    const tiles = pos && s
+      ? `<dl class="st-np-tiles">
+          <div><dt>HEALTH FACTOR</dt><dd><span class="st-num${exposed && s.hf != null && s.hf < 1.15 ? " is-exposed" : ""}">${hf}</span></dd><dd class="st-np-sub">${fall}</dd></div>
+          <div><dt>COLLATERAL</dt><dd><span class="st-num">${usd8(s.coll)}</span></dd><dd class="st-np-sub">LINK supplied on Aave</dd></div>
+          <div><dt>DEBT</dt><dd><span class="st-num">${usd8(s.debt)}</span></dd><dd class="st-np-sub">DAI borrowed</dd></div>
+          <div><dt>POSITION</dt><dd><span class="st-num">${pos.id}</span></dd><dd class="st-np-sub">read from Aave on Sepolia</dd></div>
+        </dl>`
+      : "";
     // your transactions and the rescue's events, newest first
-    const acts: { at: number; html: string }[] = txs.map((t) => ({
+    const acts: { at: number; html: string }[] = shown().map((t) => ({
       at: t.at,
-      html: `${t.ok ? "" : '<span class="st-own-chip-refused">refused</span> '}${esc(shortLabel(t.label).replace(/ \(refused\)$/, ""))}${t.hash ? ` <a class="st-textlink" href="${txHref(t)}" target="_blank" rel="noopener" aria-label="transaction">${icon("external", 11)}</a>` : ""}`,
+      html: `${t.ok ? "" : '<span class="st-own-chip-refused">refused</span> '}${esc(shortLabel(t.label).replace(/ \(refused\)$/, ""))}${t.hash ? ` <a class="st-np-link" href="${txHref(t)}" target="_blank" rel="noopener" aria-label="the transaction">${icon("external", 11)}</a>` : ""}`,
     }));
     if (live) for (const e of live.events) {
       const line = liveLine(e);
@@ -472,10 +490,13 @@ export function mountOwn(root: HTMLElement): () => void {
     const rows = acts
       .sort((a, b) => b.at - a.at)
       .slice(0, 5)
-      .map((a) => `<li><span class="st-own-live-t">${new Date(a.at).toISOString().slice(11, 19)}</span><span>${a.html}</span></li>`)
+      .map((a) => `<li><span class="st-np-t">${new Date(a.at).toISOString().slice(11, 19)}</span><span>${a.html}</span></li>`)
       .join("");
-    return `<div class="st-own-live-head"><span class="st-live-dot" aria-hidden="true"></span><span>${now}</span></div>${position ? `<p class="st-own-live-pos">${position}</p>` : ""}${rows ? `<ol class="st-own-live-list">${rows}</ol>` : ""}`;
+    const lamp = busy || r ? "st-np-lamp is-live" : exposed ? "st-np-lamp is-exposed" : "st-np-lamp";
+    lastActivity = rows ? `<div class="st-np-journal"><div class="st-journal-head">LATEST ACTIVITY · POSITION ${pos?.id ?? ""}</div><ol class="st-np-lines">${rows}</ol></div>` : "";
+    return `<div class="st-np-head"><span class="${lamp}" aria-hidden="true"></span><span class="st-np-label">NOW</span><span class="st-np-now">${now}</span></div>${tiles}`;
   }
+  let lastActivity = ""; // the journal below the panel, built with it
 
   // ── the steps ──
   async function run(label: string, fn: () => Promise<void>) {
@@ -488,7 +509,13 @@ export function mountOwn(root: HTMLElement): () => void {
     try {
       await fn();
     } catch (e) {
-      error = (e as any).refused ? `The contract refused it: "${(e as Error).message}".` : `${label} stopped: ${(e as Error).message}`;
+      const raw = String((e as any).shortMessage ?? (e as Error).message ?? e);
+      const cancelled = /user (rejected|denied|cancel)|rejected the request|request rejected/i.test(raw);
+      error = (e as any).refused
+        ? `The contract refused it: "${(e as Error).message}".`
+        : cancelled
+          ? `${label} paused: you cancelled the request in your wallet, so nothing was sent. Press the button again when you're ready; it picks up where it stopped.`
+          : `${label} stopped: ${raw.split("\n")[0].slice(0, 200)}`;
     }
     busy = "";
     await refresh();
@@ -543,6 +570,8 @@ export function mountOwn(root: HTMLElement): () => void {
         if (!p?.evm_address) throw new Error("the new position didn't appear");
         forceNew = false;
         lastRescue = null; // the new position has no rescue yet
+        for (const t of txs) if (t.pos === undefined && /^Register a position/.test(t.label) && Date.now() - t.at < 10 * 60_000) t.pos = p.id;
+        saveTxs();
         state = { ...(state as NonNullable<typeof state>), pos: p };
       }
       const addr = p.evm_address as Address;
@@ -645,7 +674,7 @@ export function mountOwn(root: HTMLElement): () => void {
     const windowEnd = ends.length ? Math.min(...ends) : 0;
     const sentRow = (x: Sent, at: number): TxRow => ({ ...x, at, ok: true });
     const fromServer = (r: { at: number; sent: Sent[] } | null | undefined) => (r ? r.sent.map((x) => sentRow(x, r.at)) : []);
-    const mine = (n: number) => txs.filter((t) => stepOfTx(t) === n && t.hash);
+    const mine = (n: number) => shown().filter((t) => stepOfTx(t) === n && t.hash);
     // the visitor's own record first; the server's for another device (or a cleared browser)
     const step3 = mine(3).length ? mine(3) : fromServer(receipts?.faucet);
     const step4 = [...mine(4), ...(mine(4).some((t) => /^Sponsor:/.test(t.label)) ? [] : fromServer(receipts?.fund))];
@@ -683,16 +712,17 @@ export function mountOwn(root: HTMLElement): () => void {
         <header class="st-list-head"><div class="st-label">PROTECT AN AAVE POSITION · NEAR TESTNET AND SEPOLIA</div><h1 class="st-page-title">Protect an Aave position, then watch it get rescued</h1>
           <p class="st-list-sub">A protected position is an Aave position at an address only the Stead contract can sign for, through NEAR's chain signatures; your NEAR account owns it. When its health falls below 1.15, stewards compete to top it up, and you buy the rescue back. Everything below is real, on testnets; Sepolia's prices don't move, so opening borrows straight under the trigger. About 12 minutes in all: each Aave step waits for a Sepolia block and a proof.</p></header>
         <section class="st-own-live" data-own-live aria-label="What is happening now" role="status">${panelHtml()}</section>
+        <div data-own-activity>${lastActivity}</div>
         ${notice ? `<p class="st-own-notice" role="status">${esc(notice)}</p>` : ""}
         ${error ? `<p class="st-own-error" role="alert">${esc(error)}</p>` : ""}
         ${finished && pos ? `<div class="st-own-done"><p><strong>Run complete.</strong> Position ${pos.id} is closed on Aave${lastRescue !== null ? `; <a class="st-textlink" href="?rescue=sepolia-demo:${lastRescue}#/rescues">rescue #${lastRescue}</a> has its full story` : ""}. Its receipts stay below.</p><div class="st-own-buttons">${btn("Protect a new position", "data-new", true)}</div></div>` : ""}
         <ol class="st-own-steps">${steps.join("")}</ol>
-        ${near && txs.length ? `<div class="st-label st-runlog-head">YOUR TRANSACTIONS</div><ol class="st-runlog">${txs
+        ${near && shown().length ? `<div class="st-label st-runlog-head">YOUR TRANSACTIONS · POSITION ${state?.pos?.id ?? ""}</div><ol class="st-runlog">${shown()
           .slice()
           .reverse()
           .slice(0, showAllTxs ? undefined : 3)
           .map((t) => `<li><span class="st-runlog-time">${new Date(t.at).toISOString().slice(11, 19)}</span><span class="st-runlog-label">${esc(t.label)}</span>${t.hash ? `<a class="st-txlink" href="${txHref(t)}" target="_blank" rel="noopener"><span>${t.chain === "near" ? "NearBlocks" : "Etherscan"}</span><span class="st-txlink-where">${t.hash.slice(0, 8)}…</span>${icon("external", 12)}</a>` : ""}</li>`)
-          .join("")}</ol>${txs.length > 3 ? `<button type="button" class="st-secondary st-cut st-own-more" data-more-txs>${showAllTxs ? "Show the latest 3" : `See all ${txs.length}`}</button>` : ""}` : ""}
+          .join("")}</ol>${shown().length > 3 ? `<button type="button" class="st-secondary st-cut st-own-more" data-more-txs>${showAllTxs ? "Show the latest 3" : `See all ${shown().length}`}</button>` : ""}` : ""}
       </section>`;
     main.querySelector("[data-near]")?.addEventListener("click", () => run("Connecting your NEAR wallet", async () => {
       near = await connectNear();
@@ -732,6 +762,8 @@ export function mountOwn(root: HTMLElement): () => void {
           live = mine;
           const el = root.querySelector<HTMLElement>("[data-own-live]");
           if (el) el.innerHTML = panelHtml();
+          const act = root.querySelector<HTMLElement>("[data-own-activity]");
+          if (act) act.innerHTML = lastActivity;
           // a step changed on chain: re-read the page's state at once (no reload needed)
           if (changed && !busy) void refresh();
         } catch {
