@@ -186,3 +186,7 @@
 .st-own-live { position: sticky; top: 0; z-index: 2; }
 .st-own-live-pos { margin: 0 0 6px; font-size: 13px; color: var(--st-quiet); }
 .st-own-live-head span:last-child { line-height: 1.4; }
+.st-own-x { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; margin-left: 4px; vertical-align: middle; border: var(--st-border); background: var(--st-panel); color: var(--st-ink); cursor: pointer; }
+.st-own-x:hover { background: var(--st-inset); }
+.st-own-x:focus-visible { outline: 2px solid var(--st-ink); outline-offset: 2px; }
+.st-own-x:disabled { opacity: .4; cursor: default; }

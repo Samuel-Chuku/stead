@@ -229,7 +229,42 @@ export function mountOwn(root: HTMLElement): () => void {
       void refresh();
     });
   }
+  // a visitor who disconnected the Sepolia wallet stays disconnected across reloads
+  const EVM_OFF = "stead-own-evm-off";
+  const evmOff = () => {
+    try {
+      return localStorage.getItem(EVM_OFF) === "1";
+    } catch {
+      return false;
+    }
+  };
+  async function disconnectEvm() {
+    const eth = (window as any).ethereum;
+    // wallets that support it (MetaMask) drop this site's access; otherwise the page just forgets it
+    await eth?.request?.({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }).catch(() => undefined);
+    try {
+      localStorage.setItem(EVM_OFF, "1");
+    } catch {
+      /* ignore */
+    }
+    evm = null;
+    if (mode === "own") {
+      mode = null;
+      try {
+        localStorage.removeItem(MODE_KEY());
+      } catch {
+        /* ignore */
+      }
+    }
+    render();
+    void refresh();
+  }
   async function connectEvm() {
+    try {
+      localStorage.removeItem(EVM_OFF);
+    } catch {
+      /* ignore */
+    }
     const eth = (window as any).ethereum;
     if (!eth) throw new Error("No Sepolia wallet found in this browser (MetaMask or another injected wallet).");
     const w = createWalletClient({ chain: sepolia, transport: custom(eth) });
@@ -621,7 +656,7 @@ export function mountOwn(root: HTMLElement): () => void {
       : "";
     const steps = [
       stepHtml(1, "Connect a NEAR testnet wallet", !!near, !near, near ? `Connected as <strong>${esc(near)}</strong>${s?.nearYocto != null ? ` · ${fmt(s.nearYocto, 24, 3)} NEAR` : ""}${s?.nearYocto != null && s.nearYocto < 10_000_000_000_000_000_000_000n ? ` · <span class="st-own-warn">your account needs a little testnet NEAR to sign: get 10 from <a class="st-textlink" href="https://near-faucet.io" target="_blank" rel="noopener">a NEAR testnet faucet</a></span>` : ""}` : `<p>Your NEAR account owns the position and signs its Stead calls. Any NEAR wallet with testnet works (Meteor, Intear, Nightly, Ledger, NEAR CLI and more). Connecting adds a limited key for the Stead contract only, so the calls below need few approvals.</p><div class="st-own-buttons">${btn("Connect NEAR wallet", "data-near", true)}</div>`),
-      stepHtml(2, "Sepolia side: your wallet, or ours", !!mode, !!near && !mode, mode === "own" && evm ? `Your Sepolia wallet <span class="st-mono">${evm.slice(0, 8)}…${evm.slice(-6)}</span>${s ? ` · ${fmt(s.eth, 18, 4)} ETH · ${fmt(s.link, 18, 2)} LINK · ${fmt(s.dai, 18, 2)} DAI` : ""}` : mode === "sponsored" ? `NEAR only: the sponsor holds the Sepolia side. Your position's payout is the sponsor's address; it funds the position and pays the buy-back when you ask.` : `<p>The position's money lives on Sepolia. <strong>Only a NEAR wallet?</strong> Let the sponsor hold the Sepolia side: it funds your position and pays the buy-back when you ask; test funds go back to it at the end. <strong>Have a Sepolia wallet?</strong> Use it: you fund the position and get everything back.</p><div class="st-own-buttons">${btn("Only NEAR: sponsor the Sepolia side", "data-sponsored", true)}${btn("Use my Sepolia wallet", "data-evm")}</div>`),
+      stepHtml(2, "Sepolia side: your wallet, or ours", !!mode, !!near && !mode, mode === "own" && evm ? `Your Sepolia wallet <span class="st-mono">${evm.slice(0, 8)}…${evm.slice(-6)}</span> <button type="button" class="st-own-x" data-evm-off title="Disconnect this Sepolia wallet" aria-label="Disconnect this Sepolia wallet"${busy ? " disabled" : ""}>${icon("close", 12)}</button>${s ? ` · ${fmt(s.eth, 18, 4)} ETH · ${fmt(s.link, 18, 2)} LINK · ${fmt(s.dai, 18, 2)} DAI` : ""}` : mode === "sponsored" ? `NEAR only: the sponsor holds the Sepolia side. Your position's payout is the sponsor's address; it funds the position and pays the buy-back when you ask.` : `<p>The position's money lives on Sepolia. <strong>Only a NEAR wallet?</strong> Let the sponsor hold the Sepolia side: it funds your position and pays the buy-back when you ask; test funds go back to it at the end. <strong>Have a Sepolia wallet?</strong> Use it: you fund the position and get everything back.</p><div class="st-own-buttons">${btn("Only NEAR: sponsor the Sepolia side", "data-sponsored", true)}${btn("Use my Sepolia wallet", "data-evm")}</div>`),
       stepHtml(3, "Get test funds", funded || sponsored, mode === "own" && !funded && !opened, funded
         ? step3.length
           ? receipt("Completed", step3)
@@ -669,6 +704,7 @@ export function mountOwn(root: HTMLElement): () => void {
     });
     main.querySelector("[data-evm]")?.addEventListener("click", () => run("Connecting your Sepolia wallet", connectEvm));
     main.querySelector("[data-faucet]")?.addEventListener("click", faucet);
+    main.querySelector("[data-evm-off]")?.addEventListener("click", () => void disconnectEvm());
     main.querySelector("[data-more-txs]")?.addEventListener("click", () => {
       showAllTxs = !showAllTxs;
       render();
@@ -723,7 +759,7 @@ export function mountOwn(root: HTMLElement): () => void {
     main.innerHTML = `<section class="st-panel st-page"><div class="st-label">PROTECT AN AAVE POSITION</div><p class="st-empty">Loading the wallets…</p></section>`;
     await initNear().catch((e) => (error = `NEAR wallets could not load (${(e as Error).message}).`));
     const eth = (window as any).ethereum;
-    if (eth) {
+    if (eth && !evmOff()) {
       const accts: string[] = await eth.request({ method: "eth_accounts" }).catch(() => []);
       if (accts[0]) evm = accts[0] as Address;
     }
