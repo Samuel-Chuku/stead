@@ -183,3 +183,6 @@
 .st-own-chip-refused { font-family: var(--st-font-head); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--st-panel); background: var(--st-trip); padding: 1px 5px; }
 .st-own-done { border: var(--st-border); border-left-width: 4px; padding: 10px 12px; display: grid; gap: 8px; }
 .st-own-done p { margin: 0; font-size: 14px; line-height: 1.5; }
+.st-own-live { position: sticky; top: 0; z-index: 2; }
+.st-own-live-pos { margin: 0 0 6px; font-size: 13px; color: var(--st-quiet); }
+.st-own-live-head span:last-child { line-height: 1.4; }

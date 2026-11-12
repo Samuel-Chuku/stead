@@ -247,7 +247,8 @@ function fill(r: Route) {
   } else if (r === "how") {
     unmount = mountHow(content);
   } else if (r === "try") {
-    // the wallet libraries load only here
+    // the wallet libraries load only here (a few hundred KB): say so while they download
+    content.innerHTML = `<section class="st-panel st-page" aria-busy="true"><div class="st-label">PROTECT AN AAVE POSITION</div><p class="st-empty">Loading the wallet tools…</p></section>`;
     let stop = () => {};
     let gone = false;
     unmount = () => {

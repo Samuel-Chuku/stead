@@ -117,23 +117,6 @@ function liveLine(e: FeedRescue["events"][number]): string | null {
     default: return null;
   }
 }
-function liveHtml(r: FeedRescue | null): string {
-  if (!r) return `<p class="st-own-live-wait"><span class="st-live-dot" aria-hidden="true"></span>Waiting for the proven reading under 1.15 to open the auction (usually under a minute after the borrow lands).</p>`;
-  const open = r.events.find((e) => e.kind === "AUCTION_OPEN") as any;
-  const closesAt = open ? r.openedAtMs + (open.t + open.durationS) * 1000 : 0;
-  const head = r.contractState === "auction" && closesAt
-    ? `Auction · <strong class="st-own-countdown" data-countdown="${closesAt}">${countdown(closesAt)}</strong> left`
-    : rescueText(r.contractState).split(":")[0].split(".")[0];
-  const rows = r.events
-    .map((e) => ({ e, line: liveLine(e) }))
-    .filter((x) => x.line)
-    .slice(-8)
-    .reverse()
-    .map(({ e, line }) => `<li><span class="st-own-live-t">${new Date(r.openedAtMs + e.t * 1000).toISOString().slice(11, 19)}</span><span>${line}</span></li>`)
-    .join("");
-  return `<div class="st-own-live-head"><span class="st-live-dot" aria-hidden="true"></span>Rescue #${r.rescueId} · ${head}</div><ol class="st-own-live-list">${rows}</ol>`;
-}
-
 /** What each rescue state means for the borrower, in a sentence. */
 const rescueText = (st: string) =>
   ({
@@ -191,7 +174,7 @@ export function mountOwn(root: HTMLElement): () => void {
   let forceNew = false; // "Protect a new position": register a fresh one instead of reusing the last
   // the rescue as the live feed sees it (bids and every step, seconds after the chain), while one runs
   let live: FeedRescue | null = null;
-  let livePoll = 0; // the list shows the latest 5 until the visitor asks for the rest
+  let livePoll = 0;
   let stepNow = 0; // the step whose button is running: its transactions are filed under it
   let receipts: Receipts | null = null; // what the faucet and the sponsor sent this visitor (any device)
   let receiptsAt = 0;
@@ -409,6 +392,56 @@ export function mountOwn(root: HTMLElement): () => void {
     render();
   }
 
+  // ── the live panel: what is happening now, the position, the latest activity (whole run) ──
+  function isFinished() {
+    const s = state;
+    const pos = s?.pos;
+    return !!pos && !!s && s.coll === 0n && s.debt === 0n && pos.next_nonce >= 3 && pos.pending === null && !pos.open_rescues.length && pos.active_auction === null;
+  }
+  function panelHtml(): string {
+    const s = state;
+    const pos = s?.pos ?? null;
+    const r = live && !["bought_back", "settled", "failed"].includes(live.contractState) ? live : null;
+    const usd8 = (v: bigint) => "$" + (Number(v) / 1e8).toLocaleString("en-US", { maximumFractionDigits: 0 });
+    const hf = s?.hf != null ? s.hf.toFixed(2) : "n/a";
+    let now: string;
+    if (!near) now = "Connect a NEAR testnet wallet to start.";
+    else if (busy) now = `${esc(busy)} <span class="st-own-elapsed" data-elapsed="${busySince}">${elapsed(busySince)}</span>`;
+    else if (r) {
+      const open = r.events.find((e) => e.kind === "AUCTION_OPEN") as any;
+      const closesAt = open ? r.openedAtMs + (open.t + open.durationS) * 1000 : 0;
+      const ends = (s?.claims ?? []).filter((c) => c.status === "open" && c.expires_at).map((c) => Number(BigInt(c.expires_at!) / 1_000_000n));
+      now =
+        r.contractState === "auction" && closesAt ? `Rescue #${r.rescueId}: stewards are bidding · <strong data-countdown="${closesAt}">${countdown(closesAt)}</strong> left`
+        : r.contractState === "top_up_pending" ? `Rescue #${r.rescueId}: the winner is topping up; waiting for the proof of the new collateral`
+        : r.contractState === "open" && ends.length ? `Rescue #${r.rescueId}: claim open · <strong data-countdown="${Math.min(...ends)}">${countdown(Math.min(...ends))}</strong> left to buy back`
+        : r.contractState === "settling" ? `Rescue #${r.rescueId}: the claim owner is settling at the oracle price`
+        : `Rescue #${r.rescueId}: ${esc(r.contractState.replace(/_/g, " "))}`;
+    } else if (!pos) now = "No position yet: open one in step 4.";
+    else if (isFinished()) now = "Run complete: the position is closed and everything is back in your wallets.";
+    else if (!s || s.coll === 0n) now = `Position ${pos.id} is registered, not opened yet.`;
+    else if (pos.active_auction !== null || pos.open_rescues.length) now = "A rescue is starting: reading the auction…";
+    else if (s.hf !== null && s.hf < 1.15) now = "Under the 1.15 trigger: waiting for the proven reading that opens the auction (usually under a minute).";
+    else if (s.debt > 0n) now = `Protected: health ${hf}. If it falls under 1.15, stewards compete to rescue it.`;
+    else now = "Opened, no debt.";
+    const position = pos && s ? `Position ${pos.id} · health <strong>${hf}</strong> · ${usd8(s.coll)} collateral · ${usd8(s.debt)} debt` : "";
+    // your transactions and the rescue's events, newest first
+    const acts: { at: number; html: string }[] = txs.map((t) => ({
+      at: t.at,
+      html: `${t.ok ? "" : '<span class="st-own-chip-refused">refused</span> '}${esc(shortLabel(t.label).replace(/ \(refused\)$/, ""))}${t.hash ? ` <a class="st-textlink" href="${txHref(t)}" target="_blank" rel="noopener" aria-label="transaction">${icon("external", 11)}</a>` : ""}`,
+    }));
+    if (live) for (const e of live.events) {
+      const line = liveLine(e);
+      if (line) acts.push({ at: live.openedAtMs + e.t * 1000, html: line });
+    }
+    const rows = acts
+      .sort((a, b) => b.at - a.at)
+      .slice(0, 5)
+      .map((a) => `<li><span class="st-own-live-t">${new Date(a.at).toISOString().slice(11, 19)}</span><span>${a.html}</span></li>`)
+      .join("");
+    return `<div class="st-own-live-head"><span class="st-live-dot" aria-hidden="true"></span><span>${now}</span></div>${position ? `<p class="st-own-live-pos">${position}</p>` : ""}${rows ? `<ol class="st-own-live-list">${rows}</ol>` : ""}`;
+  }
+
   // ── the steps ──
   async function run(label: string, fn: () => Promise<void>) {
     if (busy) return;
@@ -605,7 +638,6 @@ export function mountOwn(root: HTMLElement): () => void {
       stepHtml(6, "Watch your rescue, try to break it, choose the ending", ended, triggered && !ended, `${rescue ? `<p>Rescue <strong>#${rescue.id}</strong>: ${esc(rescue.state.replace(/_/g, " "))}. ${rescueText(rescue.state)}${rescue.state === "open" && windowEnd ? ` <strong class="st-own-countdown" data-countdown="${windowEnd}">${countdown(windowEnd)}</strong> left to buy back.` : ""}</p>` : `<p>Waiting for the proven reading to open the auction (30 to 60 seconds).</p>`}
         <div class="st-own-buttons">${rescue?.state === "open" ? btn("Buy back now", "data-buyback", true) : ""}${rescue ? btn("Try to withdraw 1 LINK", 'data-break="withdraw"') + btn("Try to borrow 1 DAI", 'data-break="borrow"') : ""}</div>
         ${mine(6).length ? `<div class="st-own-receipt"><span class="st-own-receipt-head">Your requests during the rescue</span><div class="st-own-chips">${mine(6).map(chip).join("")}</div></div>` : ""}
-        <div class="st-own-live" data-own-live>${liveHtml(live)}</div>
         <p class="st-own-hint">The full live board for your position is below.</p>`),
       stepHtml(7, "Close and get everything back", closed, ended && !closed, closed
         ? receipt("Closed: everything is back in your wallets", mine(7), lastRescue !== null ? `<p class="st-own-hint">Your rescue's full story, every step with its transaction: <a class="st-textlink" href="?rescue=sepolia-demo:${lastRescue}#/rescues">rescue #${lastRescue}</a>.</p>` : "")
@@ -615,7 +647,7 @@ export function mountOwn(root: HTMLElement): () => void {
       <section class="st-panel st-sect st-own">
         <header class="st-list-head"><div class="st-label">PROTECT AN AAVE POSITION · NEAR TESTNET AND SEPOLIA</div><h1 class="st-page-title">Protect an Aave position, then watch it get rescued</h1>
           <p class="st-list-sub">A protected position is an Aave position at an address only the Stead contract can sign for, through NEAR's chain signatures; your NEAR account owns it. When its health falls below 1.15, stewards compete to top it up, and you buy the rescue back. Everything below is real, on testnets; Sepolia's prices don't move, so opening borrows straight under the trigger. About 12 minutes in all: each Aave step waits for a Sepolia block and a proof.</p></header>
-        ${busy ? `<p class="st-own-busy" role="status"><span class="st-live-dot" aria-hidden="true"></span>${esc(busy)} <span class="st-own-elapsed" data-elapsed="${busySince}">${elapsed(busySince)}</span></p>` : ""}
+        <section class="st-own-live" data-own-live aria-label="What is happening now" role="status">${panelHtml()}</section>
         ${notice ? `<p class="st-own-notice" role="status">${esc(notice)}</p>` : ""}
         ${error ? `<p class="st-own-error" role="alert">${esc(error)}</p>` : ""}
         ${finished && pos ? `<div class="st-own-done"><p><strong>Run complete.</strong> Position ${pos.id} is closed on Aave${lastRescue !== null ? `; <a class="st-textlink" href="?rescue=sepolia-demo:${lastRescue}#/rescues">rescue #${lastRescue}</a> has its full story` : ""}. Its receipts stay below.</p><div class="st-own-buttons">${btn("Protect a new position", "data-new", true)}</div></div>` : ""}
@@ -623,9 +655,9 @@ export function mountOwn(root: HTMLElement): () => void {
         ${near && txs.length ? `<div class="st-label st-runlog-head">YOUR TRANSACTIONS</div><ol class="st-runlog">${txs
           .slice()
           .reverse()
-          .slice(0, showAllTxs ? undefined : 5)
+          .slice(0, showAllTxs ? undefined : 3)
           .map((t) => `<li><span class="st-runlog-time">${new Date(t.at).toISOString().slice(11, 19)}</span><span class="st-runlog-label">${esc(t.label)}</span>${t.hash ? `<a class="st-txlink" href="${txHref(t)}" target="_blank" rel="noopener"><span>${t.chain === "near" ? "NearBlocks" : "Etherscan"}</span><span class="st-txlink-where">${t.hash.slice(0, 8)}…</span>${icon("external", 12)}</a>` : ""}</li>`)
-          .join("")}</ol>${txs.length > 5 ? `<button type="button" class="st-secondary st-cut st-own-more" data-more-txs>${showAllTxs ? "Show the latest 5" : `See all ${txs.length}`}</button>` : ""}` : ""}
+          .join("")}</ol>${txs.length > 3 ? `<button type="button" class="st-secondary st-cut st-own-more" data-more-txs>${showAllTxs ? "Show the latest 3" : `See all ${txs.length}`}</button>` : ""}` : ""}
       </section>`;
     main.querySelector("[data-near]")?.addEventListener("click", () => run("Connecting your NEAR wallet", async () => {
       near = await connectNear();
@@ -653,7 +685,8 @@ export function mountOwn(root: HTMLElement): () => void {
     // the live board for this position while a rescue runs: mounted once, not on every refresh
     const show = !!pos && triggered && !ended;
     // and the compact live panel in step 6: its own 2.5 s poll while the rescue runs
-    if (show && !livePoll) {
+    const following = !!pos && !finished;
+    if (following && !livePoll) {
       const poll = async () => {
         try {
           const r = await fetch(`${feedUrl()}/live.json`, { cache: "no-store", signal: AbortSignal.timeout(5000) });
@@ -662,7 +695,7 @@ export function mountOwn(root: HTMLElement): () => void {
           const changed = JSON.stringify(mine?.events.length) !== JSON.stringify(live?.events.length) || mine?.contractState !== live?.contractState;
           live = mine;
           const el = root.querySelector<HTMLElement>("[data-own-live]");
-          if (el) el.innerHTML = liveHtml(live);
+          if (el) el.innerHTML = panelHtml();
           // a step changed on chain: re-read the page's state at once (no reload needed)
           if (changed && !busy) void refresh();
         } catch {
@@ -671,7 +704,7 @@ export function mountOwn(root: HTMLElement): () => void {
       };
       void poll();
       livePoll = window.setInterval(poll, 2500);
-    } else if (!show && livePoll) {
+    } else if (!following && livePoll) {
       clearInterval(livePoll);
       livePoll = 0;
     }
