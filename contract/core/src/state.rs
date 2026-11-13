@@ -186,6 +186,27 @@ pub enum TxKind {
     /// A queued payout from the position (buy-back escrow, refund, reimbursement). Appended last
     /// so stored values of the other variants keep their borsh index.
     Outflow,
+    /// The borrower's sweep of `value` wei of native ETH to the payout. A borrower tx in every
+    /// other respect; it carries the value because `TxFields` (stored) has no value field.
+    /// Appended last so stored values of the other variants keep their borsh index.
+    SweepEth {
+        #[serde(with = "crate::as_str")]
+        value: u128,
+    },
+}
+
+impl TxKind {
+    /// The native value the tx carries: only a sweep has one.
+    pub fn value(&self) -> u128 {
+        match self {
+            TxKind::SweepEth { value } => *value,
+            _ => 0,
+        }
+    }
+    /// Requested by the position owner (burnable after the timeout, owner-only replacement).
+    pub fn is_borrower(&self) -> bool {
+        matches!(self, TxKind::Borrower { .. } | TxKind::SweepEth { .. })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -420,6 +441,9 @@ pub struct SignPlan {
     pub position_id: u64,
     pub path: String,
     pub tx: TxFields,
+    /// Native value in wei (0 except a sweep).
+    #[serde(with = "crate::as_str")]
+    pub value: u128,
 }
 
 /// A NEAR transfer the wrapper must make (bond refunds and slashes).
@@ -983,13 +1007,24 @@ impl Stead {
                 ensure!(amount > 0, "zero amount");
                 (m.debt, evm::transfer(&p.payout, amount))
             }
+            // Native ETH only ever goes to the registered payout, never to a market contract (ETH
+            // sent to WETH would come back to the position as WETH)
+            Action::SweepEth { amount } => {
+                ensure!(amount > 0, "zero amount");
+                ensure!(![m.pool, m.collateral, m.debt].contains(&p.payout), "payout is a market contract: ETH sweep refused");
+                (p.payout, vec![])
+            }
         };
         let tx = TxFields { chain_id: m.chain_id, nonce: p.next_nonce, to, data, gas };
-        let kind = TxKind::Borrower { action: action.name().into() };
+        let kind = match action {
+            Action::SweepEth { amount } => TxKind::SweepEth { value: amount },
+            _ => TxKind::Borrower { action: action.name().into() },
+        };
         self.set_pending(id, tx, kind, now)
     }
 
     fn set_pending(&mut self, id: u64, tx: TxFields, kind: TxKind, now: u64) -> R<SignPlan> {
+        let value = kind.value();
         let p = self.position_mut(id)?;
         p.pending = Some(PendingTx {
             tx: tx.clone(),
@@ -1000,7 +1035,7 @@ impl Stead {
             ever_signed: false,
             replaced: false,
         });
-        let plan = SignPlan { position_id: id, path: p.path.clone(), tx };
+        let plan = SignPlan { position_id: id, path: p.path.clone(), tx, value };
         self.emit("sign_requested", json!({"position_id": id, "nonce": plan.tx.nonce}));
         Ok(plan)
     }
@@ -1029,7 +1064,7 @@ impl Stead {
         let addr = p.evm_address.ok_or("no address")?;
         let t = p.pending.as_ref().ok_or("no pending tx")?;
         ensure!(!t.signing, "signature in progress");
-        ensure!(matches!(t.kind, TxKind::Borrower { .. }), "only a borrower tx can be burned");
+        ensure!(t.kind.is_borrower(), "only a borrower tx can be burned");
         ensure!(now >= t.signed_at + burn_after, "too early to burn");
         let m = self.market_of(p);
         Self::check_gas(m, &gas, TRANSFER_GAS)?;
@@ -1047,7 +1082,7 @@ impl Stead {
         let t = p.pending.as_ref().ok_or("no pending tx")?;
         ensure!(t.ever_signed && !t.signing, "nothing signed to replace");
         ensure!(!t.replaced, "already replaced once");
-        if matches!(t.kind, TxKind::Borrower { .. }) {
+        if t.kind.is_borrower() {
             ensure!(c == p.owner, "only the position owner");
         }
         let old = t.tx.gas;
@@ -1058,13 +1093,14 @@ impl Stead {
         Self::check_gas(self.market_of(p), &gas, TRANSFER_GAS)?;
         let mut tx = t.tx.clone();
         tx.gas = gas;
+        let value = t.kind.value(); // same kind, so a sweep keeps its value
         let p = self.position_mut(id)?;
         let t = p.pending.as_mut().unwrap();
         t.tx = tx.clone();
         t.signing = true;
         t.replaced = true;
         t.signed_raw = None;
-        Ok(SignPlan { position_id: id, path: p.path.clone(), tx })
+        Ok(SignPlan { position_id: id, path: p.path.clone(), tx, value })
     }
 
     /// TEMPORARY trusted reporter: the reporter says the position's on-chain nonce moved.

@@ -257,6 +257,13 @@ export class Keeper {
       try {
         hash = await pub.sendRawTransaction({ serializedTransaction: raw });
       } catch (e) {
+        // A sweep asking for more ETH than the address holds after gas can never be mined (more
+        // ETH would fix any other tx, not this one): its nonce is burned once nonce_burn_after has
+        // passed, and until then it stays on the back-off
+        if (unmineableSweep(pending.kind, (e as Error).message)) {
+          await this.recover(pid, pending);
+          throw e;
+        }
         if (!/decode/i.test((e as Error).message)) throw e;
         // Signed by a contract version before the r/s encoding fix: nodes can't decode it
         this.undecodable.add(k);
@@ -476,7 +483,9 @@ export class Keeper {
           if (r) log("relayer", `position ${pid} nonce ${p.pending.tx.nonce}: ${cfg.evm} ${short(r.evmTx)} ${r.ok ? "ok" : "REVERTED"} → confirm_nonce ${short(r.nearTx)}`);
         } catch (e) {
           const msg = (e as Error).message;
-          const why = /insufficient funds/i.test(msg) ? "the position's address can't pay the gas: send it Sepolia ETH" : msg.split("\n")[0].slice(0, 140);
+          const why = unmineableSweep(p.pending.kind, msg)
+            ? "the ETH sweep asks for more than the address holds after gas; its nonce is burned once nonce_burn_after has passed, then sweep a smaller amount"
+            : /insufficient funds/i.test(msg) ? "the position's address can't pay the gas: send it Sepolia ETH" : msg.split("\n")[0].slice(0, 140);
           const n = (hold?.n ?? 0) + 1;
           this.relayHold.set(pid, { until: Date.now() + Math.min(60_000, 5_000 * n), n });
           if (n === 1 || n % 12 === 0) log("relayer", `position ${pid} nonce ${p.pending.tx.nonce}: not sent (${why}); retrying, other positions go on`);
@@ -544,6 +553,11 @@ export function nearTriggerCadence(hfNow: bigint, hfAtLastProof: bigint | undefi
   if (hfNow < triggerWad || hfAtLastProof === undefined) return REPORT_EVERY_MS;
   const diff = hfNow > hfAtLastProof ? hfNow - hfAtLastProof : hfAtLastProof - hfNow;
   return diff >= 10n ** 14n ? REPORT_EVERY_MS : VERIFY_STILL_MS;
+}
+
+/** A stored ETH sweep the node refuses because amount + fee exceeds the balance. */
+export function unmineableSweep(kind: unknown, message: string): boolean {
+  return (kind as { type?: string } | null)?.type === "sweep_eth" && /insufficient funds/i.test(message);
 }
 
 /** A borrower action that lowers the health factor (and may cross the trigger). */

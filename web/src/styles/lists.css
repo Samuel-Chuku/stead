@@ -226,3 +226,85 @@
 /* only the status panel stays in view while scrolling; the journal scrolls with the page */
 .st-own-live { position: sticky; top: 0; z-index: 3; }
 [data-own-activity] .st-np-journal { border: var(--st-border); border-top: 0; margin-top: -8px; }
+
+/* ---------- Steward's view: one winning steward's moves in a recorded run ---------- */
+.st-sv-launch { display: grid; gap: 10px; }
+.st-sv-launch-row { display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; padding: 10px 0; border-top: var(--st-hairline); }
+.st-sv-launch-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.st-sv-open { display: inline-flex; align-items: center; gap: 10px; padding: 0 18px 0 11px; text-transform: uppercase; letter-spacing: .04em; font-size: 14px; }
+
+.st-sv-dialog {
+  width: min(780px, calc(100vw - 48px)); max-width: none; max-height: calc(100dvh - 48px); margin: auto; padding: 0;
+  background: var(--st-panel); color: var(--st-ink); border: var(--st-border); border-radius: 0; box-shadow: none; overflow: auto; overscroll-behavior: contain;
+}
+.st-sv-dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.st-sv-top { position: sticky; top: 0; z-index: 2; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px 14px; background: var(--st-panel); border-bottom: var(--st-border); }
+.st-sv-title { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.st-sv-tabs { display: flex; border-bottom: var(--st-border); }
+.st-sv-tabs[hidden] { display: none; }
+.st-sv-tabs button {
+  flex: 1 1 0; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 16px; border: 0; cursor: pointer;
+  background: var(--st-inset); color: var(--st-quiet); font-family: var(--st-font-head); font-weight: 700; font-size: 15px; text-align: left;
+}
+.st-sv-tabs button + button { border-left: var(--st-border); }
+.st-sv-tabs button[aria-selected="true"] { background: linear-gradient(var(--st-ink), var(--st-ink)) bottom / 100% 3px no-repeat, var(--st-panel); color: var(--st-ink); }
+.st-sv-tabs button:focus-visible { outline-offset: -4px; }
+.st-sv-tab-sub { margin-left: auto; font-weight: 600; font-size: 13px; }
+.st-sv-panel { padding: 18px 20px 4px; display: flex; flex-direction: column; gap: 18px; }
+.st-sv-panel:focus { outline: none; }
+.st-sv-kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.st-sv-kpis dd .st-num { font-size: 30px; }
+.st-sv-n { font-family: var(--st-font-display); font-weight: 800; font-size: 22px; line-height: 1; }
+.st-sv-u { font-family: var(--st-font-head); font-weight: 600; font-size: 13px; margin: 0 6px 0 3px; color: var(--st-quiet); }
+.st-sv-kpi-dur { margin: 4px 0 0; }
+.st-sv-kpi-dur .st-sv-n { font-size: 30px; }
+.st-sv-note { padding: 0 20px 18px; }
+
+/* the sequence: a vertical ink line, one square marker per move, the time between moves on the line */
+.st-sv-seq { list-style: none; margin: 0; padding: 0; position: relative; }
+.st-sv-seq::before { content: ""; position: absolute; left: 5px; top: 8px; bottom: 8px; border-left: var(--st-border); }
+.st-sv-move { position: relative; display: grid; grid-template-columns: 96px 1fr; gap: 4px 14px; padding: 10px 0 10px 26px; }
+.st-sv-dot { position: absolute; left: 0; top: 14px; width: 12px; height: 12px; background: var(--st-panel); border: var(--st-border); }
+.st-sv-move:not(.is-refused, .is-off) .st-sv-dot { background: var(--st-ink); }
+@media (max-width: 620px) { .st-sv-move.is-off .st-sv-time { display: none; } }
+.st-sv-time { font-family: var(--st-font-head); font-weight: 600; font-size: 13px; color: var(--st-quiet); padding-top: 3px; font-variant-numeric: tabular-nums; }
+.st-sv-body { min-width: 0; display: grid; gap: 4px; }
+.st-sv-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.st-sv-head h4 { margin: 0; font-family: var(--st-font-head); font-weight: 700; font-size: 16px; }
+.st-sv-fig { white-space: nowrap; }
+.st-sv-fig .st-sv-u { margin-right: 0; }
+.st-sv-body p { margin: 0; font-size: 14px; line-height: 1.5; }
+.st-sv-meta { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin-top: 2px; font-size: 13px; }
+.st-sv-meta .st-textlink { font-size: 13px; }
+.st-sv-meta .st-evidence { padding: 3px 7px; font-size: 10px; }
+.st-sv-by { display: inline-flex; align-items: center; gap: 6px; font-family: var(--st-font-head); font-weight: 700; font-size: 13px; }
+.st-sv-by--other { font-weight: 600; color: var(--st-quiet); }
+.st-sv-where, .st-sv-off { font-family: var(--st-font-head); font-weight: 600; font-size: 13px; color: var(--st-quiet); }
+.st-sv-gap { position: relative; padding: 0 0 0 26px; height: 30px; display: flex; align-items: center; color: var(--st-quiet); }
+.st-sv-gap > span { display: inline-flex; align-items: baseline; padding: 0 4px; background: var(--st-panel); }
+.st-sv-gap .st-sv-n { font-size: 20px; }
+/* the NEAR Intents leg: one inset well with its own label, the same line running through it */
+.st-sv-leg { position: relative; margin: 6px 0; padding: 12px 14px 4px 14px; background: var(--st-inset); border: var(--st-border); }
+.st-sv-leg-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 14px; flex-wrap: wrap; padding-bottom: 4px; }
+.st-sv-leg-head .st-label { color: var(--st-ink); }
+.st-sv-leg-time { font-family: var(--st-font-head); font-weight: 600; font-size: 13px; }
+.st-sv-leg .st-sv-dot { background: var(--st-inset); }
+.st-sv-leg .st-sv-move:not(.is-refused, .is-off) .st-sv-dot { background: var(--st-ink); }
+@media (max-width: 620px) { .st-sv-move.is-off .st-sv-time { display: none; } }
+.st-sv-leg .st-sv-gap > span { background: var(--st-inset); }
+
+/* phones: a full-screen sheet */
+@media (max-width: 620px) {
+  .st-sv-dialog { width: 100vw; height: 100dvh; max-height: none; margin: 0; border: 0; }
+  .st-sv-top { padding: 12px 16px 12px; }
+  .st-sv-panel { padding: 14px 16px 4px; }
+  .st-sv-note { padding: 0 16px 16px; }
+  .st-sv-move { grid-template-columns: 1fr; padding-left: 24px; }
+  .st-sv-time { padding-top: 0; }
+  .st-sv-gap { padding-left: 24px; }
+  .st-sv-leg { padding: 10px 10px 2px; margin-left: -4px; }
+  .st-sv-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .st-sv-tabs button { padding: 8px 12px; }
+  .st-sv-open { width: 100%; }
+  .st-sv-launch-btns { width: 100%; }
+}

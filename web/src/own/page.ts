@@ -1,38 +1,39 @@
 // "Protect an Aave position": a visitor opens a protected Aave position with their own wallets, then
-// pushes it under the trigger and watches a real Stead rescue (NEAR testnet +
-// Sepolia), on the demo contract (3-minute buy-back window, so both endings fit in one sitting).
+// pushes it under the trigger and watches a real Stead rescue. Two networks, one flow:
+// - testnet (default): NEAR testnet + Sepolia, on the demo contract (3-minute buy-back window, so
+//   both endings fit in one sitting), with test funds and a sponsor for NEAR-only visitors;
+// - mainnet (`?net=mainnet#/try`): NEAR mainnet + Ethereum, real funds, on the capped contract: the
+//   visitor funds the position from their own Ethereum wallet; no faucet, no sponsor.
+// Everything that differs between them lives in one object per network (./net.ts).
 // Every step is chosen from chain state, so a reload picks up where it was; every transaction the
 // visitor signs is listed with its link. Nothing here holds a key: the wallets sign.
-import { connectNear, nearAccount, onNearAccount, steadCall } from "../wallet/near";
+import { connectNear, nearAccount, onNearAccount, setNearNetwork, steadCall } from "../wallet/near";
 import { createPublicClient, createWalletClient, custom, fallback, http, parseAbi, type Address, type Hex } from "viem";
-import { sepolia } from "viem/chains";
+import { mainnet, sepolia } from "viem/chains";
 import { icon } from "../icons";
 import { mountLive } from "../board/live";
 import type { FeedRescue } from "../../../stewards/src/livefeed";
+import {
+  NETS, netFromSearch, gasFromMarket, marketMismatch, allowed, capUsd, borrowUnits, withdrawUnits, repayUnits, valueBase, walletNeeds, isShort,
+  directLines, ladder, rescueClock, units as fmtUnits,
+  type OwnNet, type MarketView, type LimitsView, type ParamsView, type RescueView, type ClaimView,
+} from "./net";
+import { mountDash } from "./dashboard";
 
-const CONTRACT = "sepolia-demo.steadfi.testnet";
-const MARKET = 1;
-const NEAR_RPC = "https://test.rpc.fastnear.com";
-const SEPOLIA_RPC = "https://ethereum-sepolia-rpc.publicnode.com";
-const POOL: Address = "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951";
-const ORACLE: Address = "0x2da88497588bf89281816106C7259e31AF45a663";
-const LINK: Address = "0xf8Fb3713D459D7C1018BD0A49D19b4C44290EBE5";
-const DAI: Address = "0xFF34B3d4Aee8ddCd6F9AFFFB6Fe49bD371b8a357";
 const E18 = 10n ** 18n;
 /** NEAR-only visitors: the sponsor's Sepolia address is the position's payout (it holds the Sepolia side). */
 const SPONSOR_PAYOUT: Address = "0xA57b528591700bB77992D095258eF6F921CDAD68";
-/** The position's size: 60 LINK; it opens at health 1.20 and is triggered at 1.14. */
-const COLLATERAL = 60n * E18;
-const POSITION_GAS_WEI = 1_500_000_000_000_000n; // 0.0015 ETH: one signed tx's maximum fee up front, plus spend
-const EVM_GAS = { gas_limit: "600000", max_fee_per_gas: "2000000000", max_priority_fee_per_gas: "100000000" };
-const TX_UPFRONT_WEI = 600_000n * 2_000_000_000n; // what the RPC wants available before it sends a signed tx
-const GAS_TOPUP_WEI = 2_000_000_000_000_000n;
+/** The network this page shows (set when it mounts) and the gas its signed transactions carry. */
+let net: OwnNet = NETS.testnet;
+let gas = { evmGas: net.evmGas, txUpfrontWei: net.txUpfrontWei };
+const CHAINS = { testnet: sepolia, mainnet } as const;
 
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function transfer(address,uint256) returns (bool)", "function allowance(address,address) view returns (uint256)"]);
 const poolAbi = parseAbi(["function getUserAccountData(address) view returns (uint256,uint256,uint256,uint256,uint256,uint256)"]);
 const oracleAbi = parseAbi(["function getAssetPrice(address) view returns (uint256)"]);
-// two public Sepolia RPCs that answer browsers: if one refuses or stalls, the other answers
-const pub = createPublicClient({ chain: sepolia, transport: fallback([http(SEPOLIA_RPC, { timeout: 8000 }), http("https://rpc.sepolia.ethpandaops.io", { timeout: 8000 })]) });
+// two public RPCs that answer browsers: if one refuses or stalls, the other answers
+const client = (n: OwnNet) => createPublicClient({ chain: CHAINS[n.id], transport: fallback(n.evmRpcs.map((u) => http(u, { timeout: 8000 }))) });
+let pub = client(net);
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const fmt = (v: bigint, dec = 18, dp = 4) => (Number(v) / 10 ** dec).toLocaleString("en-US", { maximumFractionDigits: dp });
@@ -41,11 +42,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // FastNEAR's free tier rate-limits bursts, and its 429 carries no CORS header, so the browser only
 // says "Failed to fetch": on any transport failure, try NEAR's own public RPC, then wait and retry.
-const NEAR_RPCS = [NEAR_RPC, "https://rpc.testnet.near.org"];
 async function nearQuery(params: object): Promise<any> {
   let last: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
-    for (const url of NEAR_RPCS) {
+    for (const url of net.nearRpcs) {
       try {
         const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "query", params }), signal: AbortSignal.timeout(5000) });
         if (r.status === 429 || r.status >= 500) throw new Error(`NEAR RPC ${r.status}`);
@@ -59,7 +59,7 @@ async function nearQuery(params: object): Promise<any> {
   throw new Error(`NEAR RPC unreachable (${(last as Error)?.message ?? "no answer"})`);
 }
 async function nearView<T>(method: string, args: object): Promise<T> {
-  const j = await nearQuery({ request_type: "call_function", finality: "optimistic", account_id: CONTRACT, method_name: method, args_base64: btoa(JSON.stringify(args)) });
+  const j = await nearQuery({ request_type: "call_function", finality: "optimistic", account_id: net.contract, method_name: method, args_base64: btoa(JSON.stringify(args)) });
   if (!j.result) throw new Error(j.error?.cause?.name ?? "NEAR view failed");
   return JSON.parse(new TextDecoder().decode(new Uint8Array(j.result.result)));
 }
@@ -74,14 +74,15 @@ let recordsAt = 0;
 let recordsCache: { id: number; owner: string }[] | null = null;
 const lastRescueOf = new Map<number, number>(); // position → its latest rescue (from the records)
 async function knownPositions(): Promise<{ id: number; owner: string }[] | null> {
+  if (!net.liveFeed) return null; // the feed doesn't watch this contract: the caller reads the contract
   if (recordsCache && Date.now() - recordsAt < 60_000) return recordsCache;
   try {
     const r = await fetch(`${feedUrl()}/records.json`, { signal: AbortSignal.timeout(6000), cache: "no-store" });
     if (!r.ok) throw new Error(String(r.status));
     const j = await r.json();
-    recordsCache = (j.positions as { contract: string; id: number; owner: string }[]).filter((p) => p.contract === CONTRACT).map(({ id, owner }) => ({ id, owner }));
+    recordsCache = (j.positions as { contract: string; id: number; owner: string }[]).filter((p) => p.contract === net.contract).map(({ id, owner }) => ({ id, owner }));
     lastRescueOf.clear();
-    for (const r of j.rescues as { contract: string; id: number; positionId: number }[]) if (r.contract === CONTRACT && r.id > (lastRescueOf.get(r.positionId) ?? -1)) lastRescueOf.set(r.positionId, r.id);
+    for (const r of j.rescues as { contract: string; id: number; positionId: number }[]) if (r.contract === net.contract && r.id > (lastRescueOf.get(r.positionId) ?? -1)) lastRescueOf.set(r.positionId, r.id);
     recordsAt = Date.now();
   } catch {
     /* the feed is down: the caller falls back to the contract */
@@ -89,11 +90,11 @@ async function knownPositions(): Promise<{ id: number; owner: string }[] | null>
   return recordsCache;
 }
 
-type Position = { id: number; owner: string; evm_address: string | null; payout: string; next_nonce: number; pending: unknown; active_auction: number | null; open_rescues: number[] };
-type Rescue = { id: number; state: string; members: { steward: string; claim_id: string | null }[] };
-type Claim = { token_id: string; owed_units: string; status: string; expires_at?: string };
-type TxRow = { at: number; label: string; chain: "near" | "sepolia"; hash: string; ok: boolean; note?: string; step?: number; pos?: number };
-type Sent = { label: string; chain: "near" | "sepolia"; hash: string };
+type Position = { id: number; owner: string; evm_address: string | null; payout: string; next_nonce: number; pending: unknown; active_auction: number | null; open_rescues: number[]; health?: unknown };
+type Rescue = RescueView;
+type Claim = ClaimView;
+type TxRow = { at: number; label: string; chain: "near" | "sepolia" | "ethereum"; hash: string; ok: boolean; note?: string; step?: number; pos?: number };
+type Sent = { label: string; chain: "near" | "sepolia" | "ethereum"; hash: string };
 type Receipts = { faucet: { at: number; sent: Sent[] } | null; fund: { at: number; sent: Sent[] } | null };
 /** Which step a transaction belongs to (rows saved before steps were recorded: by their label). */
 const stepOfTx = (t: TxRow) => t.step ?? (/^Test funds:/.test(t.label) ? 3 : /^(Register a position|Sponsor: .*(NEAR to|for its gas|into your position \(Aave))/.test(t.label) ? 4 : 0);
@@ -118,9 +119,9 @@ function liveLine(e: FeedRescue["events"][number]): string | null {
   }
 }
 /** What each rescue state means for the borrower, in a sentence. */
-const rescueText = (st: string) =>
+const rescueText = (st: string, auctionS = 45) =>
   ({
-    auction: "Stewards are bidding now (a 45-second auction); watch the bids on the board below.",
+    auction: `Stewards are bidding now (a ${auctionS}-second auction); watch the bids ${net.liveFeed ? "on the board below" : "below"}.`,
     top_up_pending: "The auction is closed. The winner is topping up your position; the contract waits for a proven reading of the new collateral before minting its claim.",
     open: "Your position is rescued and the claim is open: buy it back by paying exactly what is owed into your position, or do nothing and the claim owner settles when the window ends.",
     settling: "The buy-back window ended, so the claim owner is settling at the oracle price: it repays part of your debt and takes the collateral it is owed. Your cost is still only the premium.",
@@ -140,18 +141,32 @@ const shortLabel = (l: string) => {
   const amt = x.match(/^([\d.]+) (?:Sepolia )?([A-Z]{2,5})\b/);
   return amt ? `${amt[1]} ${amt[2]}` : x.replace(/ \(.*$/, "").replace(/: refused.*$/, " (refused)");
 };
-const txHref = (t: TxRow) => (t.chain === "near" ? `https://testnet.nearblocks.io/txns/${t.hash}` : `https://sepolia.etherscan.io/tx/${t.hash}`);
+const txHref = (t: TxRow) => (t.chain === "near" ? net.nearTx(t.hash) : net.evmTx(t.hash));
+/** Where a transaction ran, as the chips and the run log name it. */
+const chainName = (t: TxRow) => (t.chain === "near" ? "NEAR" : t.chain === "ethereum" ? "Ethereum" : "Sepolia");
+const evmChain = (): "sepolia" | "ethereum" => (net.id === "mainnet" ? "ethereum" : "sepolia");
 
 export function mountOwn(root: HTMLElement): () => void {
+  // mainnet is a position dashboard, not this guided demo
+  if (netFromSearch(location.search) === "mainnet") return mountDash(root);
+  net = NETS[netFromSearch(location.search)];
+  gas = { evmGas: net.evmGas, txUpfrontWei: net.txUpfrontWei };
+  pub = client(net);
+  setNearNetwork(net.id);
+  const C = net.collateral;
+  const D = net.debt;
+  const MAIN = net.id === "mainnet";
+  // mainnet keeps its saved state apart from testnet's
+  const NK = MAIN ? "mainnet-" : "";
   let gone = false;
   let near: string | null = null;
   /** "sponsored": NEAR wallet only, the sponsor holds the Sepolia side; "own": the visitor's Sepolia wallet too. */
   let mode: "sponsored" | "own" | null = null;
-  const MODE_KEY = () => `stead-own-mode-${near}`;
+  const MODE_KEY = () => `stead-own-mode-${NK}${near}`;
   const loadMode = () => {
     try {
       const m = localStorage.getItem(MODE_KEY());
-      mode = m === "sponsored" || m === "own" ? m : mode;
+      mode = (m === "sponsored" && net.sponsor) || m === "own" ? m : mode;
     } catch {
       /* ignore */
     }
@@ -178,7 +193,16 @@ export function mountOwn(root: HTMLElement): () => void {
   let stepNow = 0; // the step whose button is running: its transactions are filed under it
   let receipts: Receipts | null = null; // what the faucet and the sponsor sent this visitor (any device)
   let receiptsAt = 0;
-  let state: { nearYocto: bigint | null; eth: bigint; link: bigint; dai: bigint; pos: Position | null; hf: number | null; coll: bigint; debt: bigint; rescue: Rescue | null; claims: Claim[] } | null = null;
+  // eth/link/dai: the visitor's wallet (link/dai = the market's collateral and debt token);
+  // posEth/posColl: what the position's own address holds before it is opened
+  let state: { nearYocto: bigint | null; eth: bigint; link: bigint; dai: bigint; pos: Position | null; hf: number | null; coll: bigint; debt: bigint; rescue: Rescue | null; claims: Claim[]; posEth: bigint; posColl: bigint } | null = null;
+  // mainnet: the contract's own settings, read once (market, size cap, allow-list, timing) and the
+  // collateral's oracle price; a market that doesn't match this page's addresses stops every action
+  let chainCfg: { market: MarketView | null; limits: LimitsView | null; params: ParamsView | null } | null = null;
+  let mismatch: string[] = [];
+  let collPrice = 0n;
+  const seenAt = new Map<string, number>(); // when this page first saw a rescue event the contract doesn't time
+  let directPoll = 0;
   let stopBoard: () => void = () => {};
   let boardFor: number | null = null;
   let lastRescue: number | null = null; // the visitor's latest rescue, for its story link
@@ -186,17 +210,17 @@ export function mountOwn(root: HTMLElement): () => void {
   root.innerHTML = `<div data-own-main></div><div class="st-own-board" data-own-board hidden></div>`;
   const main = root.querySelector<HTMLElement>("[data-own-main]")!;
   const boardHost = root.querySelector<HTMLElement>("[data-own-board]")!;
-  const KEY = () => `stead-own-${near}`;
+  const KEY = () => `stead-own-${NK}${near}`;
 
   // each NEAR account's transactions are kept apart (and shown only while it's connected)
-  const TXKEY = () => `stead-own-txs-${near}`;
+  const TXKEY = () => `stead-own-txs-${NK}${near}`;
   const loadTxs = () => {
     txs = [];
     if (!near) return;
     try {
-      const old = localStorage.getItem("stead-own-txs"); // the list from before it was kept per account
+      const old = MAIN ? null : localStorage.getItem("stead-own-txs"); // the list from before it was kept per account
       if (old && !localStorage.getItem(TXKEY())) localStorage.setItem(TXKEY(), old);
-      localStorage.removeItem("stead-own-txs");
+      if (!MAIN) localStorage.removeItem("stead-own-txs");
       txs = JSON.parse(localStorage.getItem(TXKEY()) ?? "[]");
     } catch {
       txs = [];
@@ -274,18 +298,18 @@ export function mountOwn(root: HTMLElement): () => void {
       /* ignore */
     }
     const eth = (window as any).ethereum;
-    if (!eth) throw new Error("No Sepolia wallet found in this browser (MetaMask or another injected wallet).");
-    const w = createWalletClient({ chain: sepolia, transport: custom(eth) });
+    if (!eth) throw new Error(`No ${net.evmName} wallet found in this browser (MetaMask or another injected wallet).`);
+    const w = createWalletClient({ chain: CHAINS[net.id], transport: custom(eth) });
     const [a] = await w.requestAddresses();
     try {
-      await w.switchChain({ id: sepolia.id });
+      await w.switchChain({ id: CHAINS[net.id].id });
     } catch {
-      await w.addChain({ chain: sepolia });
+      await w.addChain({ chain: CHAINS[net.id] });
     }
     evm = a;
     setMode("own");
   }
-  const evmWallet = () => createWalletClient({ account: evm!, chain: sepolia, transport: custom((window as any).ethereum) });
+  const evmWallet = () => createWalletClient({ account: evm!, chain: CHAINS[net.id], transport: custom((window as any).ethereum) });
 
   // ── Stead calls (signed by the visitor's NEAR wallet) ──
   async function stead(method: string, args: object, label: string, gasTgas = 150n): Promise<string> {
@@ -309,22 +333,23 @@ export function mountOwn(root: HTMLElement): () => void {
     }
   }
   /** Every contract-signed transaction needs gas limit × max fee available up front at the position's
-   *  address (600k × 2 gwei = 0.0012 ETH). Top it up from the visitor's wallet, or the sponsor. */
+   *  address (testnet 600k × 2 gwei = 0.0012 ETH; mainnet the market's caps, 375,332 × 1 gwei). Top it
+   *  up from the visitor's wallet, or the sponsor. */
   async function ensureGas(pid: number) {
     const p = await nearView<Position>("get_position", { position_id: pid });
-    if (!p.evm_address || (await pub.getBalance({ address: p.evm_address as Address })) >= TX_UPFRONT_WEI) return;
+    if (!p.evm_address || (await pub.getBalance({ address: p.evm_address as Address })) >= gas.txUpfrontWei) return;
     if (mode === "sponsored") {
       busy = "Your position is low on gas: the sponsor sends it 0.002 Sepolia ETH…";
       render();
       await sponsor("gas");
-    } else await evmSend("Your position is low on gas: send it 0.002 ETH", () => evmWallet().sendTransaction({ to: p.evm_address as Address, value: GAS_TOPUP_WEI }));
+    } else await evmSend(`Your position is low on gas: send it ${fmt(net.gasTopupWei, 18, 4)} ETH`, () => evmWallet().sendTransaction({ to: p.evm_address as Address, value: net.gasTopupWei }));
   }
   /** Ask the contract to sign an Aave action for the position, then wait until it lands on Sepolia. */
   async function signAction(pid: number, action: object, label: string) {
     await ensureGas(pid);
     const before = (await nearView<Position>("get_position", { position_id: pid })).next_nonce;
-    await stead("sign_action", { position_id: pid, action, gas: EVM_GAS }, `${label} (the contract signs it through NEAR's chain signatures)`);
-    busy = `${label}: waiting for it to land on Sepolia…`;
+    await stead("sign_action", { position_id: pid, action, gas: gas.evmGas }, `${label} (the contract signs it through NEAR's chain signatures)`);
+    busy = `${label}: waiting for it to land on ${net.evmName}…`;
     render();
     for (let i = 0; i < 90; i++) {
       const p = await nearView<Position>("get_position", { position_id: pid });
@@ -336,11 +361,13 @@ export function mountOwn(root: HTMLElement): () => void {
     throw new Error(`${label} did not land within 6 minutes`);
   }
   async function evmSend(label: string, fn: () => Promise<Hex>) {
-    busy = `${label}: confirm in your Sepolia wallet…`;
+    busy = `${label}: confirm in your ${net.evmName} wallet…`;
     render();
+    // real funds: make sure the wallet is on the right chain before it is asked to sign
+    if (net.realFunds) await evmWallet().switchChain({ id: CHAINS[net.id].id });
     const hash = await fn();
-    addTx({ label, chain: "sepolia", hash, ok: true });
-    busy = `${label}: waiting for Sepolia…`;
+    addTx({ label, chain: evmChain(), hash, ok: true });
+    busy = `${label}: waiting for ${net.evmName}…`;
     render();
     await pub.waitForTransactionReceipt({ hash });
   }
@@ -402,12 +429,19 @@ export function mountOwn(root: HTMLElement): () => void {
       const [nearYocto, eth, link, dai] = await Promise.all([
         near ? nearBalance(near) : Promise.resolve(null),
         evm ? pub.getBalance({ address: evm }) : Promise.resolve(0n),
-        evm ? pub.readContract({ address: LINK, abi: erc20, functionName: "balanceOf", args: [evm] }) : Promise.resolve(0n),
-        evm ? pub.readContract({ address: DAI, abi: erc20, functionName: "balanceOf", args: [evm] }) : Promise.resolve(0n),
+        evm ? pub.readContract({ address: C.address, abi: erc20, functionName: "balanceOf", args: [evm] }) : Promise.resolve(0n),
+        evm ? pub.readContract({ address: D.address, abi: erc20, functionName: "balanceOf", args: [evm] }) : Promise.resolve(0n),
       ]);
-      let hf: number | null = null, coll = 0n, debt = 0n, rescue: Rescue | null = null, claims: Claim[] = [];
+      if (MAIN) await readChainCfg();
+      let hf: number | null = null, coll = 0n, debt = 0n, rescue: Rescue | null = null, claims: Claim[] = [], posEth = 0n, posColl = 0n;
+      if (pos?.evm_address && MAIN) {
+        [posEth, posColl] = await Promise.all([
+          pub.getBalance({ address: pos.evm_address as Address }),
+          pub.readContract({ address: C.address, abi: erc20, functionName: "balanceOf", args: [pos.evm_address as Address] }),
+        ]);
+      }
       if (pos?.evm_address) {
-        const d = await pub.readContract({ address: POOL, abi: poolAbi, functionName: "getUserAccountData", args: [pos.evm_address as Address] });
+        const d = await pub.readContract({ address: net.pool, abi: poolAbi, functionName: "getUserAccountData", args: [pos.evm_address as Address] });
         coll = d[0];
         debt = d[1];
         hf = debt === 0n ? null : Number(d[5] / 10n ** 14n) / 10_000;
@@ -418,12 +452,12 @@ export function mountOwn(root: HTMLElement): () => void {
           claims = (await Promise.all(rescue.members.filter((m) => m.claim_id).map((m) => nearView<Claim>("get_claim", { token_id: m.claim_id })))).filter(Boolean);
         }
       }
-      state = { nearYocto, eth, link, dai, pos, hf, coll, debt, rescue, claims };
+      state = { nearYocto, eth, link, dai, pos, hf, coll, debt, rescue, claims, posEth, posColl };
       if (pos && lastRescue === null) {
         await knownPositions();
         lastRescue = lastRescueOf.get(pos.id) ?? null;
       }
-      if (near && Date.now() - receiptsAt > 60_000) {
+      if (near && (net.faucet || net.sponsor) && Date.now() - receiptsAt > 60_000) {
         receiptsAt = Date.now();
         const q = new URLSearchParams({ near, ...(evm ? { evm } : {}), ...(pos ? { position: String(pos.id) } : {}) });
         receipts = await fetch(`${feedUrl()}/demo/receipts?${q}`, { signal: AbortSignal.timeout(6000) }).then((r) => (r.ok ? r.json() : receipts), () => receipts);
@@ -435,6 +469,50 @@ export function mountOwn(root: HTMLElement): () => void {
     render();
   }
 
+  /** Mainnet: the contract's settings (once) and the collateral's oracle price (each refresh). */
+  async function readChainCfg() {
+    if (!chainCfg) {
+      const [market, limits, params] = await Promise.all([
+        nearView<MarketView | null>("get_market", { market_id: net.market }),
+        nearView<LimitsView>("get_limits", {}),
+        nearView<ParamsView>("get_params", {}),
+      ]);
+      chainCfg = { market, limits, params };
+      mismatch = marketMismatch(net, market);
+      if (market && !mismatch.length) gas = gasFromMarket(net, market);
+    }
+    collPrice = await pub.readContract({ address: net.oracle, abi: oracleAbi, functionName: "getAssetPrice", args: [C.address] });
+  }
+  /** Mainnet: the rescue straight from the contract every 3 s while one may run (no feed watches it). */
+  async function pollDirect() {
+    const pos = state?.pos;
+    if (!pos || gone) return;
+    try {
+      const p = await nearView<Position>("get_position", { position_id: pos.id });
+      const rid = p.active_auction ?? p.open_rescues[0] ?? null;
+      let rescue: Rescue | null = null;
+      let claims: Claim[] = [];
+      if (rid !== null) {
+        lastRescue = rid;
+        rescue = await nearView<Rescue>("get_rescue", { rescue_id: rid });
+        claims = (await Promise.all(rescue.members.filter((m) => m.claim_id).map((m) => nearView<Claim>("get_claim", { token_id: m.claim_id })))).filter(Boolean);
+      }
+      const sig = (r: Rescue | null, c: Claim[]) => JSON.stringify([r?.id, r?.state, r?.bids.length, r?.members.map((m) => [m.confirmed, m.evm_tx]), c.map((x) => x.status)]);
+      const changed = sig(rescue, claims) !== sig(state?.rescue ?? null, state?.claims ?? []) || p.next_nonce !== pos.next_nonce;
+      if (!state || gone) return;
+      state = { ...state, pos: { ...pos, ...p }, rescue, claims };
+      const el = root.querySelector<HTMLElement>("[data-own-live]");
+      if (el) el.innerHTML = panelHtml();
+      const act = root.querySelector<HTMLElement>("[data-own-activity]");
+      if (act) act.innerHTML = lastActivity;
+      const lad = root.querySelector<HTMLElement>("[data-own-ladder]");
+      if (lad) lad.innerHTML = ladderHtml();
+      if (changed && !busy) void refresh();
+    } catch {
+      /* the next poll tries again */
+    }
+  }
+
   // ── the live panel: what is happening now, the position, the latest activity (whole run) ──
   function isFinished() {
     const s = state;
@@ -444,15 +522,25 @@ export function mountOwn(root: HTMLElement): () => void {
   function panelHtml(): string {
     const s = state;
     const pos = s?.pos ?? null;
-    const r = live && !["bought_back", "settled", "failed"].includes(live.contractState) ? live : null;
+    // the rescue running now: from the live feed (testnet) or read from the contract (mainnet)
+    const ENDED = ["bought_back", "settled", "failed"];
+    const r: { rescueId: number; contractState: string; closesAt: number } | null = net.liveFeed
+      ? live && !ENDED.includes(live.contractState)
+        ? (() => {
+            const open = live.events.find((e) => e.kind === "AUCTION_OPEN") as any;
+            return { rescueId: live.rescueId, contractState: live.contractState, closesAt: open ? live.openedAtMs + (open.t + open.durationS) * 1000 : 0 };
+          })()
+        : null
+      : s?.rescue && !ENDED.includes(s.rescue.state)
+        ? { rescueId: s.rescue.id, contractState: s.rescue.state, closesAt: rescueClock(s.rescue, s.claims).closesAtMs ?? 0 }
+        : null;
     const usd8 = (v: bigint) => "$" + (Number(v) / 1e8).toLocaleString("en-US", { maximumFractionDigits: 0 });
     const hf = s?.hf != null ? s.hf.toFixed(2) : "n/a";
     let now: string;
-    if (!near) now = "Connect a NEAR testnet wallet to start.";
+    if (!near) now = `Connect a ${net.nearName} wallet to start.`;
     else if (busy) now = `${esc(busy)} <span class="st-own-elapsed" data-elapsed="${busySince}">${elapsed(busySince)}</span>`;
     else if (r) {
-      const open = r.events.find((e) => e.kind === "AUCTION_OPEN") as any;
-      const closesAt = open ? r.openedAtMs + (open.t + open.durationS) * 1000 : 0;
+      const closesAt = r.closesAt;
       const ends = (s?.claims ?? []).filter((c) => c.status === "open" && c.expires_at).map((c) => Number(BigInt(c.expires_at!) / 1_000_000n));
       now =
         r.contractState === "auction" && closesAt ? `Rescue #${r.rescueId}: stewards are bidding · <strong data-countdown="${closesAt}">${countdown(closesAt)}</strong> left`
@@ -460,7 +548,7 @@ export function mountOwn(root: HTMLElement): () => void {
         : r.contractState === "open" && ends.length ? `Rescue #${r.rescueId}: claim open · <strong data-countdown="${Math.min(...ends)}">${countdown(Math.min(...ends))}</strong> left to buy back`
         : r.contractState === "settling" ? `Rescue #${r.rescueId}: the claim owner is settling at the oracle price`
         : `Rescue #${r.rescueId}: ${esc(r.contractState.replace(/_/g, " "))}`;
-    } else if (!pos) now = "No position yet: open one in step 4.";
+    } else if (!pos) now = MAIN ? "No position yet: register one in step 3." : "No position yet: open one in step 4.";
     else if (isFinished()) now = "Run complete: the position is closed and everything is back in your wallets.";
     else if (!s || s.coll === 0n) now = `Position ${pos.id} is registered, not opened yet.`;
     else if (pos.active_auction !== null || pos.open_rescues.length) now = "A rescue is starting: reading the auction…";
@@ -469,13 +557,13 @@ export function mountOwn(root: HTMLElement): () => void {
     else now = "Opened, no debt.";
     // amber only for exposure: under the trigger, or a claim open on the position
     const exposed = (s?.hf != null && s.hf < 1.15 && s.debt > 0n) || (r?.contractState === "open");
-    const fall = s?.hf != null && s.debt > 0n ? `LINK can fall ${((1 - 1 / s.hf) * 100).toFixed(1)}% before liquidation` : "no debt: nothing to liquidate";
+    const fall = s?.hf != null && s.debt > 0n ? `${C.symbol} can fall ${((1 - 1 / s.hf) * 100).toFixed(1)}% before liquidation` : "no debt: nothing to liquidate";
     const tiles = pos && s
       ? `<dl class="st-np-tiles">
           <div><dt>HEALTH FACTOR</dt><dd><span class="st-num${exposed && s.hf != null && s.hf < 1.15 ? " is-exposed" : ""}">${hf}</span></dd><dd class="st-np-sub">${fall}</dd></div>
-          <div><dt>COLLATERAL</dt><dd><span class="st-num">${usd8(s.coll)}</span></dd><dd class="st-np-sub">LINK supplied on Aave</dd></div>
-          <div><dt>DEBT</dt><dd><span class="st-num">${usd8(s.debt)}</span></dd><dd class="st-np-sub">DAI borrowed</dd></div>
-          <div><dt>POSITION</dt><dd><span class="st-num">${pos.id}</span></dd><dd class="st-np-sub">read from Aave on Sepolia</dd></div>
+          <div><dt>COLLATERAL</dt><dd><span class="st-num">${usd8(s.coll)}</span></dd><dd class="st-np-sub">${C.symbol} supplied on Aave</dd></div>
+          <div><dt>DEBT</dt><dd><span class="st-num">${usd8(s.debt)}</span></dd><dd class="st-np-sub">${D.symbol} borrowed</dd></div>
+          <div><dt>POSITION</dt><dd><span class="st-num">${pos.id}</span></dd><dd class="st-np-sub">read from Aave on ${net.evmName}</dd></div>
         </dl>`
       : "";
     // your transactions and the rescue's events, newest first
@@ -483,9 +571,13 @@ export function mountOwn(root: HTMLElement): () => void {
       at: t.at,
       html: `${t.ok ? "" : '<span class="st-own-chip-refused">refused</span> '}${esc(shortLabel(t.label).replace(/ \(refused\)$/, ""))}${t.hash ? ` <a class="st-np-link" href="${txHref(t)}" target="_blank" rel="noopener" aria-label="the transaction">${icon("external", 11)}</a>` : ""}`,
     }));
-    if (live) for (const e of live.events) {
+    if (net.liveFeed && live) for (const e of live.events) {
       const line = liveLine(e);
       if (line) acts.push({ at: live.openedAtMs + e.t * 1000, html: line });
+    }
+    if (!net.liveFeed && s?.rescue) for (const l of directLines(s.rescue, s.claims, C, net.evmName)) {
+      if (!seenAt.has(l.key)) seenAt.set(l.key, l.atMs ?? Date.now());
+      acts.push({ at: l.atMs ?? seenAt.get(l.key)!, html: l.html });
     }
     const rows = acts
       .sort((a, b) => b.at - a.at)
@@ -537,43 +629,75 @@ export function mountOwn(root: HTMLElement): () => void {
     });
   async function borrowTo(pid: number, hfBps: bigint, label: string) {
     const p = await nearView<Position>("get_position", { position_id: pid });
-    const d = await pub.readContract({ address: POOL, abi: poolAbi, functionName: "getUserAccountData", args: [p.evm_address as Address] });
-    const target = (d[0] * d[3]) / hfBps;
-    if (target <= d[1]) return;
-    const pd = await pub.readContract({ address: ORACLE, abi: oracleAbi, functionName: "getAssetPrice", args: [DAI] });
-    const units = ((target - d[1]) * E18) / pd;
-    await signAction(pid, { type: "borrow", amount: units.toString() }, `Borrow ${fmt(units, 18, 2)} DAI (health to ${(Number(hfBps) / 10_000).toFixed(2)})`);
+    const d = await pub.readContract({ address: net.pool, abi: poolAbi, functionName: "getUserAccountData", args: [p.evm_address as Address] });
+    const pd = await pub.readContract({ address: net.oracle, abi: oracleAbi, functionName: "getAssetPrice", args: [D.address] });
+    const units = borrowUnits(d[0], d[1], d[3], hfBps, pd, D.decimals);
+    if (units === 0n) return;
+    void label;
+    await signAction(pid, { type: "borrow", amount: units.toString() }, `Borrow ${fmt(units, D.decimals, 2)} ${D.symbol} (health to ${(Number(hfBps) / 10_000).toFixed(2)})`);
     try {
-      await signAction(pid, { type: "transfer_debt", amount: units.toString() }, `Move the borrowed DAI to your Sepolia wallet`);
+      await signAction(pid, { type: "transfer_debt", amount: units.toString() }, `Move the borrowed ${D.symbol} to your ${net.evmName} wallet`);
     } catch (e) {
       if (!(e as any).refused) throw e;
       // under the trigger, the auction can open before this lands: from then on the contract signs
-      // only repays and supplies, so the DAI stays in the position and is refunded when the rescue ends
-      notice = `The auction opened before the borrowed ${fmt(units, 18, 2)} DAI left your position. While a rescue runs the contract only signs repays and supplies, so it stays there; the contract refunds it to your wallet when the rescue ends.`;
+      // only repays and supplies, so the debt token stays in the position and is refunded when the rescue ends
+      notice = `The auction opened before the borrowed ${fmt(units, D.decimals, 2)} ${D.symbol} left your position. While a rescue runs the contract only signs repays and supplies, so it stays there; the contract refunds it to your wallet when the rescue ends.`;
     }
   }
+  /** "Push it under the trigger": borrow more (testnet), or withdraw a little collateral straight to the
+   *  visitor's wallet (mainnet: one transaction, nothing left at the position for the rescue to hold). */
+  async function pushUnder(pid: number) {
+    if (net.pushBy === "borrow") return borrowTo(pid, net.pushHfBps, "Trigger");
+    const p = await nearView<Position>("get_position", { position_id: pid });
+    const d = await pub.readContract({ address: net.pool, abi: poolAbi, functionName: "getUserAccountData", args: [p.evm_address as Address] });
+    const pc = await pub.readContract({ address: net.oracle, abi: oracleAbi, functionName: "getAssetPrice", args: [C.address] });
+    const u = withdrawUnits(d[0], d[1], d[3], net.pushHfBps, pc, C.decimals);
+    if (u === 0n) return;
+    await signAction(pid, { type: "withdraw", amount: { exact: u.toString() } }, `Withdraw ${fmt(u, C.decimals, 6)} ${C.symbol} to your wallet (health to ${(Number(net.pushHfBps) / 10_000).toFixed(2)})`);
+  }
+  /** Register a position for the connected NEAR account (its address is derived by NEAR's MPC network). */
+  async function registerPosition(): Promise<Position> {
+    try {
+      localStorage.removeItem(KEY()); // the new position becomes the one this page follows
+    } catch {
+      /* ignore */
+    }
+    let p: Position | null = null;
+    await stead("register_position", { market_id: net.market, payout: mode === "sponsored" ? SPONSOR_PAYOUT : evm }, `Register a position (its ${net.evmName} address is derived by NEAR's MPC network)`, 100n);
+    for (let i = 0; i < 20 && !(p = await findPosition())?.evm_address; i++) await sleep(2000);
+    if (!p?.evm_address) throw new Error("the new position didn't appear");
+    forceNew = false;
+    lastRescue = null; // the new position has no rescue yet
+    for (const t of txs) if (t.pos === undefined && /^Register a position/.test(t.label) && Date.now() - t.at < 10 * 60_000) t.pos = p.id;
+    saveTxs();
+    state = { ...(state as NonNullable<typeof state>), pos: p };
+    return p;
+  }
+  /** Mainnet step 3: register (if needed), then each transfer on its own button. */
+  const register = () =>
+    run("Registering your position", async () => {
+      stepNow = 3;
+      await registerPosition();
+    });
+  const fundColl = () =>
+    run(`Sending ${C.symbol} to your position`, async () => {
+      stepNow = 3;
+      const addr = state!.pos!.evm_address as Address;
+      const held = await pub.readContract({ address: C.address, abi: erc20, functionName: "balanceOf", args: [addr] });
+      if (held < net.collateralUnits) await evmSend(`Send ${fmt(net.collateralUnits - held, C.decimals, 4)} ${C.symbol} to your position`, () => evmWallet().writeContract({ address: C.address, abi: erc20, functionName: "transfer", args: [addr, net.collateralUnits - held] }));
+    });
+  const fundGas = () =>
+    run("Sending ETH to your position for its gas", async () => {
+      stepNow = 3;
+      const addr = state!.pos!.evm_address as Address;
+      if ((await pub.getBalance({ address: addr })) < gas.txUpfrontWei) await evmSend(`Send ${fmt(net.positionGasWei, 18, 4)} ETH to your position for its gas`, () => evmWallet().sendTransaction({ to: addr, value: net.positionGasWei }));
+    });
   const open = () =>
     run("Opening your position", async () => {
       stepNow = 4;
       receiptsAt = 0;
       let p = forceNew ? null : state?.pos ?? null;
-      if (forceNew) {
-        try {
-          localStorage.removeItem(KEY()); // the new position becomes the one this page follows
-        } catch {
-          /* ignore */
-        }
-      }
-      if (!p) {
-        await stead("register_position", { market_id: MARKET, payout: mode === "sponsored" ? SPONSOR_PAYOUT : evm }, "Register a position (its Sepolia address is derived by NEAR's MPC network)", 100n);
-        for (let i = 0; i < 20 && !(p = await findPosition())?.evm_address; i++) await sleep(2000);
-        if (!p?.evm_address) throw new Error("the new position didn't appear");
-        forceNew = false;
-        lastRescue = null; // the new position has no rescue yet
-        for (const t of txs) if (t.pos === undefined && /^Register a position/.test(t.label) && Date.now() - t.at < 10 * 60_000) t.pos = p.id;
-        saveTxs();
-        state = { ...(state as NonNullable<typeof state>), pos: p };
-      }
+      if (!p) p = await registerPosition();
       const addr = p.evm_address as Address;
       if (mode === "sponsored") {
         busy = "The sponsor sends your position its LINK and gas…";
@@ -582,27 +706,38 @@ export function mountOwn(root: HTMLElement): () => void {
           if (!/already done/.test((e as Error).message)) throw e;
         });
       }
-      const held = await pub.readContract({ address: LINK, abi: erc20, functionName: "balanceOf", args: [addr] });
-      const d0 = await pub.readContract({ address: POOL, abi: poolAbi, functionName: "getUserAccountData", args: [addr] });
-      if (mode === "own" && d0[0] === 0n && held < COLLATERAL) await evmSend(`Send ${fmt(COLLATERAL - held, 18, 0)} LINK to your position`, () => evmWallet().writeContract({ address: LINK, abi: erc20, functionName: "transfer", args: [addr, COLLATERAL - held] }));
-      if (mode === "own" && (await pub.getBalance({ address: addr })) < POSITION_GAS_WEI) await evmSend("Send 0.0015 ETH to your position for its gas", () => evmWallet().sendTransaction({ to: addr, value: POSITION_GAS_WEI }));
-      const allowed = (t: Address) => pub.readContract({ address: t, abi: erc20, functionName: "allowance", args: [addr, POOL] });
-      if ((await allowed(LINK)) < COLLATERAL) await signAction(p.id, { type: "approve", token: "collateral", amount: "max" }, "Let Aave take the position's LINK");
-      if (d0[0] === 0n) await signAction(p.id, { type: "supply", amount: COLLATERAL.toString() }, "Supply 60 LINK on Aave");
-      // straight to 1.14, just under the 1.15 trigger: on mainnet a falling price would take it there
-      stepNow = 5;
-      await borrowTo(p.id, 11_400n, "Open");
+      const held = await pub.readContract({ address: C.address, abi: erc20, functionName: "balanceOf", args: [addr] });
+      const d0 = await pub.readContract({ address: net.pool, abi: poolAbi, functionName: "getUserAccountData", args: [addr] });
+      const COLLATERAL = net.collateralUnits;
+      if (mode === "own" && d0[0] === 0n && held < COLLATERAL) await evmSend(`Send ${fmt(COLLATERAL - held, C.decimals, MAIN ? 4 : 0)} ${C.symbol} to your position`, () => evmWallet().writeContract({ address: C.address, abi: erc20, functionName: "transfer", args: [addr, COLLATERAL - held] }));
+      // testnet sends the gas here; mainnet sent it in step 3 and tops it up only when low
+      if (mode === "own" && (await pub.getBalance({ address: addr })) < (MAIN ? gas.txUpfrontWei : net.positionGasWei)) await evmSend(`Send ${fmt(net.positionGasWei, 18, 4)} ETH to your position for its gas`, () => evmWallet().sendTransaction({ to: addr, value: net.positionGasWei }));
+      const allowance = (t: Address) => pub.readContract({ address: t, abi: erc20, functionName: "allowance", args: [addr, net.pool] });
+      if ((await allowance(C.address)) < COLLATERAL) await signAction(p.id, { type: "approve", token: "collateral", amount: "max" }, `Let Aave take the position's ${C.symbol}`);
+      if (d0[0] === 0n && net.readingBeforeSupply) {
+        // a size cap is set: the contract checks the supply against a price reading of this position,
+        // which the keeper asks for once it sees the position (a proven reading on mainnet)
+        busy = "Waiting for the first proven reading of your position (the size cap needs a price before a supply)…";
+        render();
+        for (let i = 0; i < 60 && !(await nearView<Position>("get_position", { position_id: p.id })).health; i++) await sleep(5000);
+        if (!(await nearView<Position>("get_position", { position_id: p.id })).health) throw new Error("no price reading for the position after 5 minutes: is the keeper running?");
+      }
+      if (d0[0] === 0n) await signAction(p.id, { type: "supply", amount: COLLATERAL.toString() }, `Supply ${fmt(COLLATERAL, C.decimals, 4)} ${C.symbol} on Aave`);
+      // testnet: straight to 1.14, just under the 1.15 trigger (on mainnet a falling price would take it
+      // there); mainnet: to 1.20, and step 5 pushes it under
+      if (net.openHfBps < 11_500n) stepNow = 5;
+      await borrowTo(p.id, net.openHfBps, "Open");
     });
   const trigger = () =>
     run("Triggering a rescue", async () => {
       stepNow = 5;
-      await borrowTo(state!.pos!.id, 11_400n, "Trigger");
+      await pushUnder(state!.pos!.id);
     });
   const tryBreak = (what: "withdraw" | "borrow") =>
     run(what === "withdraw" ? "Trying to withdraw" : "Trying to borrow", async () => {
       stepNow = 6;
-      const a = what === "withdraw" ? { type: "withdraw", amount: { exact: E18.toString() } } : { type: "borrow", amount: E18.toString() };
-      await stead("sign_action", { position_id: state!.pos!.id, action: a, gas: EVM_GAS }, what === "withdraw" ? "Try to withdraw 1 LINK while the claim is open" : "Try to borrow 1 DAI while the claim is open").catch((e) => {
+      const a = what === "withdraw" ? { type: "withdraw", amount: { exact: net.breakWithdrawUnits.toString() } } : { type: "borrow", amount: net.breakBorrowUnits.toString() };
+      await stead("sign_action", { position_id: state!.pos!.id, action: a, gas: gas.evmGas }, what === "withdraw" ? `Try to withdraw ${fmt(net.breakWithdrawUnits, C.decimals, 4)} ${C.symbol} while the claim is open` : `Try to borrow ${fmt(net.breakBorrowUnits, D.decimals, 4)} ${D.symbol} while the claim is open`).catch((e) => {
         if (!(e as any).refused) throw e;
       });
     });
@@ -612,8 +747,8 @@ export function mountOwn(root: HTMLElement): () => void {
       if (mode === "sponsored") return sponsor("buyback");
       const owed = state!.claims.filter((c) => c.status === "open").reduce((s, c) => s + BigInt(c.owed_units), 0n);
       const addr = state!.pos!.evm_address as Address;
-      const held = await pub.readContract({ address: LINK, abi: erc20, functionName: "balanceOf", args: [addr] });
-      if (owed > held) await evmSend(`Pay exactly the ${fmt(owed - held, 18, 6)} LINK owed into your position`, () => evmWallet().writeContract({ address: LINK, abi: erc20, functionName: "transfer", args: [addr, owed - held] }));
+      const held = await pub.readContract({ address: C.address, abi: erc20, functionName: "balanceOf", args: [addr] });
+      if (owed > held) await evmSend(`Pay exactly the ${fmt(owed - held, C.decimals, 6)} ${C.symbol} owed into your position`, () => evmWallet().writeContract({ address: C.address, abi: erc20, functionName: "transfer", args: [addr, owed - held] }));
     });
   const close = () =>
     run("Closing your position", async () => {
@@ -628,31 +763,49 @@ export function mountOwn(root: HTMLElement): () => void {
         render();
         await sleep(5000);
       }
-      if ((await pub.readContract({ address: DAI, abi: erc20, functionName: "allowance", args: [addr, POOL] })) === 0n) await signAction(p.id, { type: "approve", token: "debt", amount: "max" }, "Let Aave take the DAI repay");
-      const d = await pub.readContract({ address: POOL, abi: poolAbi, functionName: "getUserAccountData", args: [addr] });
+      if ((await pub.readContract({ address: D.address, abi: erc20, functionName: "allowance", args: [addr, net.pool] })) === 0n) await signAction(p.id, { type: "approve", token: "debt", amount: "max" }, `Let Aave take the ${D.symbol} repay`);
+      const d = await pub.readContract({ address: net.pool, abi: poolAbi, functionName: "getUserAccountData", args: [addr] });
       if (d[1] > 0n && mode === "sponsored") {
         await sponsor("repay").catch((e) => {
           if (!/already done|no debt/.test((e as Error).message)) throw e;
         });
         await signAction(p.id, { type: "repay", amount: "max" }, "Repay all the debt");
       } else if (d[1] > 0n) {
-        const pd = await pub.readContract({ address: ORACLE, abi: oracleAbi, functionName: "getAssetPrice", args: [DAI] });
-        const need = (d[1] * E18 * 1002n) / 1000n / pd; // a little over the debt: interest keeps accruing
-        const held = await pub.readContract({ address: DAI, abi: erc20, functionName: "balanceOf", args: [addr] });
-        if (held < need) await evmSend(`Send ${fmt(need - held, 18, 2)} DAI to your position to repay`, () => evmWallet().writeContract({ address: DAI, abi: erc20, functionName: "transfer", args: [addr, need - held] }));
+        const pd = await pub.readContract({ address: net.oracle, abi: oracleAbi, functionName: "getAssetPrice", args: [D.address] });
+        const need = repayUnits(d[1], pd, D.decimals); // a little over the debt: interest keeps accruing
+        const held = await pub.readContract({ address: D.address, abi: erc20, functionName: "balanceOf", args: [addr] });
+        if (held < need) await evmSend(`Send ${fmt(need - held, D.decimals, 2)} ${D.symbol} to your position to repay`, () => evmWallet().writeContract({ address: D.address, abi: erc20, functionName: "transfer", args: [addr, need - held] }));
         await signAction(p.id, { type: "repay", amount: "max" }, "Repay all the debt");
       }
-      const left = await pub.readContract({ address: DAI, abi: erc20, functionName: "balanceOf", args: [addr] });
-      if (left > 0n) await signAction(p.id, { type: "transfer_debt", amount: left.toString() }, "Return the unused DAI to your wallet");
-      if ((await pub.readContract({ address: POOL, abi: poolAbi, functionName: "getUserAccountData", args: [addr] }))[0] > 0n) await signAction(p.id, { type: "withdraw", amount: "max" }, "Withdraw all the LINK to your wallet");
-      // anything still at the position's address (e.g. DAI that arrived after the repay) goes home too
-      const dust = await pub.readContract({ address: DAI, abi: erc20, functionName: "balanceOf", args: [addr] });
-      if (dust > 0n) await signAction(p.id, { type: "transfer_debt", amount: dust.toString() }, "Return the last DAI to your wallet");
+      const left = await pub.readContract({ address: D.address, abi: erc20, functionName: "balanceOf", args: [addr] });
+      if (left > 0n) await signAction(p.id, { type: "transfer_debt", amount: left.toString() }, `Return the unused ${D.symbol} to your wallet`);
+      if ((await pub.readContract({ address: net.pool, abi: poolAbi, functionName: "getUserAccountData", args: [addr] }))[0] > 0n) await signAction(p.id, { type: "withdraw", amount: "max" }, `Withdraw all the ${C.symbol} to your wallet`);
+      // anything still at the position's address (e.g. debt tokens that arrived after the repay) goes home too
+      const dust = await pub.readContract({ address: D.address, abi: erc20, functionName: "balanceOf", args: [addr] });
+      if (dust > 0n) await signAction(p.id, { type: "transfer_debt", amount: dust.toString() }, `Return the last ${D.symbol} to your wallet`);
     });
 
   // ── the page ──
   function stepHtml(n: number, title: string, done: boolean, active: boolean, body: string) {
     return `<li class="st-own-step${done ? " is-done" : active ? " is-now" : ""}"><span class="st-own-num" aria-hidden="true">${n}</span><div><h3>${title}${done ? '<span class="st-visually-hidden"> (done)</span>' : ""}</h3>${active || done ? `<div class="st-own-body">${body}</div>` : ""}</div></li>`;
+  }
+  /** Mainnet, step 6: the bids lowest first and the claims, read from the contract. */
+  function ladderHtml(): string {
+    const r = state?.rescue;
+    if (!r) return "";
+    const won = new Set(r.members.map((m) => m.steward));
+    const bids = ladder(r)
+      .map((b) => `<tr><td>${esc(b.steward.split(".")[0])}</td><td class="st-num-cell">${b.premium_bps} bps</td><td class="st-num-cell">${fmtUnits(b.amount_units, C.decimals, 6)} ${C.symbol}</td><td>${r.state !== "auction" && won.has(b.steward) ? "won" : r.state === "auction" ? "bidding" : ""}</td></tr>`)
+      .join("");
+    const claims = (state?.claims ?? [])
+      .map((c) => `<tr><td class="st-mono">${esc(c.token_id)}</td><td>${esc(c.owner.split(".")[0])}</td><td class="st-num-cell">${fmtUnits(c.owed_units, C.decimals, 6)} ${C.symbol}</td><td>${esc(c.status.replace(/_/g, " "))}</td></tr>`)
+      .join("");
+    return `<div class="st-own-ladder">
+      <div class="st-label">RESCUE #${r.id} · BIDS · LOWEST PREMIUM WINS · CAP ${r.cap_bps} BPS</div>
+      ${bids ? `<table><thead><tr><th>Steward</th><th>Premium</th><th>Amount</th><th></th></tr></thead><tbody>${bids}</tbody></table>` : `<p class="st-own-hint">No bid yet: the stewards are pricing the top-up of ${fmtUnits(r.topup_units, C.decimals, 6)} ${C.symbol}.</p>`}
+      ${claims ? `<div class="st-label">CLAIMS · OWED IN ${C.symbol}</div><table><thead><tr><th>Claim</th><th>Owner</th><th>Owed</th><th>Status</th></tr></thead><tbody>${claims}</tbody></table>` : ""}
+      <p class="st-own-hint">Read from ${esc(net.contract)} every 3 seconds.</p>
+    </div>`;
   }
   function render() {
     if (gone) return;
@@ -664,10 +817,17 @@ export function mountOwn(root: HTMLElement): () => void {
     const opened = finished || (!!pos && s!.coll > 0n);
     const rescue = s?.rescue ?? null;
     const sponsored = mode === "sponsored";
+    const COLLATERAL = net.collateralUnits;
     const funded = !!s && (s.nearYocto ?? 0n) >= 20_000_000_000_000_000_000_000n && (sponsored || (s.eth >= 2_000_000_000_000_000n && (opened || s.link >= COLLATERAL)));
     const triggered = finished || (opened && (rescue !== null || (s!.hf !== null && s!.hf < 1.15)));
     const ended = finished || (opened && !rescue && s!.hf !== null && s!.hf >= 1.4); // after a rescue, health is back near 1.50
     const closed = finished;
+    // mainnet: the allow-list, the size cap and the market check gate every action
+    const limits = chainCfg?.limits ?? null;
+    const allow = allowed(limits, near);
+    const blocked = MAIN && (allow === "no" || mismatch.length > 0 || !chainCfg);
+    const cap = capUsd(limits);
+    const posFunded = !!pos && (opened || (!!s && s.posColl >= COLLATERAL && s.posEth >= gas.txUpfrontWei));
     const btn = (label: string, attr: string, primary = false, off = false) => `<button type="button" class="${primary ? "st-push" : "st-secondary"} st-cut" ${attr}${busy || off ? ' aria-disabled="true" disabled' : ""}>${primary ? '<span class="st-lamp" aria-hidden="true"></span>' : ""}${label}</button>`;
     // the buy-back window: the earliest open claim's expiry (ns → ms)
     const ends = (s?.claims ?? []).filter((c) => c.status === "open" && c.expires_at).map((c) => Number(BigInt(c.expires_at!) / 1_000_000n));
@@ -678,46 +838,129 @@ export function mountOwn(root: HTMLElement): () => void {
     // the visitor's own record first; the server's for another device (or a cleared browser)
     const step3 = mine(3).length ? mine(3) : fromServer(receipts?.faucet);
     const step4 = [...mine(4), ...(mine(4).some((t) => /^Sponsor:/.test(t.label)) ? [] : fromServer(receipts?.fund))];
-    const chip = (t: TxRow) => `<a class="st-own-chip${t.ok ? "" : " is-refused"}" href="${txHref(t)}" target="_blank" rel="noopener" title="${esc(t.label)}"><span>${esc(shortLabel(t.label).replace(/ \(refused\)$/, ""))}</span>${t.ok ? "" : `<span class="st-own-chip-refused">refused</span>`}<span class="st-own-chip-where">${t.chain === "near" ? "NEAR" : "Sepolia"}</span>${icon("external", 12)}</a>`;
+    const where = (t: TxRow) => (MAIN ? (t.chain === "near" ? "NEAR mainnet" : chainName(t)) : t.chain === "near" ? "NEAR" : "Sepolia");
+    const chip = (t: TxRow) => `<a class="st-own-chip${t.ok ? "" : " is-refused"}" href="${txHref(t)}" target="_blank" rel="noopener" title="${esc(t.label)}"><span>${esc(shortLabel(t.label).replace(/ \(refused\)$/, ""))}</span>${t.ok ? "" : `<span class="st-own-chip-refused">refused</span>`}<span class="st-own-chip-where">${where(t)}</span>${icon("external", 12)}</a>`;
     const receipt = (head: string, rows: TxRow[], more = "") => `<div class="st-own-receipt"><span class="st-own-receipt-head">${icon("check", 14)}${head}</span><div class="st-own-chips">${rows.map(chip).join("")}</div>${more}</div>`;
+    const aaveLink = `<a class="st-textlink st-extlink" href="https://app.aave.com/?marketName=proto_mainnet_v3" target="_blank" rel="noopener">Open on Aave${icon("external", 12)}</a>`;
+    const aaveNote = pos?.evm_address ? `${aaveLink}: Aave's app has no link that opens a given address, so choose <strong>Watch wallet</strong> in its connect menu and paste <button type="button" class="st-own-copy" data-copy="${pos.evm_address}">the position's address</button>.` : "";
     const posLinks = pos?.evm_address
-      ? `<p class="st-own-hint">Your position <a class="st-textlink st-extlink" href="https://sepolia.etherscan.io/address/${pos.evm_address}#tokentxns" target="_blank" rel="noopener"><span class="st-mono">${pos.evm_address.slice(0, 8)}…${pos.evm_address.slice(-6)}</span>${icon("external", 12)}</a> on Etherscan: its aLINK collateral and DAI debt tokens. Aave says: ${fmt(s!.coll, 8, 2)} USD of collateral, ${fmt(s!.debt, 8, 2)} USD of debt, health ${s!.hf?.toFixed(2) ?? "n/a"}. Position ${pos.id} on the <a class="st-textlink" href="#/positions">Positions</a> page.</p>`
+      ? `<p class="st-own-hint">Your position <a class="st-textlink st-extlink" href="${net.evmAddress(pos.evm_address)}" target="_blank" rel="noopener"><span class="st-mono">${pos.evm_address.slice(0, 8)}…${pos.evm_address.slice(-6)}</span>${icon("external", 12)}</a> on Etherscan: its a${C.symbol} collateral and ${D.symbol} debt tokens. Aave says: ${fmt(s!.coll, 8, 2)} USD of collateral, ${fmt(s!.debt, 8, 2)} USD of debt, health ${s!.hf?.toFixed(2) ?? "n/a"}.${MAIN ? ` ${aaveNote}` : ` Position ${pos.id} on the <a class="st-textlink" href="#/positions">Positions</a> page.`}</p>`
       : "";
+    const story = (rid: number, tail: string) => (net.storyContract ? `<a class="st-textlink" href="?rescue=${net.storyContract}:${rid}#/rescues">rescue #${rid}</a>${tail}` : "");
+    const auctionS = chainCfg?.params ? Number(BigInt(chainCfg.params.auction_window_ns) / 1_000_000_000n) : net.auctionS;
+
+    // ── steps 1 to 4: testnet (faucet or sponsor) and mainnet (your own Ethereum wallet) differ ──
+    let first: string[];
+    if (!MAIN) {
+      first = [
+        stepHtml(1, "Connect a NEAR testnet wallet", !!near, !near, near ? `Connected as <strong>${esc(near)}</strong>${s?.nearYocto != null ? ` · ${fmt(s.nearYocto, 24, 3)} NEAR` : ""}${s?.nearYocto != null && s.nearYocto < 10_000_000_000_000_000_000_000n ? ` · <span class="st-own-warn">your account needs a little testnet NEAR to sign: get 10 from <a class="st-textlink" href="https://near-faucet.io" target="_blank" rel="noopener">a NEAR testnet faucet</a></span>` : ""}` : `<p>Your NEAR account owns the position and signs its Stead calls. Any NEAR wallet with testnet works (Meteor, Intear, Nightly, Ledger, NEAR CLI and more). Connecting adds a limited key for the Stead contract only, so the calls below need few approvals.</p><div class="st-own-buttons">${btn("Connect NEAR wallet", "data-near", true)}</div>`),
+        stepHtml(2, "Sepolia side: your wallet, or ours", !!mode, !!near && !mode, mode === "own" && evm ? `Your Sepolia wallet <span class="st-mono">${evm.slice(0, 8)}…${evm.slice(-6)}</span> <button type="button" class="st-own-x" data-evm-off title="Disconnect this Sepolia wallet" aria-label="Disconnect this Sepolia wallet"${busy ? " disabled" : ""}>${icon("close", 12)}</button>${s ? ` · ${fmt(s.eth, 18, 4)} ETH · ${fmt(s.link, 18, 2)} LINK · ${fmt(s.dai, 18, 2)} DAI` : ""}` : mode === "sponsored" ? `NEAR only: the sponsor holds the Sepolia side. Your position's payout is the sponsor's address; it funds the position and pays the buy-back when you ask.` : `<p>The position's money lives on Sepolia. <strong>Only a NEAR wallet?</strong> Let the sponsor hold the Sepolia side: it funds your position and pays the buy-back when you ask; test funds go back to it at the end. <strong>Have a Sepolia wallet?</strong> Use it: you fund the position and get everything back.</p><div class="st-own-buttons">${btn("Only NEAR: sponsor the Sepolia side", "data-sponsored", true)}${btn("Use my Sepolia wallet", "data-evm")}</div>`),
+        stepHtml(3, "Get test funds", funded || sponsored, mode === "own" && !funded && !opened, funded
+          ? step3.length
+            ? receipt("Completed", step3)
+            : `<p>Your wallets already hold what the run needs.</p>`
+          : `<p>You need about 0.03 NEAR, 0.002 Sepolia ETH and 60 LINK (+20 LINK if you buy back). We sponsor one set per wallet per day: 0.04 NEAR, 0.0025 Sepolia ETH, 80 LINK and 5 DAI.</p><div class="st-own-buttons">${btn("Send me test funds", "data-faucet", true)}</div>`),
+        stepHtml(4, "Open your protected position", opened, (sponsored ? !!near : funded) && !opened, opened
+          ? receipt("Opened", step4, posLinks)
+          : `<p>Registers a position on the demo contract; its Sepolia address is derived by NEAR's MPC network, and only the contract can sign for it. Then 60 LINK goes in${sponsored ? " (from the sponsor)" : ""}, the contract supplies it on Aave and borrows DAI straight to a health factor of 1.14, just under Stead's 1.15 trigger: on mainnet a falling price would take it there. <strong>About 3 minutes</strong>${sponsored ? "; every step is a Stead call from your NEAR wallet" : "; two Sepolia confirmations in your wallet, the rest are Stead calls"}. The rescue starts on its own.</p>${pos && !opened ? `<p class="st-own-hint">Position ${pos.id} is registered; opening it again picks up where it stopped.</p>` : ""}<div class="st-own-buttons">${btn(pos ? "Continue opening my position" : "Open my position", "data-open", true)}</div>`),
+      ];
+    } else {
+      const borrowers = limits?.borrowers.length ? limits.borrowers.map((b) => `<strong>${esc(b)}</strong>`).join(", ") : "";
+      const allowLine =
+        allow === "no"
+          ? `<p class="st-own-stop" role="alert"><strong>${esc(near!)}</strong> is not on this contract's borrower allow-list, so the contract refuses to register a position for it. Allowed: ${borrowers}. Connect that account instead (the NEAR button in the sidebar disconnects with a second click).</p>`
+          : allow === "yes" && limits?.borrowers.length ? ` · on the contract's borrower allow-list` : "";
+      const lowNear = s?.nearYocto != null && s.nearYocto < 50_000_000_000_000_000_000_000n ? ` · <span class="st-own-warn">your account needs a little NEAR to sign (0.05 is plenty)</span>` : "";
+      const usd = (base: bigint) => "$" + (Number(base) / 1e8).toLocaleString("en-US", { maximumFractionDigits: 2 });
+      const collUsd = collPrice ? valueBase(COLLATERAL, collPrice, C.decimals) : 0n;
+      const capLine = collPrice ? `${fmt(COLLATERAL, C.decimals, 4)} ${C.symbol} is ${usd(collUsd)} at Aave's oracle price${cap ? `, ${collUsd <= BigInt(cap) * 10n ** 8n ? "under" : "<strong>over</strong>"} the contract's $${cap} cap` : ""}.` : "";
+      const needs = s ? walletNeeds(net, { eth: s.eth, coll: s.link, debt: s.dai }, { buyBackUnits: (COLLATERAL * 3n) / 10n, ownGasWei: 10n ** 15n, repayMarginUnits: 2n * 10n ** 6n }) : [];
+      const needsTable = needs.length
+        ? `<table class="st-own-needs"><thead><tr><th>Your wallet</th><th>Needs</th><th>Holds</th><th>For</th></tr></thead><tbody>${needs
+            .map((n) => `<tr><td>${n.symbol}</td><td class="st-num-cell">${fmt(n.need, n.decimals, n.decimals === 6 ? 2 : 4)}</td><td class="st-num-cell">${fmt(n.have, n.decimals, n.decimals === 6 ? 2 : 4)}${isShort(n) ? ` <strong class="st-own-short">short</strong>` : ""}</td><td>${n.note}</td></tr>`)
+            .join("")}</tbody></table>`
+        : "";
+      const posAddr = pos?.evm_address ?? null;
+      const fundRows = posAddr && s
+        ? `<p class="st-own-addr">Your position's address: <a class="st-textlink st-extlink" href="${net.evmAddress(posAddr)}" target="_blank" rel="noopener"><span class="st-mono">${posAddr}</span>${icon("external", 12)}</a></p>
+          <table class="st-own-needs"><thead><tr><th>Position</th><th>Needs</th><th>Holds</th><th></th></tr></thead><tbody>
+            <tr><td>${C.symbol}</td><td class="st-num-cell">${fmt(COLLATERAL, C.decimals, 4)}</td><td class="st-num-cell">${fmt(s.posColl, C.decimals, 6)}</td><td>${s.posColl >= COLLATERAL ? "received" : btn(`Send ${fmt(COLLATERAL - s.posColl, C.decimals, 4)} ${C.symbol} to your position`, "data-fund-coll", true, blocked || !evm)}</td></tr>
+            <tr><td>ETH</td><td class="st-num-cell">${fmt(gas.txUpfrontWei, 18, 6)}</td><td class="st-num-cell">${fmt(s.posEth, 18, 6)}</td><td>${s.posEth >= gas.txUpfrontWei ? "received" : btn(`Send ${fmt(net.positionGasWei, 18, 4)} ETH for its gas`, "data-fund-gas", !(s.posColl < COLLATERAL), blocked || !evm)}</td></tr>
+          </tbody></table>
+          <p class="st-own-hint">The ETH pays the position's own transactions: each one the contract signs may cost at most ${Number(gas.evmGas.gas_limit).toLocaleString("en-US")} gas at ${fmt(BigInt(gas.evmGas.max_fee_per_gas), 9, 2)} gwei (${fmt(gas.txUpfrontWei, 18, 6)} ETH, which Ethereum wants available up front); the real cost is far lower. Balances re-read every 8 seconds. ${aaveNote}</p>`
+        : "";
+      first = [
+        stepHtml(1, "Connect a NEAR mainnet wallet", !!near && allow !== "no", !near || allow === "no", near
+          ? `Connected as <strong>${esc(near)}</strong>${s?.nearYocto != null ? ` · ${fmt(s.nearYocto, 24, 3)} NEAR` : ""}${lowNear}${allowLine}`
+          : `<p>Your NEAR account owns the position and signs its Stead calls, on NEAR mainnet. Any NEAR wallet works (Meteor, Intear, HOT, Nightly, Ledger and more). Connecting adds a limited key for ${esc(net.contract)} only, so the calls below need few approvals.${borrowers ? ` This contract is capped: only ${borrowers} may register a position.` : ""}</p><div class="st-own-buttons">${btn("Connect NEAR wallet", "data-near", true)}</div>`),
+        stepHtml(2, "Connect your Ethereum wallet", !!evm, !!near && allow !== "no" && !evm, evm
+          ? `Your Ethereum wallet <span class="st-mono">${evm.slice(0, 8)}…${evm.slice(-6)}</span> <button type="button" class="st-own-x" data-evm-off title="Disconnect this Ethereum wallet" aria-label="Disconnect this Ethereum wallet"${busy ? " disabled" : ""}>${icon("close", 12)}</button>${s ? ` · ${fmt(s.eth, 18, 4)} ETH · ${fmt(s.link, C.decimals, 4)} ${C.symbol} · ${fmt(s.dai, D.decimals, 2)} ${D.symbol}` : ""}${pos && pos.payout.toLowerCase() !== evm.toLowerCase() ? `<p class="st-own-stop">Position ${pos.id} pays out to <span class="st-mono">${esc(pos.payout)}</span>, not this wallet: withdrawals and refunds go there.</p>` : ""}`
+          : `<p>The position's money lives on Ethereum mainnet and comes from your own wallet (MetaMask or another injected wallet): you fund the position, and everything comes back to this wallet at the end; it becomes the position's payout address when you register. There is no faucet and no sponsor on mainnet.</p><div class="st-own-buttons">${btn("Connect Ethereum wallet", "data-evm", true)}</div>`),
+        stepHtml(3, "Register and fund your position", posFunded, !!near && !!evm && !posFunded, posFunded
+          ? receipt("Registered and funded", mine(3))
+          : `<p>${pos ? `Position ${pos.id} is registered on ${esc(net.contract)}. Send it the ${C.symbol} it will supply and a little ETH for its own gas, from your wallet:` : `Registers a position on ${esc(net.contract)}: its Ethereum address is derived by NEAR's MPC network, and only the contract can sign for it. Your wallet becomes its payout. Then you send the position ${fmt(COLLATERAL, C.decimals, 4)} ${C.symbol} and ${fmt(net.positionGasWei, 18, 4)} ETH for its gas, each with its own button.`} ${capLine}</p>
+            ${pos ? fundRows : `${needsTable}<div class="st-own-buttons">${btn("Register a position", "data-register", true, blocked || !evm)}</div>`}`),
+        stepHtml(4, "Open your protected position", opened, posFunded && !opened, opened
+          ? receipt("Opened", mine(4), posLinks)
+          : `<p>Four Stead calls from your NEAR wallet, each signed by the contract through NEAR's chain signatures and sent to Ethereum by the keeper: let Aave take the position's ${C.symbol}, wait for the first proven reading of the position (the $${cap || 150} cap needs a price before a supply), supply ${fmt(COLLATERAL, C.decimals, 4)} ${C.symbol}, borrow ${D.symbol} to a health factor of ${(Number(net.openHfBps) / 10_000).toFixed(2)} and move the ${D.symbol} to your wallet. <strong>About 3 to 5 minutes.</strong></p><div class="st-own-buttons">${btn("Open my position", "data-open", true, blocked)}</div>`),
+      ];
+    }
     const steps = [
-      stepHtml(1, "Connect a NEAR testnet wallet", !!near, !near, near ? `Connected as <strong>${esc(near)}</strong>${s?.nearYocto != null ? ` · ${fmt(s.nearYocto, 24, 3)} NEAR` : ""}${s?.nearYocto != null && s.nearYocto < 10_000_000_000_000_000_000_000n ? ` · <span class="st-own-warn">your account needs a little testnet NEAR to sign: get 10 from <a class="st-textlink" href="https://near-faucet.io" target="_blank" rel="noopener">a NEAR testnet faucet</a></span>` : ""}` : `<p>Your NEAR account owns the position and signs its Stead calls. Any NEAR wallet with testnet works (Meteor, Intear, Nightly, Ledger, NEAR CLI and more). Connecting adds a limited key for the Stead contract only, so the calls below need few approvals.</p><div class="st-own-buttons">${btn("Connect NEAR wallet", "data-near", true)}</div>`),
-      stepHtml(2, "Sepolia side: your wallet, or ours", !!mode, !!near && !mode, mode === "own" && evm ? `Your Sepolia wallet <span class="st-mono">${evm.slice(0, 8)}…${evm.slice(-6)}</span> <button type="button" class="st-own-x" data-evm-off title="Disconnect this Sepolia wallet" aria-label="Disconnect this Sepolia wallet"${busy ? " disabled" : ""}>${icon("close", 12)}</button>${s ? ` · ${fmt(s.eth, 18, 4)} ETH · ${fmt(s.link, 18, 2)} LINK · ${fmt(s.dai, 18, 2)} DAI` : ""}` : mode === "sponsored" ? `NEAR only: the sponsor holds the Sepolia side. Your position's payout is the sponsor's address; it funds the position and pays the buy-back when you ask.` : `<p>The position's money lives on Sepolia. <strong>Only a NEAR wallet?</strong> Let the sponsor hold the Sepolia side: it funds your position and pays the buy-back when you ask; test funds go back to it at the end. <strong>Have a Sepolia wallet?</strong> Use it: you fund the position and get everything back.</p><div class="st-own-buttons">${btn("Only NEAR: sponsor the Sepolia side", "data-sponsored", true)}${btn("Use my Sepolia wallet", "data-evm")}</div>`),
-      stepHtml(3, "Get test funds", funded || sponsored, mode === "own" && !funded && !opened, funded
-        ? step3.length
-          ? receipt("Completed", step3)
-          : `<p>Your wallets already hold what the run needs.</p>`
-        : `<p>You need about 0.03 NEAR, 0.002 Sepolia ETH and 60 LINK (+20 LINK if you buy back). We sponsor one set per wallet per day: 0.04 NEAR, 0.0025 Sepolia ETH, 80 LINK and 5 DAI.</p><div class="st-own-buttons">${btn("Send me test funds", "data-faucet", true)}</div>`),
-      stepHtml(4, "Open your protected position", opened, (sponsored ? !!near : funded) && !opened, opened
-        ? receipt("Opened", step4, posLinks)
-        : `<p>Registers a position on the demo contract; its Sepolia address is derived by NEAR's MPC network, and only the contract can sign for it. Then 60 LINK goes in${sponsored ? " (from the sponsor)" : ""}, the contract supplies it on Aave and borrows DAI straight to a health factor of 1.14, just under Stead's 1.15 trigger: on mainnet a falling price would take it there. <strong>About 3 minutes</strong>${sponsored ? "; every step is a Stead call from your NEAR wallet" : "; two Sepolia confirmations in your wallet, the rest are Stead calls"}. The rescue starts on its own.</p>${pos && !opened ? `<p class="st-own-hint">Position ${pos.id} is registered; opening it again picks up where it stopped.</p>` : ""}<div class="st-own-buttons">${btn(pos ? "Continue opening my position" : "Open my position", "data-open", true)}</div>`),
+      ...first,
       stepHtml(5, "Push it under the trigger", triggered || ended, opened && !triggered && !ended, triggered || ended
         ? mine(5).length
           ? receipt("Under the trigger", mine(5))
           : `<p>Done (health under 1.15).</p>`
-        : `<p>On mainnet a falling price does this; on Sepolia prices are fixed, so you borrow a little more, to a health factor of 1.14: under Stead's 1.15 trigger. The keeper's proven reading then opens a real auction among the stewards.</p><div class="st-own-buttons">${btn("Borrow to 1.14", "data-trigger", true)}</div>`),
-      stepHtml(6, "Watch your rescue, try to break it, choose the ending", ended, triggered && !ended, `${rescue ? `<p>Rescue <strong>#${rescue.id}</strong>: ${esc(rescue.state.replace(/_/g, " "))}. ${rescueText(rescue.state)}${rescue.state === "open" && windowEnd ? ` <strong class="st-own-countdown" data-countdown="${windowEnd}">${countdown(windowEnd)}</strong> left to buy back.` : ""}</p>` : `<p>Waiting for the proven reading to open the auction (30 to 60 seconds).</p>`}
-        <div class="st-own-buttons">${rescue?.state === "open" ? btn("Buy back now", "data-buyback", true) : ""}${rescue ? btn("Try to withdraw 1 LINK", 'data-break="withdraw"') + btn("Try to borrow 1 DAI", 'data-break="borrow"') : ""}</div>
+        : MAIN
+          ? `<p>On a live market a falling ${C.symbol === "WETH" ? "ETH" : C.symbol} price does this. To see a rescue now, the contract withdraws about 5% of the ${C.symbol} from Aave straight to your wallet, taking the health factor to ${(Number(net.pushHfBps) / 10_000).toFixed(2)}: under Stead's 1.15 trigger. A proven reading then opens a real auction among the stewards (${auctionS} seconds).</p><div class="st-own-buttons">${btn(`Withdraw to ${(Number(net.pushHfBps) / 10_000).toFixed(2)}`, "data-trigger", true, blocked)}</div>`
+          : `<p>On mainnet a falling price does this; on Sepolia prices are fixed, so you borrow a little more, to a health factor of 1.14: under Stead's 1.15 trigger. The keeper's proven reading then opens a real auction among the stewards.</p><div class="st-own-buttons">${btn("Borrow to 1.14", "data-trigger", true)}</div>`),
+      stepHtml(6, "Watch your rescue, try to break it, choose the ending", ended, triggered && !ended, `${rescue ? `<p>Rescue <strong>#${rescue.id}</strong>: ${esc(rescue.state.replace(/_/g, " "))}. ${rescueText(rescue.state, auctionS)}${rescue.state === "open" && windowEnd ? ` <strong class="st-own-countdown" data-countdown="${windowEnd}">${countdown(windowEnd)}</strong> left to buy back.` : ""}</p>` : `<p>Waiting for the proven reading to open the auction (30 to 60 seconds).</p>`}
+        <div class="st-own-buttons">${rescue?.state === "open" ? btn("Buy back now", "data-buyback", true) : ""}${rescue ? btn(`Try to withdraw ${fmt(net.breakWithdrawUnits, C.decimals, 4)} ${C.symbol}`, 'data-break="withdraw"') + btn(`Try to borrow ${fmt(net.breakBorrowUnits, D.decimals, 4)} ${D.symbol}`, 'data-break="borrow"') : ""}</div>
         ${mine(6).length ? `<div class="st-own-receipt"><span class="st-own-receipt-head">Your requests during the rescue</span><div class="st-own-chips">${mine(6).map(chip).join("")}</div></div>` : ""}
-        <p class="st-own-hint">The full live board for your position is below.</p>`),
+        ${net.liveFeed ? `<p class="st-own-hint">The full live board for your position is below.</p>` : `<div data-own-ladder>${ladderHtml()}</div>`}`),
       stepHtml(7, "Close and get everything back", closed, ended && !closed, closed
-        ? receipt("Closed: everything is back in your wallets", mine(7), lastRescue !== null ? `<p class="st-own-hint">Your rescue's full story, every step with its transaction: <a class="st-textlink" href="?rescue=sepolia-demo:${lastRescue}#/rescues">rescue #${lastRescue}</a>.</p>` : "")
-        : `<p>Repay the debt from your DAI, then withdraw all the LINK to your Sepolia wallet. <strong>About 2 minutes.</strong>${lastRescue !== null ? ` Your rescue's full story, every step with its transaction: <a class="st-textlink" href="?rescue=sepolia-demo:${lastRescue}#/rescues">rescue #${lastRescue}</a> (it appears a few minutes after the rescue ends).` : ""}</p><div class="st-own-buttons">${btn("Close my position", "data-close", true)}</div>`),
+        ? receipt("Closed: everything is back in your wallets", mine(7), lastRescue !== null && net.storyContract ? `<p class="st-own-hint">Your rescue's full story, every step with its transaction: ${story(lastRescue, ".")}</p>` : "")
+        : `<p>Repay the debt from your ${D.symbol}, then withdraw all the ${C.symbol} to your ${net.evmName} wallet. <strong>About 2 minutes.</strong>${lastRescue !== null && net.storyContract ? ` Your rescue's full story, every step with its transaction: ${story(lastRescue, " (it appears a few minutes after the rescue ends).")}` : ""}</p><div class="st-own-buttons">${btn("Close my position", "data-close", true)}</div>`),
     ];
+    // the network switch: a full page load each way, so wallets and saved state start clean
+    const netSwitch = `<nav class="st-own-net" aria-label="Network">
+        <div class="st-own-netseg"><a href="${location.pathname}#/try"${MAIN ? "" : ' aria-current="page"'}>TESTNET</a><a href="${location.pathname}?net=mainnet#/try"${MAIN ? ' aria-current="page"' : ""}>MAINNET · REAL FUNDS</a></div>
+      </nav>`;
+    const params = chainCfg?.params;
+    const secs = (ns: string | undefined) => (ns ? `${Number(BigInt(ns) / 1_000_000_000n)} s` : "…");
+    const addr = (label: string, a: string) => `<a class="st-textlink st-extlink" href="https://etherscan.io/address/${a}" target="_blank" rel="noopener">${label} <span class="st-mono">${a.slice(0, 6)}…${a.slice(-4)}</span>${icon("external", 11)}</a>`;
+    const realBanner = MAIN
+      ? `<div class="st-own-real" role="note"><p class="st-own-real-head">Ethereum mainnet · real funds · capped at $${cap || 150}</p>
+          <p>Every transaction here moves real ${C.symbol}, ${D.symbol} and ETH on Ethereum and real NEAR. The contract caps each position at $${cap || 150} of collateral and lets only its allow-listed borrower open one.</p>
+          ${mismatch.length ? `<p class="st-own-stop" role="alert">The contract's market ${net.market} does not match this page (${esc(mismatch.join(", "))}): every action is off.</p>` : ""}
+          <dl class="st-own-cfg">
+            <div><dt>CONTRACT</dt><dd><a class="st-textlink st-extlink" href="https://nearblocks.io/address/${net.contract}" target="_blank" rel="noopener">${esc(net.contract)}${icon("external", 11)}</a></dd></div>
+            <div><dt>MARKET ${net.market}</dt><dd>${C.symbol} / ${D.symbol} on Aave V3 Ethereum${chainCfg?.market ? ` · liquidation threshold ${chainCfg.market.lt_bps / 100}% · bonus ${chainCfg.market.liq_bonus_bps / 100}%` : ""}</dd></div>
+            <div><dt>RULES</dt><dd>${params ? `trigger ${(params.trigger_hf_bps / 10_000).toFixed(2)} · target ${(params.target_hf_bps / 10_000).toFixed(2)} · auction ${secs(params.auction_window_ns)} · top-up deadline ${secs(params.topup_deadline_ns)} · buy-back window ${secs(params.buyback_window_ns)}` : "reading…"}</dd></div>
+            <div><dt>LIMITS</dt><dd>${limits ? `$${cap} of collateral per position · borrowers: ${limits.borrowers.map(esc).join(", ") || "anyone"}` : "reading…"}</dd></div>
+            <div><dt>SIGNED-TX GAS</dt><dd>${chainCfg?.market ? `up to ${Number(gas.evmGas.gas_limit).toLocaleString("en-US")} gas at ${fmt(BigInt(gas.evmGas.max_fee_per_gas), 9, 2)} gwei max` : "reading…"}</dd></div>
+            <div><dt>YOU NEED</dt><dd>in your Ethereum wallet: ${fmt(net.collateralUnits, C.decimals, 4)} ${C.symbol} (about ${fmt((net.collateralUnits * 3n) / 10n, C.decimals, 4)} more to buy the rescue back), about 0.002 ETH (${fmt(net.positionGasWei, 18, 4)} of it for the position's gas) and 2 ${D.symbol} for the repay margin; about 0.05 NEAR in your NEAR account</dd></div>
+            <div><dt>SIGNED BY YOU</dt><dd>NEAR: register, then one Stead call per Aave step (about 10). Ethereum: ${C.symbol} and ETH to the position, the buy-back payment, the ${D.symbol} for the repay</dd></div>
+            <div><dt>ADDRESSES</dt><dd>${addr("Pool", net.pool)} · ${addr(C.symbol, C.address)} · ${addr(D.symbol, D.address)} · ${addr("Oracle", net.oracle)}</dd></div>
+          </dl>
+          <p class="st-own-hint">Read from ${esc(net.contract)} on NEAR mainnet and from Ethereum. The rescue below is read straight from the contract.</p></div>`
+      : "";
     main.innerHTML = `
-      <section class="st-panel st-sect st-own">
-        <header class="st-list-head"><div class="st-label">PROTECT AN AAVE POSITION · NEAR TESTNET AND SEPOLIA</div><h1 class="st-page-title">Protect an Aave position, then watch it get rescued</h1>
-          <p class="st-list-sub">A protected position is an Aave position at an address only the Stead contract can sign for, through NEAR's chain signatures; your NEAR account owns it. When its health falls below 1.15, stewards compete to top it up, and you buy the rescue back. Everything below is real, on testnets; Sepolia's prices don't move, so opening borrows straight under the trigger. About 12 minutes in all: each Aave step waits for a Sepolia block and a proof.</p></header>
+      <section class="st-panel st-sect st-own${MAIN ? " is-mainnet" : ""}">
+        ${MAIN
+          ? `<header class="st-list-head"><div class="st-label">PROTECT AN AAVE POSITION · NEAR MAINNET AND ETHEREUM</div><h1 class="st-page-title">Protect an Aave position, then watch it get rescued</h1>
+          <p class="st-list-sub">A protected position is an Aave position at an address only the Stead contract can sign for, through NEAR's chain signatures; your NEAR account owns it. When its health falls below 1.15, stewards compete to top it up, and you buy the rescue back. This is Ethereum mainnet: you fund the position from your own wallet, and everything comes back to it at the end. About 15 minutes in all: each Aave step waits for an Ethereum block and a proof.</p></header>`
+          : `<header class="st-list-head"><div class="st-label">PROTECT AN AAVE POSITION · NEAR TESTNET AND SEPOLIA</div><h1 class="st-page-title">Protect an Aave position, then watch it get rescued</h1>
+          <p class="st-list-sub">A protected position is an Aave position at an address only the Stead contract can sign for, through NEAR's chain signatures; your NEAR account owns it. When its health falls below 1.15, stewards compete to top it up, and you buy the rescue back. Everything below is real, on testnets; Sepolia's prices don't move, so opening borrows straight under the trigger. About 12 minutes in all: each Aave step waits for a Sepolia block and a proof.</p></header>`}
+        ${netSwitch}
+        ${realBanner}
         <section class="st-own-live" data-own-live aria-label="What is happening now" role="status">${panelHtml()}</section>
         <div data-own-activity>${lastActivity}</div>
         ${notice ? `<p class="st-own-notice" role="status">${esc(notice)}</p>` : ""}
         ${error ? `<p class="st-own-error" role="alert">${esc(error)}</p>` : ""}
-        ${finished && pos ? `<div class="st-own-done"><p><strong>Run complete.</strong> Position ${pos.id} is closed on Aave${lastRescue !== null ? `; <a class="st-textlink" href="?rescue=sepolia-demo:${lastRescue}#/rescues">rescue #${lastRescue}</a> has its full story` : ""}. Its receipts stay below.</p><div class="st-own-buttons">${btn("Protect a new position", "data-new", true)}</div></div>` : ""}
+        ${finished && pos ? `<div class="st-own-done"><p><strong>Run complete.</strong> Position ${pos.id} is closed on Aave${lastRescue !== null && net.storyContract ? `; ${story(lastRescue, " has its full story")}` : ""}. Its receipts stay below.</p><div class="st-own-buttons">${btn("Protect a new position", "data-new", true, blocked)}</div></div>` : ""}
         <ol class="st-own-steps">${steps.join("")}</ol>
-        ${near && shown().length ? `<div class="st-label st-runlog-head">YOUR TRANSACTIONS · POSITION ${state?.pos?.id ?? ""}</div><ol class="st-runlog">${shown()
+        ${near && shown().length ? `<div class="st-label st-runlog-head">YOUR TRANSACTIONS · POSITION ${state?.pos?.id ?? ""}${MAIN ? " · MAINNET" : ""}</div><ol class="st-runlog">${shown()
           .slice()
           .reverse()
           .slice(0, showAllTxs ? undefined : 3)
@@ -732,7 +975,7 @@ export function mountOwn(root: HTMLElement): () => void {
       setMode("sponsored");
       render();
     });
-    main.querySelector("[data-evm]")?.addEventListener("click", () => run("Connecting your Sepolia wallet", connectEvm));
+    main.querySelector("[data-evm]")?.addEventListener("click", () => run(`Connecting your ${net.evmName} wallet`, connectEvm));
     main.querySelector("[data-faucet]")?.addEventListener("click", faucet);
     main.querySelector("[data-evm-off]")?.addEventListener("click", () => void disconnectEvm());
     main.querySelector("[data-more-txs]")?.addEventListener("click", () => {
@@ -740,24 +983,42 @@ export function mountOwn(root: HTMLElement): () => void {
       render();
     });
     main.querySelector("[data-open]")?.addEventListener("click", open);
+    main.querySelector("[data-register]")?.addEventListener("click", register);
+    main.querySelector("[data-fund-coll]")?.addEventListener("click", fundColl);
+    main.querySelector("[data-fund-gas]")?.addEventListener("click", fundGas);
+    main.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((b) =>
+      b.addEventListener("click", () => {
+        void navigator.clipboard?.writeText(b.dataset.copy!).then(
+          () => (b.textContent = "the position's address (copied)"),
+          () => undefined,
+        );
+      }),
+    );
     main.querySelector("[data-new]")?.addEventListener("click", () => {
       forceNew = true;
-      open();
+      // mainnet registers in step 3 (then each transfer has its own button); testnet opens in one go
+      if (MAIN)
+        void run("Registering your position", async () => {
+          stepNow = 3;
+          await registerPosition();
+        });
+      else open();
     });
     main.querySelector("[data-trigger]")?.addEventListener("click", trigger);
     main.querySelector("[data-buyback]")?.addEventListener("click", buyBack);
     main.querySelector("[data-close]")?.addEventListener("click", close);
     main.querySelectorAll<HTMLButtonElement>("[data-break]").forEach((b) => b.addEventListener("click", () => tryBreak(b.dataset.break as "withdraw" | "borrow")));
     // the live board for this position while a rescue runs: mounted once, not on every refresh
-    const show = !!pos && triggered && !ended;
-    // and the compact live panel in step 6: its own 2.5 s poll while the rescue runs
+    const show = net.liveFeed && !!pos && triggered && !ended;
+    // and the compact live panel in step 6: its own poll while the rescue runs (testnet: the live
+    // feed every 2.5 s; mainnet: the contract itself every 3 s)
     const following = !!pos && !finished;
-    if (following && !livePoll) {
+    if (following && net.liveFeed && !livePoll) {
       const poll = async () => {
         try {
           const r = await fetch(`${feedUrl()}/live.json`, { cache: "no-store", signal: AbortSignal.timeout(5000) });
           const j = (await r.json()) as { rescues: FeedRescue[] };
-          const mine = j.rescues.filter((x) => x.contract === CONTRACT && x.positionId === state?.pos?.id).sort((a, b) => b.rescueId - a.rescueId)[0] ?? null;
+          const mine = j.rescues.filter((x) => x.contract === net.contract && x.positionId === state?.pos?.id).sort((a, b) => b.rescueId - a.rescueId)[0] ?? null;
           const changed = JSON.stringify(mine?.events.length) !== JSON.stringify(live?.events.length) || mine?.contractState !== live?.contractState;
           live = mine;
           const el = root.querySelector<HTMLElement>("[data-own-live]");
@@ -776,11 +1037,18 @@ export function mountOwn(root: HTMLElement): () => void {
       clearInterval(livePoll);
       livePoll = 0;
     }
+    // mainnet polls the contract only while a rescue may be running (pushed under, not yet ended)
+    const watching = !net.liveFeed && following && opened && triggered && !ended;
+    if (watching && !directPoll) directPoll = window.setInterval(() => void pollDirect(), 3000);
+    else if (!watching && directPoll) {
+      clearInterval(directPoll);
+      directPoll = 0;
+    }
     boardHost.hidden = !show;
     if (show && boardFor !== pos!.id) {
       stopBoard();
       boardFor = pos!.id;
-      stopBoard = mountLive(boardHost, () => {}, "live", (r) => r.contract === CONTRACT && r.positionId === pos!.id);
+      stopBoard = mountLive(boardHost, () => {}, "live", (r) => r.contract === net.contract && r.positionId === pos!.id);
     } else if (!show && boardFor !== null) {
       stopBoard();
       boardFor = null;
@@ -788,13 +1056,15 @@ export function mountOwn(root: HTMLElement): () => void {
   }
 
   void (async () => {
-    main.innerHTML = `<section class="st-panel st-page"><div class="st-label">PROTECT AN AAVE POSITION</div><p class="st-empty">Loading the wallets…</p></section>`;
+    main.innerHTML = `<section class="st-panel st-page"><div class="st-label">PROTECT AN AAVE POSITION${MAIN ? " · MAINNET" : ""}</div><p class="st-empty">Loading the wallets…</p></section>`;
     await initNear().catch((e) => (error = `NEAR wallets could not load (${(e as Error).message}).`));
     const eth = (window as any).ethereum;
     if (eth && !evmOff()) {
       const accts: string[] = await eth.request({ method: "eth_accounts" }).catch(() => []);
       if (accts[0]) evm = accts[0] as Address;
     }
+    // mainnet has one path: the visitor's own Ethereum wallet
+    if (!net.sponsor) mode = evm ? "own" : null;
     await refresh();
   })();
   const timer = window.setInterval(() => !busy && void refresh(), 8000);
@@ -807,8 +1077,11 @@ export function mountOwn(root: HTMLElement): () => void {
     gone = true;
     clearInterval(timer);
     if (livePoll) clearInterval(livePoll);
+    if (directPoll) clearInterval(directPoll);
     clearInterval(tick);
     stopBoard();
     stopNear();
+    // the rest of the site stays on testnet
+    setNearNetwork("testnet");
   };
 }

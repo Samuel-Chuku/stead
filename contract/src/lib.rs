@@ -256,7 +256,7 @@ impl Contract {
 
     fn request_sign(&mut self, plan: SignPlan) -> Promise {
         self.flush();
-        let hash = env::keccak256(&plan.tx.to_evm().build_for_signing());
+        let hash = env::keccak256(&plan.tx.to_evm(plan.value).build_for_signing());
         mpc::ext(self.mpc.clone())
             .with_attached_deposit(SIGN_DEPOSIT)
             .with_static_gas(SIGN_GAS)
@@ -269,9 +269,10 @@ impl Contract {
     #[private]
     pub fn on_signed(&mut self, position_id: u64, nonce: u64, #[callback_result] r: Result<SignResponse, PromiseError>) -> Option<String> {
         let raw = r.ok().and_then(|resp| {
-            let tx = self.core.position(position_id).ok()?.pending.as_ref()?.tx.clone();
+            let pending = self.core.position(position_id).ok()?.pending.clone()?;
             let sig = signature_from(&resp).ok()?;
-            Some(stead_core::evm::signed_raw(&tx, sig.v, &sig.r, &sig.s))
+            // the value comes from the same stored pending tx the hash was built from (0 except a sweep)
+            Some(stead_core::evm::signed_raw(&pending.tx, pending.kind.value(), sig.v, &sig.r, &sig.s))
         });
         let out = raw.as_ref().map(|b| format!("0x{}", hex::encode(b)));
         if let Err(e) = self.core.on_signed(position_id, nonce, raw) {

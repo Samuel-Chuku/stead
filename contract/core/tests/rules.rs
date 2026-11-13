@@ -27,7 +27,7 @@ fn allow_list_targets_and_pinned_arguments() {
         assert_eq!(tx.to, a(to), "{action:?} target");
         assert_eq!(tx.selector().unwrap(), sel, "{action:?} selector");
         assert_eq!(tx.chain_id, 31337, "chain pinned to the market");
-        assert_eq!(tx.to_evm().value, 0, "value is always 0");
+        assert_eq!(plan.value, 0, "value is 0 for every token action");
         assert_eq!(plan.path, format!("pos-{}", f.pid));
         match action {
             Action::Approve { .. } => assert_eq!(arg_addr(&tx.data, 0), a(POOL), "spender is the Pool"),
@@ -48,6 +48,7 @@ fn allow_list_targets_and_pinned_arguments() {
                 assert_eq!(arg_addr(&tx.data, 2), a(PAYOUT), "withdraw to = payout");
             }
             Action::TransferDebt { .. } => assert_eq!(arg_addr(&tx.data, 0), a(PAYOUT), "transfer to = payout"),
+            Action::SweepEth { .. } => unreachable!("covered by the sweep tests"),
         }
     }
 }
@@ -160,7 +161,7 @@ fn nonce_burn_after_timeout_even_during_a_claim() {
     let burn = f.s.burn_nonce("anyone.testnet", f.pid, gas(), f.now).unwrap();
     assert_eq!(burn.tx.nonce, p.tx.nonce, "same nonce");
     assert_eq!(burn.tx.to, a(POS_ADDR), "self-transfer");
-    assert!(burn.tx.data.is_empty() && burn.tx.to_evm().value == 0, "zero value, no data");
+    assert!(burn.tx.data.is_empty() && burn.value == 0, "zero value, no data");
     // a burn can't be burned again
     f.s.on_signed(f.pid, burn.tx.nonce, Some(vec![8])).unwrap();
     f.tick(601);
@@ -889,7 +890,7 @@ fn signed_raw_encodes_r_and_s_without_leading_zeros() {
     let mut r = vec![0u8; 32];
     r[1..].copy_from_slice(&[0x7b; 31]);
     let s = vec![0x15; 32];
-    let raw = signed_raw(&tx, 1, &r, &s);
+    let raw = signed_raw(&tx, 0, 1, &r, &s);
     // the tail is: v (0x01), r as a 31-byte string (0x9f ‖ 31 bytes), s as 32 bytes (0xa0 ‖ 32)
     let tail = &raw[raw.len() - (1 + 1 + 31 + 1 + 32)..];
     assert_eq!(tail[0], 0x01);

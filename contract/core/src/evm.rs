@@ -76,6 +76,9 @@ pub enum Action {
     Withdraw { amount: AmountArg },
     /// `debt.transfer(payout, amount)` (loan proceeds).
     TransferDebt { #[serde(with = "crate::as_str")] amount: u128 },
+    /// A plain transfer of `amount` wei of the position's own native ETH (left over from gas) to
+    /// the payout, no calldata. Appended last: variant order is part of the borsh encoding.
+    SweepEth { #[serde(with = "crate::as_str")] amount: u128 },
 }
 
 impl Action {
@@ -87,6 +90,7 @@ impl Action {
             Action::Repay { .. } => "repay",
             Action::Withdraw { .. } => "withdraw",
             Action::TransferDebt { .. } => "transfer",
+            Action::SweepEth { .. } => "sweep_eth",
         }
     }
 }
@@ -102,7 +106,9 @@ pub struct GasArgs {
     pub max_priority_fee_per_gas: u128,
 }
 
-/// A fully built EIP-1559 tx. `value` is always 0 (rule: gas caps, value == 0).
+/// A fully built EIP-1559 tx, without its value. The value is 0 for every tx except a native ETH
+/// sweep, whose value is kept in the pending tx's kind (this struct is stored, and its layout is
+/// unchanged), so every caller passes it explicitly.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct TxFields {
     pub chain_id: u64,
@@ -114,12 +120,12 @@ pub struct TxFields {
 }
 
 impl TxFields {
-    pub fn to_evm(&self) -> EVMTransaction {
+    pub fn to_evm(&self, value: u128) -> EVMTransaction {
         EVMTransaction {
             chain_id: self.chain_id,
             nonce: self.nonce,
             to: Some(self.to.0),
-            value: 0,
+            value,
             input: self.data.clone(),
             gas_limit: self.gas.gas_limit,
             max_fee_per_gas: self.gas.max_fee_per_gas,
@@ -203,8 +209,10 @@ pub fn minimal_be(b: &[u8]) -> Vec<u8> {
     b[i..].to_vec()
 }
 
-/// The signed raw EIP-1559 tx for `tx` with (v, r, s), r and s as minimal big-endian integers.
-pub fn signed_raw(tx: &TxFields, v: u64, r: &[u8], s: &[u8]) -> Vec<u8> {
+/// The signed raw EIP-1559 tx for `tx` carrying `value` wei, with (v, r, s), r and s as minimal
+/// big-endian integers. `value` is RLP-encoded by omni-transaction as an integer (leading zero
+/// bytes stripped), so it needs no trimming here.
+pub fn signed_raw(tx: &TxFields, value: u128, v: u64, r: &[u8], s: &[u8]) -> Vec<u8> {
     let sig = omni_transaction::evm::types::Signature { v, r: minimal_be(r), s: minimal_be(s) };
-    tx.to_evm().build_with_signature(&sig)
+    tx.to_evm(value).build_with_signature(&sig)
 }

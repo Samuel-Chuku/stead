@@ -7,6 +7,7 @@
 //    snapshot taken at the end of the run.
 // RPCs are tried in order, each twice. No RPC URL is ever printed or written (some carry a key).
 import type { TrailChain, TrailEntry, TrailFile } from "./record.js";
+import { rescueViews, type RescueView } from "./stewardview.js";
 
 export type Rpcs = Record<TrailChain, string[]>;
 
@@ -229,6 +230,8 @@ export interface WebRuns {
     total: number;
     state: { checked: boolean; matches: boolean; note: string };
     entries: Pick<CheckedEntry, "chain" | "tx" | "at" | "step" | "what" | "actor" | "ok" | "key" | "link" | "confirmed" | "status">[];
+    /** Each rescue in the run, with every winning steward's own moves (the "steward's view"). */
+    rescues: RescueView[];
   }[];
 }
 export function webRuns(checked: CheckedTrail[], generated = new Date().toISOString()): WebRuns {
@@ -246,6 +249,7 @@ export function webRuns(checked: CheckedTrail[], generated = new Date().toISOStr
       total: c.total,
       state: { checked: c.state.checked, matches: c.state.matches, note: c.state.note },
       entries: c.entries.map(({ chain, tx, at, step, what, actor, ok, key, link, confirmed, status }) => ({ chain, tx, at, step, what, actor, ok, key, link, confirmed, status })),
+      rescues: rescueViews(c.entries),
     })),
   };
 }

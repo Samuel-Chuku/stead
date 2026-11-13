@@ -67,7 +67,7 @@ export function describeNear(c: Pick<CallRecord, "method" | "args">): string {
   const res = a.rescue_id !== undefined ? `rescue ${a.rescue_id}` : "";
   switch (c.method) {
     case "register_position": return `registers a position on market ${a.market_id}`;
-    case "sign_action": return `asks the contract to sign ${a.action?.type ?? "an action"} for ${pos} (MPC)`;
+    case "sign_action": return `asks the contract to sign ${a.action?.type === "sweep_eth" ? "a sweep of the leftover ETH" : a.action?.type ?? "an action"} for ${pos} (MPC)`;
     case "report_health": return `reports ${pos}'s health (temporary reporter)`;
     case "request_verified": return `asks OutLayer for a verified reading of ${pos}`;
     case "bid": return `bids ${a.premium_bps} bps on ${res}`;
@@ -125,6 +125,8 @@ export function describeEvm(tx: { from: string; to: string | null; input: Hex; v
   const to = (tx.to ?? "").toLowerCase();
   if (!tx.input || tx.input === "0x") {
     const eth = amount(tx.value, 18);
+    // a position sending ETH on: its borrower's sweep of what gas left over (signed by the contract)
+    if (tx.value > 0n && /^position/.test(name(tx.from)) && tx.from.toLowerCase() !== to) return { what: `returns ${eth} ETH left over from gas to ${name(to)}`, key: false };
     return { what: `sends ${eth} ETH to ${name(to)}${/^position/.test(name(to)) ? " for gas" : ""}`, key: false };
   }
   let d: { functionName: string; args: readonly unknown[] };

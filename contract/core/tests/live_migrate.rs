@@ -29,3 +29,18 @@ fn live_state_migrates() {
 fn serde_json_count(s: &SteadV5) -> String {
     format!("positions {} rescues {} claims {} stewards {:?}", s.positions.len(), s.rescues.len(), s.claims.len(), s.stewards)
 }
+
+/// A code-only upgrade must read the deployed state as it is: decode a downloaded state blob
+/// (STEAD_LIVE_STATE) with this code's layout and write it back byte for byte. Skipped without the file.
+#[test]
+fn live_state_decodes_with_this_code() {
+    let Ok(path) = std::env::var("STEAD_LIVE_STATE") else {
+        println!("skipped: set STEAD_LIVE_STATE to a downloaded contract state to check a code-only upgrade");
+        return;
+    };
+    let bytes = std::fs::read(path).unwrap();
+    let (s, mpc): (Stead, String) = borsh::from_slice(&bytes).expect("decodes with this code's layout, no trailing bytes");
+    assert_eq!(borsh::to_vec(&(&s, &mpc)).unwrap(), bytes, "re-encodes to the same bytes");
+    let pending = s.positions.values().filter(|p| p.pending.is_some()).count();
+    println!("ok: positions {} ({pending} with a pending tx) rescues {} claims {} · mpc {mpc} · {} bytes", s.positions.len(), s.rescues.len(), s.claims.len(), bytes.len());
+}

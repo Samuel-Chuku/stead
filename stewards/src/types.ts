@@ -26,9 +26,35 @@ export interface Position {
   premium_used_base: string;
 }
 
+/** What a borrower can ask the contract to sign (`sign_action`). Amounts are decimal strings.
+ *  `sweep_eth` sends `amount` wei of the position's own ETH (left over from gas) to its payout. */
+export type AmountArg = { exact: string } | "max";
+export type Action =
+  | { type: "approve"; token: "collateral" | "debt"; amount: AmountArg }
+  | { type: "supply"; amount: string }
+  | { type: "borrow"; amount: string }
+  | { type: "repay"; amount: AmountArg }
+  | { type: "withdraw"; amount: AmountArg }
+  | { type: "transfer_debt"; amount: string }
+  | { type: "sweep_eth"; amount: string };
+
+/** Why a stored tx was signed. Only `sweep_eth` carries a native value (wei, decimal string). */
+export type TxKind =
+  | { type: "borrower"; action: string }
+  | { type: "nonce_burn" }
+  | { type: "settlement"; rescue_id: number; leg: number }
+  | { type: "outflow" }
+  | { type: "sweep_eth"; value: string };
+
+/** The native value a stored tx carries (0 except a sweep). */
+export const txValue = (kind: TxKind | unknown): bigint => {
+  const k = kind as { type?: string; value?: string } | null;
+  return k?.type === "sweep_eth" && k.value !== undefined ? BigInt(k.value) : 0n;
+};
+
 export interface PendingTx {
   tx: { chain_id: number; nonce: number; to: string; data: string };
-  kind: unknown;
+  kind: TxKind;
   signed_at: string;
   signed_raw: string | null;
   signing: boolean;

@@ -163,6 +163,7 @@ describe("the checker", () => {
     expect(w.runs[0].entries.map((e) => [e.what, e.confirmed, e.key])).toEqual([["top-up", true, true], ["bids", true, false]]);
     expect(w.runs[0].entries[0].link).toBe(`https://etherscan.io/tx/${h(1)}`);
     expect(w.runs[0].state).toEqual({ checked: true, matches: true, note: c.state.note });
+    expect(w.runs[0].rescues).toEqual([]); // a bid alone, no top-up: no steward's view
     const text = JSON.stringify(w);
     expect(text).not.toContain("https://e\"");
     expect(text).not.toContain("https://n\"");

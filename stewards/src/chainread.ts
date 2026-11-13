@@ -11,6 +11,14 @@ export const ARCHIVALS = ["https://archival-rpc.testnet.near.org", "https://arch
 export const RPCS = ["https://rpc.testnet.near.org", "https://rpc.testnet.fastnear.com", ...ARCHIVALS];
 export const NEARDATA = "https://testnet.neardata.xyz/v0";
 export const BLOCKSCOUT = "https://eth-sepolia.blockscout.com/api/v2";
+// NEAR mainnet and Ethereum mainnet counterparts, for readers made with `net: "mainnet"` / an
+// Ethereum `blockscout` (the testnet ones above stay the default)
+export const MAINNET = {
+  nearblocks: "https://api.nearblocks.io/v3",
+  archivals: ["https://archival-rpc.mainnet.fastnear.com", "https://archival-rpc.mainnet.near.org"],
+  rpcs: ["https://rpc.mainnet.fastnear.com", "https://rpc.mainnet.near.org"],
+};
+export const BLOCKSCOUT_ETHEREUM = "https://eth.blockscout.com/api/v2";
 const TIMEOUT_MS = 10_000;
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -26,13 +34,18 @@ export type Reader = {
   viewAt(contract: string, method: string, args: object): Promise<{ value: any; height: number }>;
   /** Nodes for current state (views, headers) and for history (old blocks, tx status), own first. */
   nodes: { current: string[]; archival: string[] };
+  /** Explorer APIs this reader uses (NearBlocks for its NEAR network, Blockscout for its EVM chain). */
+  nearblocks?: string;
+  blockscout?: string;
 };
 
 /** `own`: the project's own NEAR testnet RPCs from .env (keyed, never printed), tried before the
  *  public ones. `current` serves views of the current state; `archival` serves old blocks and
  *  transactions (an archival own node goes in both). */
-export function reader(ua: string, own: { current?: string[]; archival?: string[] } = {}): Reader {
-  const nodes = { current: [...(own.current ?? []), ...RPCS], archival: [...(own.archival ?? []), ...ARCHIVALS] };
+export function reader(ua: string, own: { current?: string[]; archival?: string[] } = {}, opts: { net?: "testnet" | "mainnet"; blockscout?: string } = {}): Reader {
+  // a mainnet reader never falls back to testnet nodes (or the reverse)
+  const main = opts.net === "mainnet";
+  const nodes = { current: [...(own.current ?? []), ...(main ? [...MAINNET.rpcs, ...MAINNET.archivals] : RPCS)], archival: [...(own.archival ?? []), ...(main ? MAINNET.archivals : ARCHIVALS)] };
   const H = { "user-agent": ua, accept: "application/json" };
   const timed = (url: string, init: RequestInit = {}) => fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) }).catch(() => null);
   async function get(url: string, tries = 8): Promise<any> {
@@ -71,7 +84,7 @@ export function reader(ua: string, own: { current?: string[]; archival?: string[
     const r = await rpc("query", callArgs(contract, method, args), nodes.current);
     return { value: JSON.parse(Buffer.from(r.result).toString()), height: Number(r.block_height) };
   }
-  return { ua, get, rpc, view, viewAt, nodes };
+  return { ua, get, rpc, view, viewAt, nodes, nearblocks: main ? MAINNET.nearblocks : NEARBLOCKS, blockscout: opts.blockscout ?? BLOCKSCOUT };
 }
 
 export type Tx = { tsNs: string; tx: string; signer: string; method: string };
@@ -81,7 +94,7 @@ export async function contractTxs(rd: Reader, contract: string, fromNs: bigint, 
   let next: string | undefined;
   for (;;) {
     const q = new URLSearchParams({ limit: "100", before_ts: toNs.toString(), ...(signer ? { signer } : {}), ...(next ? { next } : {}) });
-    const d = await rd.get(`${NEARBLOCKS}/accounts/${contract}/txns?${q}`);
+    const d = await rd.get(`${rd.nearblocks ?? NEARBLOCKS}/accounts/${contract}/txns?${q}`);
     let stop = false;
     for (const t of d.data ?? []) {
       if (BigInt(t.block_timestamp) < fromNs) { stop = true; break; }
@@ -130,12 +143,12 @@ export async function txLogs(rd: Reader, contract: string, txs: Tx[], onEvent?: 
   return logs;
 }
 
-/** ERC-20 transfers of an EVM address on Sepolia, newest pages first, back to `sinceMs`. */
+/** ERC-20 transfers of an EVM address (Sepolia unless the reader names another Blockscout), newest pages first, back to `sinceMs`. */
 const senders = new Map<string, string>();
 /** Who sent a Sepolia transaction (Blockscout), cached. */
 export async function txSender(rd: Reader, tx: string): Promise<string | undefined> {
   if (!senders.has(tx)) {
-    const d = await rd.get(`${BLOCKSCOUT}/transactions/${tx}`).catch(() => null);
+    const d = await rd.get(`${rd.blockscout ?? BLOCKSCOUT}/transactions/${tx}`).catch(() => null);
     if (d?.from?.hash) senders.set(tx, String(d.from.hash).toLowerCase());
   }
   return senders.get(tx);
@@ -148,7 +161,7 @@ export async function evmTransfers(rd: Reader, address: string, sinceMs: number,
   let page: any = undefined;
   for (let i = 0; i < maxPages; i++) {
     const q = new URLSearchParams({ type: "ERC-20", ...(page ?? {}) });
-    const d = await rd.get(`${BLOCKSCOUT}/addresses/${address}/token-transfers?${q}`);
+    const d = await rd.get(`${rd.blockscout ?? BLOCKSCOUT}/addresses/${address}/token-transfers?${q}`);
     for (const x of d.items ?? []) {
       const ts = Math.floor(Date.parse(x.timestamp) / 1000);
       out.push({ block: Number(x.block_number), ts, tx: x.transaction_hash, token: x.token.address_hash ?? x.token.address, from: x.from.hash, to: x.to.hash, value: x.total.value, decimals: Number(x.token.decimals) });
@@ -163,5 +176,5 @@ export async function evmTransfers(rd: Reader, address: string, sinceMs: number,
 }
 
 export async function tokenSymbol(rd: Reader, address: string): Promise<string> {
-  return (await rd.get(`${BLOCKSCOUT}/tokens/${address}`)).symbol;
+  return (await rd.get(`${rd.blockscout ?? BLOCKSCOUT}/tokens/${address}`)).symbol;
 }
