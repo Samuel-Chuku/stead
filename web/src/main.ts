@@ -109,6 +109,9 @@ function navItems(active: Route): string {
   ).join("");
 }
 
+/** The status card's network: the mainnet position page (?net=mainnet#/try) runs on Ethereum; every other page shows Sepolia. */
+const networkName = (r: Route) => (r === "try" && new URLSearchParams(location.search).get("net") === "mainnet" ? "Ethereum" : "Sepolia");
+
 function sidebarBody(active: Route, inDrawer: boolean): string {
   const t = currentTheme();
   return `
@@ -120,7 +123,7 @@ function sidebarBody(active: Route, inDrawer: boolean): string {
     <div class="st-nav">${navItems(active)}</div>
     <div class="st-sidebar-foot">
       <dl class="st-status">
-        <div><dt>NETWORK</dt><dd>Sepolia</dd></div>
+        <div><dt>NETWORK</dt><dd data-status="network">${networkName(active)}</dd></div>
         <div><dt>READINGS</dt><dd data-status="readings">—</dd></div>
         <div><dt>STEWARDS</dt><dd data-status="stewards">—</dd></div>
       </dl>
@@ -306,6 +309,7 @@ function onRoute() {
     if (a.dataset.route === r) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
+  for (const el of document.querySelectorAll<HTMLElement>('[data-status="network"]')) el.textContent = networkName(r);
   fill(r);
   document.title = `${PAGES[r].title} · Stead`;
   if (document.body.classList.contains("st-drawer-open")) setDrawer(false);

@@ -11,8 +11,8 @@ import { icon } from "../icons";
 import { NETS, gasFromMarket, marketMismatch, allowed, capUsd, directLines, ladder, units as fmtUnits, type MarketView, type LimitsView, type ParamsView, type RescueView, type ClaimView } from "./net";
 import {
   project, depositMax, borrowMax, withdrawMax, repayAllUnits, sweepAmount, sweepSupported, gasTopUp, phaseOf, availability, fallLine,
-  TRIGGER_BPS, TRANSFER_GAS, KEEPER_TOPS_UP_GAS, UNDER_TRIGGER_WARNING,
-  type Account, type ActionId, type Avail, type Op, type Phase, type Projection,
+  hfFromWad, hfText, hfBarPct, TRIGGER_BPS, LIQUIDATION_BPS, TRANSFER_GAS, KEEPER_TOPS_UP_GAS, UNDER_TRIGGER_WARNING,
+  type Account, type Avail, type Op, type Phase, type Projection,
 } from "./dashlogic";
 
 const net = NETS.mainnet;
@@ -29,8 +29,6 @@ const POLL_MS = 5000;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const fmt = (v: bigint, dec = 18, dp = 4) => (Number(v) / 10 ** dec).toLocaleString("en-US", { maximumFractionDigits: dp });
 const usd8 = (v: bigint, dp = 2) => "$" + (Number(v) / 1e8).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
-// rounded down: 0.996 must never read as 1.00
-const hfText = (h: bigint | null) => (h === null ? "no debt" : (Number(h / 100n) / 100).toFixed(2));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const mmss = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -103,6 +101,11 @@ export function mountDash(root: HTMLElement): () => void {
   const amt: Record<string, string> = {};
   const all: Record<string, boolean> = {};
   let repayFrom: "position" | "wallet" = "wallet";
+  // which side of each token card is showing, which disclosures are open, when the address was copied
+  let wethMode: "deposit" | "withdraw" = "deposit";
+  let usdcMode: "borrow" | "repay" = "borrow";
+  const opened = new Set<string>();
+  let copiedAt = 0;
 
   // ── saved per NEAR account: its transactions and its position id (the keys the earlier mainnet page used) ──
   const TXKEY = () => `stead-own-txs-mainnet-${near}`;
@@ -310,7 +313,7 @@ export function mountDash(root: HTMLElement): () => void {
       if (pa) {
         const d = out[k++] as readonly bigint[];
         acct = { collBase: d[0], debtBase: d[1], availBase: d[2], ltBps: d[3] };
-        hf = d[1] === 0n ? null : d[5] / 10n ** 14n;
+        hf = hfFromWad(d[1], d[5]); // null without debt (never Aave's no-debt sentinel as a number)
         posBal = { eth: out[k++], coll: out[k++], debt: out[k++] };
         allow = { coll: out[k++], debt: out[k++] };
       }
@@ -549,36 +552,55 @@ export function mountDash(root: HTMLElement): () => void {
   const ext = (href: string, inner: string) => `<a class="st-textlink st-extlink" href="${href}" target="_blank" rel="noopener">${inner}${icon("external", 12)}</a>`;
   const short = (a: string) => `${a.slice(0, 8)}…${a.slice(-6)}`;
   const PHASE: Record<Phase, string> = { none: "NO POSITION", safe: "SAFE", under_trigger: "UNDER THE TRIGGER", rescue: "RESCUE RUNNING", claim_open: "CLAIM OPEN", settling: "SETTLING" };
+  // the page's own stroke glyphs (16×16, stroke 1.6, round caps, like web/src/icons.ts)
+  const glyph = (d: string, size: number, cls = "") =>
+    `<svg${cls ? ` class="${cls}"` : ""} aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
+  const chevron = () => glyph("M4 6l4 4 4-4", 14, "st-dash-chev");
+  const copyGlyph = () => glyph("M5.5 5.5h8v8h-8zM10.5 5.5v-3h-8v8h3", 16);
+  const toGlyph = () => glyph("M2.5 8h10M9 4.5 12.5 8 9 11.5", 14, "st-dash-to");
+  /** A disclosure: a text button with a chevron; what it opens is drawn only while open. */
+  const disc = (key: string, label: string, body: () => string) =>
+    `<div class="st-dash-disc"><button type="button" class="st-dash-disc-btn" data-disc="${key}" aria-expanded="${opened.has(key)}" aria-controls="dash-disc-${key}">${esc(label)}${chevron()}</button>${opened.has(key) ? `<div class="st-dash-disc-body" id="dash-disc-${key}">${body()}</div>` : ""}</div>`;
+  /** A two- or three-way switch (square segments; the pressed one in ink). */
+  const seg = (label: string, attr: string, opts: { v: string; t: string; off?: boolean }[], cur: string) =>
+    `<div class="st-dash-seg" role="group" aria-label="${esc(label)}">${opts.map((o) => `<button type="button" ${attr}="${o.v}" aria-pressed="${o.v === cur}"${o.off ? " disabled" : ""}>${esc(o.t)}</button>`).join("")}</div>`;
+  const usdOf = (units: bigint, price: bigint, dec: number) => usd8((units * price) / 10n ** BigInt(dec));
 
   function walletsHtml(): string {
     const limits = cfg?.limits ?? null;
     const allow = allowed(limits, near);
     const listed = limits?.borrowers.length ? limits.borrowers.map((b) => `<strong>${esc(b)}</strong>`).join(", ") : "anyone";
     const allowLine = !near
-      ? `<p class="st-own-hint">Only allow-listed NEAR accounts may protect a position here: ${listed}.</p>`
+      ? `<p class="st-dash-wsub">Allow-listed: ${listed}</p>`
       : allow === "yes"
-        ? `<p class="st-dash-ok">${icon("check", 14)}On the contract's borrower allow-list</p>`
+        ? `<p class="st-dash-ok">${icon("check", 14)}Allow-listed borrower</p>`
         : allow === "no"
-          ? `<p class="st-own-stop" role="alert"><strong>${esc(near)}</strong> is not on this contract's borrower allow-list, so it can't protect a position here. Allowed: ${listed}. The NEAR button in the sidebar disconnects with a second click.</p>`
-          : `<p class="st-own-hint">Reading the allow-list…</p>`;
+          ? `<p class="st-own-stop" role="alert"><strong>${esc(near)}</strong> is not on the borrower allow-list (${listed}). The sidebar's NEAR button disconnects with a second click.</p>`
+          : `<p class="st-dash-wsub">Reading the allow-list…</p>`;
     const w = s?.wallet;
     const payoutOff = s?.pos && evm && s.pos.payout.toLowerCase() !== evm.toLowerCase();
-    return `<div class="st-dash-wallets">
+    const lowNear = s?.nearYocto != null && s.nearYocto < 50_000_000_000_000_000_000_000n;
+    return `<section class="st-dash-wallets" aria-label="Your wallets">
       <div class="st-dash-wallet">
-        <div class="st-label">${icon("near", 14)} NEAR MAINNET · OWNS THE POSITION</div>
+        <div class="st-label">${icon("near", 14)} NEAR · OWNS THE POSITION</div>
         ${near
-          ? `<p>Connected as <strong>${esc(near)}</strong>${s?.nearYocto != null ? ` · ${fmt(s.nearYocto, 24, 3)} NEAR` : ""}${s?.nearYocto != null && s.nearYocto < 50_000_000_000_000_000_000_000n ? ` · <span class="st-own-warn">needs a little NEAR to sign (0.05 is plenty)</span>` : ""}</p>`
-          : `<p>Your NEAR account owns the position and signs its Stead calls. Connecting adds a limited key for ${esc(net.contract)} only.</p><div class="st-own-buttons">${btn("Connect NEAR wallet", "data-near", true)}</div>`}
+          ? `<p class="st-dash-who">${esc(near)}</p><p class="st-dash-wsub">${s?.nearYocto != null ? `${fmt(s.nearYocto, 24, 3)} NEAR` : "…"}${lowNear ? ` · <strong>needs 0.05 NEAR to sign</strong>` : ""}</p>`
+          : `<div class="st-own-buttons">${btn("Connect NEAR wallet", "data-near", true)}</div><p class="st-dash-wsub">Signs the position's Stead calls (a key for ${esc(net.contract)} only).</p>`}
         ${allowLine}
       </div>
       <div class="st-dash-wallet">
-        <div class="st-label">${icon("ethereum", 14)} ETHEREUM · FUNDS IT, RECEIVES PAYOUTS</div>
+        <div class="st-label">${icon("ethereum", 14)} ETHEREUM · FUNDS IT, GETS PAYOUTS</div>
         ${evm
-          ? `<p><span class="st-mono">${short(evm)}</span> <button type="button" class="st-own-x" data-evm-off title="Disconnect this Ethereum wallet" aria-label="Disconnect this Ethereum wallet"${busy ? " disabled" : ""}>${icon("close", 12)}</button>${w ? ` · ${fmt(w.eth, 18, 5)} ETH · ${fmt(w.coll, C.decimals, 5)} ${C.symbol} · ${fmt(w.debt, D.decimals, 2)} ${D.symbol}` : ""}</p><p class="st-own-hint">Balances read from Ethereum mainnet.</p>`
-          : `<p>Your Ethereum wallet (MetaMask or another injected wallet) sends the ${C.symbol} and ${D.symbol}, and receives withdrawals and refunds.</p><div class="st-own-buttons">${btn("Connect Ethereum wallet", "data-evm", !!near)}</div>`}
+          ? `<p class="st-dash-who"><span class="st-mono">${short(evm)}</span><button type="button" class="st-own-x" data-evm-off title="Disconnect this Ethereum wallet" aria-label="Disconnect this Ethereum wallet"${busy ? " disabled" : ""}>${icon("close", 12)}</button></p>
+             <dl class="st-dash-wbal">
+               <div><dt>ETH</dt><dd>${w ? fmt(w.eth, 18, 5) : "…"}</dd></div>
+               <div><dt>${C.symbol}</dt><dd>${w ? fmt(w.coll, C.decimals, 5) : "…"}</dd></div>
+               <div><dt>${D.symbol}</dt><dd>${w ? fmt(w.debt, D.decimals, 2) : "…"}</dd></div>
+             </dl>`
+          : `<div class="st-own-buttons">${btn("Connect Ethereum wallet", "data-evm", !!near)}</div><p class="st-dash-wsub">Sends the ${C.symbol} and ${D.symbol}; receives withdrawals and refunds.</p>`}
         ${payoutOff ? `<p class="st-own-stop">Position ${s!.pos!.id} pays out to <span class="st-mono">${esc(s!.pos!.payout)}</span>, not this wallet: withdrawals and refunds go there.</p>` : ""}
       </div>
-    </div>`;
+    </section>`;
   }
 
   function newPositionHtml(): string {
@@ -587,9 +609,9 @@ export function mountDash(root: HTMLElement): () => void {
     return `<div class="st-dash-new">
       <div class="st-label">NO POSITION ON MARKET ${net.market} YET${near ? ` · ${esc(near)}` : ""}</div>
       <h2>Protect a new position</h2>
-      <p>One NEAR call registers a position on ${esc(net.contract)} (${C.symbol} collateral, ${D.symbol} debt, Aave V3 on Ethereum). NEAR's MPC network derives its Ethereum address, and only the contract can sign for it. ${evm ? `Its payout, where withdrawals and refunds go, is your connected wallet <span class="st-mono">${short(evm)}</span>.` : "Its payout, where withdrawals and refunds go, is your connected Ethereum wallet."} Then deposit ${C.symbol} and borrow from the dashboard. Each position is capped at $${capUsd(cfg?.limits ?? null) || 150} of collateral.</p>
-      <div class="st-own-buttons">${btn("Protect a new position", "data-register", true, !!why)}</div>
-      ${why ? `<p class="st-own-hint">${esc(why)}</p>` : ""}
+      <p>${C.symbol} collateral, ${D.symbol} debt, Aave V3 on Ethereum · up to $${capUsd(cfg?.limits ?? null) || 150} · payout ${evm ? `<span class="st-mono">${short(evm)}</span>` : "your Ethereum wallet"}</p>
+      <div class="st-dash-go">${btn("Protect a new position", "data-register", true, !!why)}${why ? `<p class="st-dash-why">${esc(why)}</p>` : ""}</div>
+      ${disc("how-new", "How it works", () => `<p>One NEAR call registers the position on ${esc(net.contract)}. NEAR's chain signatures derive its Ethereum address, and only the contract can sign for it. Withdrawals and refunds go to the payout. Then supply ${C.symbol} and borrow below.</p>`)}
     </div>`;
   }
 
@@ -602,33 +624,46 @@ export function mountDash(root: HTMLElement): () => void {
     const a = s!.acct;
     const collUnits = a && s!.prices.coll ? (a.collBase * 10n ** BigInt(C.decimals)) / s!.prices.coll : 0n;
     const debtUnits = a && s!.prices.debt ? (a.debtBase * 10n ** BigInt(D.decimals)) / s!.prices.debt : 0n;
+    const waiting = !!a && a.collBase === 0n && s!.posBal.coll > 0n;
     const ends = (s!.claims ?? []).filter((c) => c.status === "open" && c.expires_at).map((c) => nsMs(c.expires_at));
     const winEnd = ends.length ? Math.min(...ends) : 0;
     const params = cfg?.params;
     let now: string;
     if (busy) now = `${esc(busy)} <span class="st-own-elapsed" data-elapsed="${busySince}">${mmss(Date.now() - busySince)}</span>`;
-    else if (r?.state === "auction") now = `Rescue #${r.id}: stewards are bidding · <strong data-countdown="${nsMs(r.closes_at)}">${mmss(nsMs(r.closes_at) - Date.now())}</strong> left`;
+    else if (r?.state === "auction") now = `Rescue #${r.id}: stewards bidding · <strong data-countdown="${nsMs(r.closes_at)}">${mmss(nsMs(r.closes_at) - Date.now())}</strong> left`;
     else if (r?.state === "top_up_pending") {
       const due = nsMs(r.closes_at) + (params ? Number(BigInt(params.topup_deadline_ns) / 1_000_000n) : 0);
       now = `Rescue #${r.id}: the winner is topping up${params ? ` · due in <strong data-countdown="${due}">${mmss(due - Date.now())}</strong>` : ""}`;
-    } else if (r?.state === "open") now = `Rescue #${r.id}: claim open · <strong data-countdown="${winEnd}">${mmss(winEnd - Date.now())}</strong> left to buy back`;
+    } else if (r?.state === "open") now = `Rescue #${r.id}: claim open · <strong data-countdown="${winEnd}">${mmss(winEnd - Date.now())}</strong> to buy back`;
     else if (r?.state === "settling") now = `Rescue #${r.id}: the claim owner is settling at the oracle price`;
-    else if (!a || a.collBase === 0n) now = `Position ${pos.id} is registered: deposit ${C.symbol} to open it.`;
-    else if (exposedHf) now = "Under the 1.15 trigger: waiting for the proven reading that opens the auction (usually under a minute).";
-    else if (a.debtBase > 0n) now = `Protected. If its health falls under 1.15, stewards compete to rescue it.`;
-    else now = "Collateral supplied, no debt.";
+    else if (waiting) now = `${fmt(s!.posBal.coll, C.decimals, 6)} ${C.symbol} waiting to be supplied`;
+    else if (!a || a.collBase === 0n) now = `Registered · supply ${C.symbol} to open it`;
+    else if (exposedHf) now = "Under 1.15: the auction opens on the next proven reading";
+    else if (a.debtBase > 0n) now = "Protected · stewards rescue it under 1.15";
+    else now = "Collateral supplied · no debt";
     const lamp = busy || phase === "rescue" || phase === "settling" ? "st-np-lamp is-live" : exposed ? "st-np-lamp is-exposed" : "st-np-lamp";
     const chip = `<span class="st-dash-phase${phase === "claim_open" || phase === "under_trigger" ? " is-exposed" : ""}">${PHASE[phase]}</span>`;
-    const tiles = `<dl class="st-np-tiles">
-        <div><dt>HEALTH FACTOR</dt><dd><span class="st-num${exposedHf ? " is-exposed" : ""}">${hfText(s!.hf)}</span></dd><dd class="st-np-sub">${fallLine(s!.hf, C.symbol)}</dd></div>
-        <div><dt>COLLATERAL</dt><dd><span class="st-num">${a ? usd8(a.collBase, 2) : "…"}</span></dd><dd class="st-np-sub">${fmt(collUnits, C.decimals, 6)} ${C.symbol} supplied</dd></div>
-        <div><dt>DEBT</dt><dd><span class="st-num">${a ? usd8(a.debtBase, 2) : "…"}</span></dd><dd class="st-np-sub">${fmt(debtUnits, D.decimals, 2)} ${D.symbol} borrowed</dd></div>
-        <div><dt>${C.symbol} PRICE</dt><dd><span class="st-num">${s!.prices.coll ? usd8(s!.prices.coll, 2) : "…"}</span></dd><dd class="st-np-sub">Aave's oracle</dd></div>
-      </dl>`;
-    return `<section class="st-own-live" data-own-live aria-label="Your position" role="status">
+    const hf = s!.hf;
+    const hfLabel = hf === null ? "no debt" : hfText(hf);
+    const bar = `<div class="st-dash-bar${exposedHf ? " is-exposed" : ""}" role="img" aria-label="Health factor ${hfLabel}; stewards rescue under 1.15; Aave liquidates under 1.00">
+        <span class="st-dash-bar-fill" style="width:${a && (a.collBase > 0n || hf !== null) ? hfBarPct(hf) : 0}%"></span>
+        <span class="st-dash-bar-mark" style="left:${hfBarPct(LIQUIDATION_BPS)}%"><i>1.00</i></span>
+        <span class="st-dash-bar-mark is-trigger" style="left:${hfBarPct(TRIGGER_BPS)}%"><i>1.15</i></span>
+      </div>`;
+    const collNum = !a
+      ? `<span class="st-num">…</span>`
+      : waiting
+        ? `<span class="st-num">${fmt(s!.posBal.coll, C.decimals, 6)}</span><span class="st-dash-unit">${C.symbol}</span>`
+        : `<span class="st-num">${usd8(a.collBase, 2)}</span>`;
+    const collSub = !a ? "" : waiting ? `waiting to be supplied · ${usdOf(s!.posBal.coll, s!.prices.coll, C.decimals)}` : a.collBase > 0n ? `${fmt(collUnits, C.decimals, 6)} ${C.symbol} supplied` : "nothing supplied";
+    return `<section class="st-own-live st-dash-status" data-own-live aria-label="Your position" role="status">
       <div class="st-np-head"><span class="${lamp}" aria-hidden="true"></span><span class="st-np-label">POSITION ${pos.id}</span>${chip}<span class="st-np-now">${now}</span></div>
-      ${tiles}
-      <p class="st-dash-src">Health, collateral and debt: Aave V3 getUserAccountData for the position, Ethereum mainnet; prices: Aave's oracle; rescue state: ${esc(net.contract)}. Read every ${POLL_MS / 1000} s.</p>
+      <dl class="st-dash-kpis">
+        <div class="st-dash-kpi-hf"><dt>HEALTH FACTOR</dt><dd class="st-dash-big">${hf === null ? `<span class="st-dash-nodebt">no debt</span>` : `<span class="st-num${exposedHf ? " is-exposed" : ""}">${hfLabel}</span>`}</dd><dd class="st-dash-cons">${hf === null ? "nothing to liquidate" : fallLine(hf, C.symbol)}</dd><dd>${bar}</dd></div>
+        <div><dt>COLLATERAL</dt><dd class="st-dash-big">${collNum}</dd><dd class="st-dash-cons">${collSub}</dd></div>
+        <div><dt>DEBT</dt><dd class="st-dash-big"><span class="st-num">${a ? usd8(a.debtBase, 2) : "…"}</span></dd><dd class="st-dash-cons">${a ? (a.debtBase > 0n ? `${fmt(debtUnits, D.decimals, 2)} ${D.symbol} borrowed` : "nothing borrowed") : ""}</dd></div>
+      </dl>
+      <p class="st-dash-src">${C.symbol} ${s!.prices.coll ? usd8(s!.prices.coll, 2) : "…"} · Aave V3 and ${esc(net.contract)}, read every ${POLL_MS / 1000} s</p>
     </section>`;
   }
 
@@ -647,7 +682,6 @@ export function mountDash(root: HTMLElement): () => void {
       <div class="st-label">RESCUE #${r.id} · ${esc(r.state.replace(/_/g, " ").toUpperCase())} · LOWEST PREMIUM WINS · CAP ${r.cap_bps} BPS · TOP-UP ${fmtUnits(r.topup_units, C.decimals, 6)} ${C.symbol}</div>
       ${bids ? `<table><thead><tr><th>Steward</th><th>Premium</th><th>Amount</th><th></th></tr></thead><tbody>${bids}</tbody></table>` : `<p class="st-own-hint">No bid yet: the stewards are pricing the top-up.</p>`}
       ${claims ? `<div class="st-label">CLAIMS · OWED IN ${C.symbol}${owed > 0n ? ` · ${fmt(owed, C.decimals, 8)} ${C.symbol} OPEN` : ""}</div><table><thead><tr><th>Claim</th><th>Owner</th><th>Owed</th><th>Status</th></tr></thead><tbody>${claims}</tbody></table>` : ""}
-      <p class="st-own-hint">Read from ${esc(net.contract)}.</p>
     </div>`;
   }
 
@@ -657,119 +691,139 @@ export function mountDash(root: HTMLElement): () => void {
     const addr = pos.evm_address!;
     const upfront = gas.txUpfrontWei;
     const txsLeft = upfront > 0n ? b.eth / upfront : 0n;
+    const copied = Date.now() - copiedAt < 1600;
     const gasNote = KEEPER_TOPS_UP_GAS
       ? "Gas is topped up by the keeper when short."
-      : `When it can't cover the next transaction, your Ethereum wallet is asked for a small top-up (${fmt(2n * upfront, 18, 6)} ETH at most) before that step.`;
-    return `<div class="st-dash-poswallet">
-      <div class="st-label">THE POSITION'S OWN ADDRESS · NOT SUPPLIED ON AAVE</div>
+      : `When it can't cover the next one, your Ethereum wallet is asked for a small top-up (${fmt(2n * upfront, 18, 6)} ETH at most) first.`;
+    return `<section class="st-dash-poswallet" aria-label="The position's address">
+      <div class="st-label">POSITION ADDRESS · ETHEREUM</div>
+      <p class="st-dash-addr"><span class="st-mono">${esc(addr)}</span><button type="button" class="st-dash-copy" data-copy="${addr}" aria-label="Copy the position's address">${copied ? icon("check", 16) : copyGlyph()}</button><span class="st-dash-copied" role="status">${copied ? "Copied" : ""}</span></p>
+      <p class="st-dash-links">${ext(net.evmAddress(addr), "Etherscan")}${ext(`https://debank.com/profile/${addr}`, "DeBank")}<span>${ext("https://app.aave.com/?marketName=proto_mainnet_v3", "Aave")}: Watch wallet, then paste the address</span></p>
       <dl class="st-dash-bal">
-        <div><dt>${C.symbol}</dt><dd>${fmt(b.coll, C.decimals, 8)}</dd></div>
-        <div><dt>${D.symbol}</dt><dd>${fmt(b.debt, D.decimals, 6)}</dd></div>
-        <div><dt>ETH · GAS</dt><dd>${fmt(b.eth, 18, 6)}</dd></div>
+        <div><dt>${C.symbol} HERE</dt><dd>${fmt(b.coll, C.decimals, 8)}</dd></div>
+        <div><dt>${D.symbol} HERE</dt><dd>${fmt(b.debt, D.decimals, 6)}</dd></div>
+        <div><dt>ETH · GAS</dt><dd>${fmt(b.eth, 18, 6)}<span> · ~${txsLeft.toString()} tx</span></dd></div>
       </dl>
-      <p class="st-own-hint">Read from Ethereum. Each transaction the contract signs may cost at most ${Number(gas.evmGas.gas_limit).toLocaleString("en-US")} gas at ${fmt(BigInt(gas.evmGas.max_fee_per_gas), 9, 2)} gwei (${fmt(upfront, 18, 6)} ETH, wanted up front; the real cost is lower): this covers about ${txsLeft.toString()}. ${gasNote}</p>
-      <p class="st-own-addr">${ext(net.evmAddress(addr), `Position on Etherscan <span class="st-mono">${short(addr)}</span>`)} · ${ext("https://app.aave.com/?marketName=proto_mainnet_v3", "Open on Aave")}: Aave's app has no link that opens a given address, so choose <strong>Watch wallet</strong> in its connect menu and paste <button type="button" class="st-own-copy" data-copy="${addr}">the position's address</button>.</p>
+      ${disc("how-gas", "About these balances and gas", () => `<p>Tokens here sit at the position's address, not supplied on Aave. Each transaction the contract signs may cost at most ${Number(gas.evmGas.gas_limit).toLocaleString("en-US")} gas at ${fmt(BigInt(gas.evmGas.max_fee_per_gas), 9, 2)} gwei (${fmt(upfront, 18, 6)} ETH, wanted up front; the real cost is lower). ${gasNote}</p>`)}
+    </section>`;
+  }
+
+  type Act = "deposit" | "borrow" | "repay" | "withdraw";
+  /** The live part of an action card (redrawn as the visitor types): the projection, its warning or
+   *  stop, the button, and the reason when the button is off. */
+  function liveHtml(id: Act, v: Avail, label: string, extraOff = false, whyV: Avail = v): string {
+    const p = projOf(id);
+    const op = opOf(id);
+    const isColl = id === "deposit" || id === "withdraw";
+    const price = isColl ? s!.prices.coll : s!.prices.debt;
+    const dec = isColl ? C.decimals : D.decimals;
+    const usd = op && !(op as any).all && price ? `<span class="st-dash-usd">${usdOf(op.units, price, dec)}</span>` : "";
+    const nowHf = hfText(s?.hf ?? null);
+    const proj = p
+      ? `<p class="st-dash-proj" aria-label="Health factor now ${nowHf}, after ${hfText(p.hfBps)}">${usd}<span class="st-dash-projlbl">HF</span><span class="st-dash-projnow">${nowHf}</span>${toGlyph()}<strong class="st-dash-projnum${p.hfBps !== null && p.hfBps < TRIGGER_BPS ? " is-exposed" : ""}">${hfText(p.hfBps)}</strong></p>`
+      : `<p class="st-dash-proj is-empty"><span class="st-dash-projlbl">HF</span><span class="st-dash-projnow">${nowHf}</span></p>`;
+    const off = !v.on || !p || !!p.block || extraOff;
+    const why = !whyV.on ? whyV.why : "";
+    return `<div class="st-dash-live">
+      <div class="st-dash-go">${btn(label, `data-go=${id}`, true, off)}${proj}</div>
+      ${why ? `<p class="st-dash-why">${esc(why)}</p>` : ""}
+      ${p?.block ? `<p class="st-own-stop" role="alert">${esc(p.block)}</p>` : p?.underTrigger ? `<p class="st-dash-warn" role="alert"><span class="st-dash-warn-tag">UNDER 1.15</span>${esc(UNDER_TRIGGER_WARNING)}</p>` : ""}
     </div>`;
   }
 
-  function projHtml(id: "deposit" | "borrow" | "repay" | "withdraw"): string {
-    const p = projOf(id);
-    if (!p) return `<p class="st-dash-proj">Projected health factor: enter an amount.</p>`;
-    const now = hfText(s?.hf ?? null);
-    const line = `<p class="st-dash-proj">Projected health factor after: <strong class="st-dash-projnum${p.hfBps !== null && p.hfBps < TRIGGER_BPS ? " is-exposed" : ""}">${hfText(p.hfBps)}</strong> <span>(now ${now}; from Aave's current account data and oracle prices)</span></p>`;
-    if (p.block) return line + `<p class="st-own-stop" role="alert">${esc(p.block)}</p>`;
-    if (p.underTrigger) return line + `<p class="st-dash-warn" role="alert"><span class="st-dash-warn-tag">UNDER 1.15</span>${esc(UNDER_TRIGGER_WARNING)}</p>`;
-    return line;
-  }
-
   function actionsHtml(): string {
-    const av = availability(facts());
+    const f = facts();
+    const av = availability(f);
     const a = s!.acct;
     const P = s!.prices;
     const pos = s!.pos!;
-    const card = (id: ActionId, title: string, body: string, controls: string, v: Avail, extra = "") =>
-      `<div class="st-dash-act${v.on ? "" : " is-off"}" data-act="${id}"><h3>${title}</h3>${body}${controls}${v.on ? "" : `<p class="st-dash-why">${esc(v.why)}</p>`}${extra}</div>`;
     const input = (id: string, sym: string, maxLabel: string, off: boolean) =>
       `<div class="st-dash-amt"><label class="st-visually-hidden" for="dash-amt-${id}">Amount in ${sym}</label><input id="dash-amt-${id}" data-amt="${id}" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${esc(all[id] ? "" : amt[id] ?? "")}"${all[id] ? ` aria-describedby="dash-all-${id}"` : ""}${off ? " disabled" : ""}><span class="st-dash-sym">${all[id] ? `<span id="dash-all-${id}">ALL</span>` : sym}</span><button type="button" class="st-dash-max" data-max="${id}"${off || busy ? " disabled" : ""}>${maxLabel}</button></div>`;
-    const projOk = (id: "deposit" | "borrow" | "repay" | "withdraw") => {
-      const p = projOf(id);
-      return !!p && !p.block;
-    };
-    const opLabel = (id: "deposit" | "borrow" | "repay" | "withdraw", verb: string, sym: string, dec: number, dp: number) => {
+    const opLabel = (id: Act, verb: string, sym: string, dec: number, dp: number) => {
       const op = opOf(id);
       if (!op) return `${verb} ${sym}`;
       if ((op as any).all) return id === "repay" ? "Repay all the debt" : `Withdraw all the ${sym}`;
       return `${verb} ${fmt(op.units, dec, dp)} ${sym}`;
     };
     const tryBtn = (id: "withdraw" | "borrow", v: Avail) => (v.tryAnyway ? `<div class="st-dash-try">${btn("Try it anyway (the contract will refuse)", `data-try="${id}"`, false)}</div>` : "");
-    const out: string[] = [];
-    // 1. deposit
-    const dMax = a && s!.wallet ? depositMax(s!.wallet.coll, s!.posBal.coll, a.collBase, capBase(), P.coll, C.decimals) : 0n;
-    out.push(card("deposit", `Deposit ${C.symbol}`,
-      `<p class="st-own-hint">Your Ethereum wallet sends the ${C.symbol} to the position (one Ethereum signature), then the contract supplies it on Aave (one NEAR call, two the first time: Aave's approval). Max: what your wallet holds, within the $${capUsd(cfg?.limits ?? null) || 150} cap (${usd8(dMax && P.coll ? (dMax * P.coll) / 10n ** 18n : 0n)}).</p>`,
-      input("deposit", C.symbol, "MAX", !av.deposit.on) + projHtml("deposit") + `<div class="st-own-buttons">${btn(opLabel("deposit", "Deposit", C.symbol, C.decimals, 6), "data-go=deposit", true, !av.deposit.on || !projOk("deposit"))}</div>`, av.deposit));
-    // 2. borrow
-    out.push(card("borrow", `Borrow ${D.symbol}`,
-      `<p class="st-own-hint">Two NEAR calls: the contract signs the Aave borrow (the ${D.symbol} lands at the position), then a transfer of it to your wallet. They are separate because Aave can only borrow on behalf of the position itself. Max stops at health 1.16, just above the trigger.</p>`,
-      input("borrow", D.symbol, "MAX TO 1.16", !av.borrow.on) + projHtml("borrow") + `<div class="st-own-buttons">${btn(opLabel("borrow", "Borrow", D.symbol, D.decimals, 2), "data-go=borrow", true, !av.borrow.on || !projOk("borrow"))}</div>`, av.borrow, tryBtn("borrow", av.borrow)));
-    // 3. repay
+    const w = s!.wallet;
+    const collUnits = a && P.coll ? (a.collBase * 10n ** BigInt(C.decimals)) / P.coll : 0n;
+    const debtUnits = a && P.debt ? (a.debtBase * 10n ** BigInt(D.decimals)) / P.debt : 0n;
+
+    // WETH: supply | withdraw
+    const wm = wethMode;
+    const wv = wm === "deposit" ? av.deposit : av.withdraw;
+    const dMax = a && w ? depositMax(w.coll, s!.posBal.coll, a.collBase, capBase(), P.coll, C.decimals) : 0n;
+    const idleColl = s!.posBal.coll;
+    const wethCard = `<div class="st-dash-act${wv.on ? "" : " is-off"}" data-act="${wm}">
+      <div class="st-dash-act-head"><h3>${C.symbol}</h3>${seg(`${C.symbol} action`, "data-mode", [{ v: "weth:deposit", t: "SUPPLY" }, { v: "weth:withdraw", t: "WITHDRAW" }], `weth:${wm}`)}</div>
+      <p class="st-dash-have">wallet ${w ? fmt(w.coll, C.decimals, 5) : "…"} · supplied ${fmt(collUnits, C.decimals, 5)}${idleColl > 0n ? ` · ${fmt(idleColl, C.decimals, 6)} waiting` : ""}</p>
+      ${wm === "deposit"
+        ? input("deposit", C.symbol, "MAX", !av.deposit.on) + liveHtml("deposit", av.deposit, opLabel("deposit", "Supply", C.symbol, C.decimals, 6))
+          + disc("how-deposit", "How it works", () => `<p>Your Ethereum wallet sends the ${C.symbol} to the position (one signature; ${C.symbol} already waiting there counts), then the contract supplies it on Aave (one NEAR call, two the first time for Aave's approval). MAX: what you hold, within the $${capUsd(cfg?.limits ?? null) || 150} cap (${usd8(dMax && P.coll ? (dMax * P.coll) / 10n ** 18n : 0n)}).</p>`)
+        : input("withdraw", C.symbol, "MAX", !av.withdraw.on) + liveHtml("withdraw", av.withdraw, opLabel("withdraw", "Withdraw", C.symbol, C.decimals, 6)) + tryBtn("withdraw", av.withdraw)
+          + disc("how-withdraw", "How it works", () => `<p>One NEAR call: the contract signs Aave's withdraw, which sends the ${C.symbol} straight to your payout <span class="st-mono">${short(pos.payout)}</span>. MAX: down to health 1.16, or all of it with no debt.</p>`)}
+    </div>`;
+
+    // USDC: borrow | repay
+    const um = usdcMode;
     const fromPos = s!.posBal.debt > 0n;
-    out.push(card("repay", `Repay ${D.symbol}`,
-      `<p class="st-own-hint">${repayFrom === "wallet" ? `Your Ethereum wallet sends the ${D.symbol} to the position (one Ethereum signature), then` : `From the ${fmt(s!.posBal.debt, D.decimals, 2)} ${D.symbol} already at the position:`} the contract repays Aave (one NEAR call, two the first time). Max repays everything (the debt plus 0.2% for interest; Aave takes only what is owed).</p>
-       <fieldset class="st-dash-src-pick"${!av.repay.on ? " disabled" : ""}><legend class="st-visually-hidden">Repay from</legend>
-         <label><input type="radio" name="dash-repay-from" value="wallet"${repayFrom === "wallet" ? " checked" : ""}> from my Ethereum wallet</label>
-         <label><input type="radio" name="dash-repay-from" value="position"${repayFrom === "position" ? " checked" : ""}${fromPos ? "" : " disabled"}> from the position's ${D.symbol}</label>
-       </fieldset>`,
-      input("repay", D.symbol, "REPAY ALL", !av.repay.on) + projHtml("repay") + `<div class="st-own-buttons">${btn(opLabel("repay", "Repay", D.symbol, D.decimals, 2), "data-go=repay", true, !av.repay.on || !projOk("repay") || (repayFrom === "wallet" && !evm))}</div>`,
-      repayFrom === "wallet" && facts().locked && av.repay.on ? { on: false, why: `While a rescue runs, tokens sent to the position are held for the buy-back: repay from the position's ${D.symbol}, or after the rescue.`, tryAnyway: false } : av.repay));
-    // 4. withdraw
-    out.push(card("withdraw", `Withdraw ${C.symbol}`,
-      `<p class="st-own-hint">One NEAR call: the contract signs Aave's withdraw, which sends the ${C.symbol} straight to your payout <span class="st-mono">${short(pos.payout)}</span>. Max takes it to health 1.16, or all of it when there is no debt.</p>`,
-      input("withdraw", C.symbol, "MAX", !av.withdraw.on) + projHtml("withdraw") + `<div class="st-own-buttons">${btn(opLabel("withdraw", "Withdraw", C.symbol, C.decimals, 6), "data-go=withdraw", true, !av.withdraw.on || !projOk("withdraw"))}</div>`, av.withdraw, tryBtn("withdraw", av.withdraw)));
-    // 5. buy back (only while a claim is open)
-    if (facts().claimOpen) {
+    const repayV: Avail = repayFrom === "wallet" && f.locked && av.repay.on ? { on: false, why: `While a rescue runs, tokens sent to the position are held for the buy-back: repay from the position's ${D.symbol}, or after the rescue.`, tryAnyway: false } : av.repay;
+    const uv = um === "borrow" ? av.borrow : repayV;
+    const usdcCard = `<div class="st-dash-act${uv.on ? "" : " is-off"}" data-act="${um}">
+      <div class="st-dash-act-head"><h3>${D.symbol}</h3>${seg(`${D.symbol} action`, "data-mode", [{ v: "usdc:borrow", t: "BORROW" }, { v: "usdc:repay", t: "REPAY" }], `usdc:${um}`)}</div>
+      <p class="st-dash-have">wallet ${w ? fmt(w.debt, D.decimals, 2) : "…"} · debt ${fmt(debtUnits, D.decimals, 2)}${fromPos ? ` · ${fmt(s!.posBal.debt, D.decimals, 2)} at the position` : ""}</p>
+      ${um === "borrow"
+        ? input("borrow", D.symbol, "MAX 1.16", !av.borrow.on) + liveHtml("borrow", av.borrow, opLabel("borrow", "Borrow", D.symbol, D.decimals, 2)) + tryBtn("borrow", av.borrow)
+          + disc("how-borrow", "How it works", () => `<p>Two NEAR calls: the contract signs the Aave borrow (the ${D.symbol} lands at the position), then a transfer of it to your wallet; Aave only lends to the position itself. MAX stops at health 1.16, just above the trigger.</p>`)
+        : `<div class="st-dash-from"><span class="st-label">FROM</span>${seg("Repay from", "data-repay-from", [{ v: "wallet", t: "MY WALLET", off: !av.repay.on }, { v: "position", t: "THE POSITION", off: !av.repay.on || !fromPos }], repayFrom)}</div>`
+          + input("repay", D.symbol, "ALL", !av.repay.on) + liveHtml("repay", av.repay, opLabel("repay", "Repay", D.symbol, D.decimals, 2), repayFrom === "wallet" && !evm, repayV)
+          + disc("how-repay", "How it works", () => `<p>${repayFrom === "wallet" ? `Your Ethereum wallet sends the ${D.symbol} to the position (one signature), then` : `From the ${fmt(s!.posBal.debt, D.decimals, 2)} ${D.symbol} already at the position:`} the contract repays Aave (one NEAR call, two the first time). ALL repays the debt plus 0.2% for interest; Aave takes only what is owed.</p>`)}
+    </div>`;
+
+    // buy back (only while a claim is open)
+    let buyCard = "";
+    if (f.claimOpen) {
       const owed = owedUnits();
       const held = s!.posBal.coll;
-      out.push(card("buyback", "Buy back",
-        `<p class="st-own-hint">Pay exactly the ${fmt(owed, C.decimals, 8)} ${C.symbol} owed into the position (one Ethereum signature${held > 0n ? `; the ${fmt(held, C.decimals, 8)} ${C.symbol} already there counts` : ""}). The contract checks the proven balance and pays the claim owner exactly that; any excess is refunded to your wallet.</p>`,
-        `<div class="st-own-buttons">${btn(`Buy back for ${fmt(owed > held ? owed - held : 0n, C.decimals, 10)} ${C.symbol}`, "data-go=buyback", true, !av.buyback.on)}</div>`, av.buyback));
+      buyCard = `<div class="st-dash-act st-dash-buy${av.buyback.on ? "" : " is-off"}" data-act="buyback">
+        <div class="st-dash-act-head"><h3>Buy back</h3></div>
+        <p class="st-dash-owed"><span class="st-label">OWED</span><span class="st-num">${fmt(owed, C.decimals, 8)}</span><span class="st-dash-unit">${C.symbol}</span>${held > 0n ? `<span class="st-dash-have">${fmt(held, C.decimals, 8)} already at the position counts</span>` : ""}</p>
+        <div class="st-dash-go">${btn(`Buy back for ${fmt(owed > held ? owed - held : 0n, C.decimals, 10)} ${C.symbol}`, "data-go=buyback", true, !av.buyback.on)}</div>
+        ${av.buyback.on ? "" : `<p class="st-dash-why">${esc(av.buyback.why)}</p>`}
+        ${disc("how-buyback", "How it works", () => `<p>Pay exactly what is owed into the position (one Ethereum signature). The contract checks the proven balance and pays the claim owner exactly that; any excess is refunded to your wallet.</p>`)}
+      </div>`;
     }
-    // 6. leftover gas
-    const sw = facts().sweepUnits;
-    out.push(card("sweep", "Return leftover ETH",
-      `<p class="st-own-hint">One NEAR call: the contract signs a plain ETH transfer of ${fmt(sw, 18, 6)} ETH to your payout: the position's ${fmt(s!.posBal.eth, 18, 6)} ETH less the transfer's own fee (21,000 gas at ${fmt(BigInt(gas.evmGas.max_fee_per_gas), 9, 2)} gwei, wanted up front).</p>`,
-      `<div class="st-own-buttons">${btn(`Return ${fmt(sw, 18, 6)} ETH`, "data-go=sweep", false, !av.sweep.on)}</div>`, av.sweep));
-    // 7. USDC left at the position
-    if (s!.posBal.debt > 0n) {
-      out.push(card("move", `Move the position's ${D.symbol} to your wallet`,
-        `<p class="st-own-hint">One NEAR call: a transfer of the ${fmt(s!.posBal.debt, D.decimals, 2)} ${D.symbol} at the position (left from a borrow or a repay) to your payout.</p>`,
-        `<div class="st-own-buttons">${btn(`Move ${fmt(s!.posBal.debt, D.decimals, 2)} ${D.symbol}`, "data-go=move", false, !av.move.on)}</div>`, av.move));
-    }
-    return `<div class="st-label st-dash-acthead">ACTIONS · EACH SHOWS WHAT YOU SIGN</div><div class="st-dash-actions">${out.join("")}</div>`;
+
+    // small, secondary: leftover gas ETH, USDC left at the position
+    const sw = f.sweepUnits;
+    const minor = [`<div class="st-dash-minor-item" data-act="sweep"><span class="st-dash-minor-lbl">Leftover gas ETH</span>${btn(`Return ${fmt(sw, 18, 6)} ETH`, "data-go=sweep", false, !av.sweep.on)}${av.sweep.on ? "" : `<span class="st-dash-minor-why">${esc(av.sweep.why)}</span>`}</div>`];
+    if (s!.posBal.debt > 0n)
+      minor.push(`<div class="st-dash-minor-item" data-act="move"><span class="st-dash-minor-lbl">${D.symbol} at the position</span>${btn(`Move ${fmt(s!.posBal.debt, D.decimals, 2)} ${D.symbol} to my wallet`, "data-go=move", false, !av.move.on)}${av.move.on ? "" : `<span class="st-dash-minor-why">${esc(av.move.why)}</span>`}</div>`);
+
+    return `${buyCard}<div class="st-dash-actions">${wethCard}${usdcCard}</div><div class="st-dash-minor">${minor.join("")}</div>`;
   }
 
-  function journalHtml(): string {
-    const acts: { at: number; html: string }[] = shown().map((t) => ({
-      at: t.at,
-      html: `${t.ok ? "" : '<span class="st-own-chip-refused">refused</span> '}${esc(t.label.replace(/: refused by the contract.*$/, ""))}${t.hash ? ` <a class="st-np-link" href="${t.chain === "near" ? net.nearTx(t.hash) : net.evmTx(t.hash)}" target="_blank" rel="noopener" aria-label="the transaction">${icon("external", 11)}</a>` : ""}`,
-    }));
-    if (s?.rescue) for (const l of directLines(s.rescue, s.claims, C, net.evmName)) {
+  /** Every activity row for the position (its transactions and the rescue's events), newest first. */
+  function activityHtml(): string {
+    if (!s?.pos) return "";
+    const rows: { at: number; html: string }[] = shown().map((t) => {
+      const reason = t.ok ? "" : t.label.match(/refused by the contract \("(.*)"\)$/)?.[1] ?? "";
+      const link = t.hash ? `<a class="st-dash-txlink" href="${t.chain === "near" ? net.nearTx(t.hash) : net.evmTx(t.hash)}" target="_blank" rel="noopener">${t.chain === "near" ? "NearBlocks" : "Etherscan"}${icon("external", 11)}</a>` : "";
+      return { at: t.at, html: `${t.ok ? "" : '<span class="st-own-chip-refused">refused</span> '}${esc(t.label.replace(/: refused by the contract.*$/, ""))}${reason ? ` <span class="st-dash-reason">"${esc(reason)}"</span>` : ""}${link}` };
+    });
+    if (s.rescue) for (const l of directLines(s.rescue, s.claims, C, net.evmName)) {
       if (!seenAt.has(l.key)) seenAt.set(l.key, l.atMs ?? Date.now());
-      acts.push({ at: l.atMs ?? seenAt.get(l.key)!, html: l.html });
+      rows.push({ at: l.atMs ?? seenAt.get(l.key)!, html: l.html });
     }
-    const rows = acts.sort((a, b) => b.at - a.at).slice(0, 6).map((a) => `<li><span class="st-np-t">${new Date(a.at).toISOString().slice(11, 19)}</span><span>${a.html}</span></li>`).join("");
-    return rows ? `<div class="st-np-journal st-dash-journal"><div class="st-journal-head">LATEST ACTIVITY · POSITION ${s!.pos!.id}</div><ol class="st-np-lines">${rows}</ol></div>` : "";
-  }
-
-  function txListHtml(): string {
-    const list = shown();
-    if (!near || !list.length) return "";
-    return `<div class="st-label st-runlog-head">YOUR TRANSACTIONS · POSITION ${s!.pos!.id} · MAINNET</div><ol class="st-runlog">${list
-      .slice()
-      .reverse()
-      .slice(0, showAllTxs ? undefined : 5)
-      .map((t) => `<li><span class="st-runlog-time">${new Date(t.at).toISOString().slice(11, 19)}</span><span class="st-runlog-label">${t.ok ? "" : '<span class="st-own-chip-refused">refused</span> '}${esc(t.label)}</span>${t.hash ? `<a class="st-txlink" href="${t.chain === "near" ? net.nearTx(t.hash) : net.evmTx(t.hash)}" target="_blank" rel="noopener"><span>${t.chain === "near" ? "NearBlocks" : "Etherscan"}</span><span class="st-txlink-where">${t.hash.slice(0, 8)}…</span>${icon("external", 12)}</a>` : ""}</li>`)
-      .join("")}</ol>${list.length > 5 ? `<button type="button" class="st-secondary st-cut st-own-more" data-more-txs>${showAllTxs ? "Show the latest 5" : `See all ${list.length}`}</button>` : ""}`;
+    if (!rows.length) return "";
+    rows.sort((x, y) => y.at - x.at);
+    const li = (r: { at: number; html: string }) => `<li><span class="st-np-t">${new Date(r.at).toISOString().slice(11, 19)}</span><span>${r.html}</span></li>`;
+    const more = rows.length - 1;
+    return `<div class="st-np-journal st-dash-journal">
+      <div class="st-dash-jhead"><span class="st-journal-head">ACTIVITY · POSITION ${s.pos.id}</span>${more > 0 ? `<button type="button" class="st-dash-jmore" data-more-txs aria-expanded="${showAllTxs}" aria-controls="dash-activity">${showAllTxs ? "Hide" : `${more} earlier`}${chevron()}</button>` : ""}</div>
+      <ol class="st-np-lines" id="dash-activity">${li(rows[0])}${showAllTxs ? rows.slice(1, 80).map(li).join("") : ""}</ol>
+    </div>`;
   }
 
   function bannerHtml(): string {
@@ -777,36 +831,38 @@ export function mountDash(root: HTMLElement): () => void {
     const limits = cfg?.limits;
     const secs = (ns: string | undefined) => (ns ? `${Number(BigInt(ns) / 1_000_000_000n)} s` : "…");
     const cap = capUsd(limits ?? null);
-    return `<div class="st-own-real" role="note"><p class="st-own-real-head">Ethereum mainnet · real funds · capped at $${cap || 150}</p>
-      <p>Every action here moves real ${C.symbol}, ${D.symbol} and ETH on Ethereum and real NEAR. The contract caps each position at $${cap || 150} of collateral and lets only allow-listed borrowers open one.</p>
-      ${mismatch.length ? `<p class="st-own-stop" role="alert">The contract's market ${net.market} does not match this page (${esc(mismatch.join(", "))}): every action is off.</p>` : ""}
-      <dl class="st-own-cfg">
+    return `<div class="st-own-real st-dash-real" role="note"><div class="st-dash-realrow"><p class="st-own-real-head">Ethereum mainnet · real funds · capped at $${cap || 150}</p>${disc("cfg", "Contract settings", () => `<dl class="st-own-cfg">
         <div><dt>CONTRACT</dt><dd>${ext(`https://nearblocks.io/address/${net.contract}`, esc(net.contract))}${cfg?.paused ? " · paused" : ""}</dd></div>
         <div><dt>MARKET ${net.market}</dt><dd>${C.symbol} / ${D.symbol} on Aave V3 Ethereum${cfg?.market ? ` · liquidation bonus ${cfg.market.liq_bonus_bps / 100}%` : ""}</dd></div>
         <div><dt>RULES</dt><dd>${params ? `trigger ${(params.trigger_hf_bps / 10_000).toFixed(2)} · rescue to ${(params.target_hf_bps / 10_000).toFixed(2)} · auction ${secs(params.auction_window_ns)} · buy-back window ${secs(params.buyback_window_ns)}` : "reading…"}</dd></div>
         <div><dt>LIMITS</dt><dd>${limits ? `$${cap} of collateral per position · borrowers: ${limits.borrowers.map(esc).join(", ") || "anyone"}` : "reading…"}</dd></div>
-      </dl>
-      <p class="st-own-hint">Read from ${esc(net.contract)} on NEAR mainnet.</p></div>`;
+      </dl><p class="st-own-hint">Every action moves real ${C.symbol}, ${D.symbol}, ETH and NEAR. Read from ${esc(net.contract)} on NEAR mainnet.</p>`)}</div>
+      ${mismatch.length ? `<p class="st-own-stop" role="alert">The contract's market ${net.market} does not match this page (${esc(mismatch.join(", "))}): every action is off.</p>` : ""}
+    </div>`;
   }
 
-  // keep what the visitor is typing across re-renders
+  // keep what the visitor is typing (and which control has focus) across re-renders
+  const FOCUS_KEYS = ["amt", "disc", "mode", "repayFrom", "copy", "max", "moreTxs"] as const;
   function render() {
     if (gone) return;
-    const focused = document.activeElement as HTMLInputElement | null;
-    const focusKey = focused?.dataset?.amt ?? null;
-    const sel = focusKey ? [focused!.selectionStart, focused!.selectionEnd] : null;
+    const focused = document.activeElement as HTMLElement | null;
+    const inRoot = !!focused && root.contains(focused);
+    const fk = inRoot ? FOCUS_KEYS.find((k) => focused!.dataset[k] !== undefined) : undefined;
+    const focusSel = fk ? `[data-${fk.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase())}${focused!.dataset[fk] ? `="${focused!.dataset[fk]}"` : ""}]` : null;
+    const inp = fk === "amt" ? (focused as HTMLInputElement) : null;
+    const sel = inp ? [inp.selectionStart, inp.selectionEnd] : null;
     const netSwitch = `<nav class="st-own-net" aria-label="Network"><div class="st-own-netseg"><a href="${location.pathname}#/try">TESTNET</a><a href="${location.pathname}?net=mainnet#/try" aria-current="page">MAINNET · REAL FUNDS</a></div></nav>`;
     const pos = s?.pos ?? null;
     const body = !s
       ? `<p class="st-empty">${near ? "Reading the contract and Ethereum…" : ""}</p>`
       : pos?.evm_address
-        ? `${statusHtml()}${journalHtml()}${rescueHtml()}${positionWalletHtml()}${actionsHtml()}`
+        ? `${statusHtml()}${activityHtml()}${rescueHtml()}${actionsHtml()}${positionWalletHtml()}`
         : pos
           ? `<p class="st-own-hint">Position ${pos.id} is registered; its Ethereum address is being derived.</p>`
           : newPositionHtml();
     root.innerHTML = `<section class="st-panel st-sect st-own is-mainnet st-dash">
       <header class="st-list-head"><div class="st-label">YOUR AAVE POSITION · NEAR MAINNET AND ETHEREUM</div><h1 class="st-page-title">Protected Aave position</h1>
-        <p class="st-list-sub">An Aave position at an address only the Stead contract can sign for, through NEAR's chain signatures; your NEAR account owns it. If its health falls under 1.15, stewards compete to top it up, and you can buy the rescue back.</p></header>
+        <p class="st-list-sub">Only the Stead contract can sign for it; your NEAR account owns it. Under health 1.15, stewards top it up.</p></header>
       ${netSwitch}
       ${bannerHtml()}
       ${walletsHtml()}
@@ -814,34 +870,26 @@ export function mountDash(root: HTMLElement): () => void {
       ${error ? `<p class="st-own-error" role="alert">${esc(error)}</p>` : ""}
       ${busy && !pos?.evm_address ? `<p class="st-own-notice" role="status">${esc(busy)} <span class="st-own-elapsed" data-elapsed="${busySince}">${mmss(Date.now() - busySince)}</span></p>` : ""}
       ${body}
-      ${pos ? txListHtml() : ""}
     </section>`;
     bind();
-    if (focusKey) {
-      const el = root.querySelector<HTMLInputElement>(`[data-amt="${focusKey}"]`);
-      if (el && !el.disabled) {
+    if (focusSel) {
+      const el = root.querySelector<HTMLElement>(focusSel);
+      if (el && !(el as HTMLButtonElement).disabled) {
         el.focus();
-        if (sel) el.setSelectionRange(sel[0], sel[1]);
+        if (sel && el instanceof HTMLInputElement) el.setSelectionRange(sel[0], sel[1]);
       }
     }
   }
   /** Update one action's projection and button as the visitor types, without redrawing the page. */
-  function updateAction(id: "deposit" | "borrow" | "repay" | "withdraw") {
-    const el = root.querySelector<HTMLElement>(`[data-act="${id}"]`);
+  function updateAction(id: Act) {
+    const el = root.querySelector<HTMLElement>(`[data-act="${id}"] .st-dash-live`);
     if (!el || !s?.pos) return;
     const tmp = document.createElement("div");
     tmp.innerHTML = actionsHtml();
-    const fresh = tmp.querySelector<HTMLElement>(`[data-act="${id}"]`);
+    const fresh = tmp.querySelector<HTMLElement>(`[data-act="${id}"] .st-dash-live`);
     if (!fresh) return;
-    for (const sel of [".st-dash-proj", ".st-own-buttons"]) {
-      const a = el.querySelector(sel);
-      const b = fresh.querySelector(sel);
-      if (a && b) a.replaceWith(b);
-    }
-    el.querySelectorAll(".st-own-stop, .st-dash-warn").forEach((n) => n.remove());
-    const proj = el.querySelector(".st-dash-proj");
-    fresh.querySelectorAll(".st-own-stop, .st-dash-warn").forEach((n) => proj?.after(n));
-    el.querySelector(`[data-go="${id}"]`)?.addEventListener("click", () => go(id));
+    el.replaceWith(fresh);
+    fresh.querySelector(`[data-go="${id}"]`)?.addEventListener("click", () => go(id));
   }
   function go(id: string) {
     const f: Record<string, (() => unknown) | undefined> = { deposit, borrow, repay, withdraw, buyback: buyBack, sweep, move };
@@ -859,11 +907,26 @@ export function mountDash(root: HTMLElement): () => void {
       showAllTxs = !showAllTxs;
       render();
     });
+    root.querySelectorAll<HTMLButtonElement>("[data-disc]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const k = b.dataset.disc!;
+        if (!opened.delete(k)) opened.add(k);
+        render();
+      }),
+    );
+    root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const [card, m] = b.dataset.mode!.split(":");
+        if (card === "weth") wethMode = m as "deposit" | "withdraw";
+        else usdcMode = m as "borrow" | "repay";
+        render();
+      }),
+    );
     root.querySelectorAll<HTMLButtonElement>("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go!)));
     root.querySelectorAll<HTMLButtonElement>("[data-try]").forEach((b) => b.addEventListener("click", () => void tryAnyway(b.dataset.try as "withdraw" | "borrow")));
     root.querySelectorAll<HTMLInputElement>("[data-amt]").forEach((i) =>
       i.addEventListener("input", () => {
-        const id = i.dataset.amt as "deposit" | "borrow" | "repay" | "withdraw";
+        const id = i.dataset.amt as Act;
         amt[id] = i.value;
         if (all[id]) {
           all[id] = false;
@@ -889,16 +952,20 @@ export function mountDash(root: HTMLElement): () => void {
         render();
       }),
     );
-    root.querySelectorAll<HTMLInputElement>("input[name=dash-repay-from]").forEach((r) =>
-      r.addEventListener("change", () => {
-        repayFrom = r.value as "position" | "wallet";
+    root.querySelectorAll<HTMLButtonElement>("[data-repay-from]").forEach((r) =>
+      r.addEventListener("click", () => {
+        repayFrom = r.dataset.repayFrom as "position" | "wallet";
         render();
       }),
     );
     root.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((b) =>
       b.addEventListener("click", () => {
         void navigator.clipboard?.writeText(b.dataset.copy!).then(
-          () => (b.textContent = "the position's address (copied)"),
+          () => {
+            copiedAt = Date.now();
+            render();
+            setTimeout(render, 1700);
+          },
           () => undefined,
         );
       }),

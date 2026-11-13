@@ -4,7 +4,7 @@
 //  - broadcasts MPC-signed txs stored on the contract, then confirms the position nonce
 //  - confirms steward top-ups, settlement repays and buy-backs by reading fork logs itself
 //  - closes auctions, expires missed top-ups, advances settlement legs (anyone may)
-import { type Address, type Hex, decodeEventLog } from "viem";
+import { type Address, type Hex, decodeEventLog, keccak256 } from "viem";
 import { AAVE_BOOK, cfg } from "./config.js";
 import { call, txLogs, view, NEAR, TGAS } from "./near.js";
 import { accountData, price, pub, poolAbi, balance } from "./fork.js";
@@ -196,8 +196,9 @@ export class Keeper {
     if (!busy) {
       const [d, params] = await Promise.all([accountData(p.evm_address as Address), view<{ trigger_hf_bps: number }>("get_params")]);
       hfNow = d.hfWad;
-      // an empty position (closed, or not opened yet) has nothing to prove
-      if (d.collateralBase === 0n && d.debtBase === 0n && evidence === undefined && !force) return;
+      // an empty position (closed, or not opened yet) has nothing to prove, except its first reading:
+      // the contract checks the size cap against a price reading before it signs the first supply
+      if (skipEmptyProof(d.collateralBase, d.debtBase, p.health != null, evidence !== undefined, force)) return;
       const trigger = BigInt(params.trigger_hf_bps) * 10n ** 14n;
       if (d.debtBase > 0n && d.hfWad < (trigger * 105n) / 100n) idleMs = nearTriggerCadence(d.hfWad, this.provenAt.get(pid), trigger);
     }
@@ -257,6 +258,13 @@ export class Keeper {
       try {
         hash = await pub.sendRawTransaction({ serializedTransaction: raw });
       } catch (e) {
+        // A node can refuse a send it actually broadcast (an earlier attempt, or a gateway that errs
+        // after forwarding): if these exact signed bytes already have a receipt, carry on and confirm
+        const mined = await minedAlready(raw);
+        if (mined) {
+          this.sent.set(k, mined);
+          return this.relay(pid);
+        }
         // A sweep asking for more ETH than the address holds after gas can never be mined (more
         // ETH would fix any other tx, not this one): its nonce is burned once nonce_burn_after has
         // passed, and until then it stays on the back-off
@@ -561,6 +569,18 @@ export function unmineableSweep(kind: unknown, message: string): boolean {
 }
 
 /** A borrower action that lowers the health factor (and may cross the trigger). */
+/** Whether an empty position (nothing supplied or borrowed on Aave) can skip its proof: only once it
+ *  has a reading. A position never read gets one, so its first supply can pass the size cap. */
+export function skipEmptyProof(collateralBase: bigint, debtBase: bigint, hasReading: boolean, hasEvidence: boolean, force: boolean): boolean {
+  return collateralBase === 0n && debtBase === 0n && hasReading && !hasEvidence && !force;
+}
+
+/** The hash of a signed raw tx if a receipt for it exists (these exact bytes were mined), else null. */
+export async function minedAlready(raw: Hex, getReceipt: (h: Hex) => Promise<unknown> = (h) => pub.getTransactionReceipt({ hash: h })): Promise<Hex | null> {
+  const h = keccak256(raw);
+  return (await getReceipt(h).catch(() => null)) ? h : null;
+}
+
 export function healthDropping(kind: unknown): boolean {
   const k = kind as { type?: string; action?: string } | null;
   return k?.type === "borrower" && (k.action === "borrow" || k.action === "withdraw");

@@ -262,3 +262,30 @@ export function fallLine(hf: bigint | null, collSym: string): string {
   const pct = (1 - 10_000 / Number(hf)) * 100;
   return `${collSym} can fall ${pct.toFixed(1)}% before liquidation`;
 }
+
+// ── health factor readouts ──
+
+/** At or above this (18 decimals), a health reading means "no debt": Aave reports uint256 max and
+ *  the contract's own reading u128 max when nothing is borrowed. No real position gets near it. */
+export const NO_DEBT_WAD = 2n ** 100n;
+/** Aave's getUserAccountData health factor (18 decimals) → bps; null when there is no debt. */
+export function hfFromWad(debtBase: bigint, hfWad: bigint): bigint | null {
+  if (debtBase <= 0n || hfWad >= NO_DEBT_WAD) return null;
+  return hfWad / 10n ** 14n;
+}
+/** Over this, the readout says "100+" instead of a long number (a tiny debt against the collateral). */
+export const HF_TEXT_MAX_BPS = 1_000_000n;
+/** A health factor as text: rounded down (0.996 never reads 1.00), "no debt" without debt, "100+" above 100. */
+export function hfText(h: bigint | null): string {
+  if (h === null) return "no debt";
+  if (h >= HF_TEXT_MAX_BPS) return "100+";
+  return (Number(h / 100n) / 100).toFixed(2);
+}
+/** The health bar's scale: 0.90 at the left edge, 2.10 at the right (1.00 and 1.15 sit near the left). */
+export const HF_BAR = { min: 9_000n, max: 21_000n };
+/** Where a health factor sits on the bar, 0–100 (no debt fills it). */
+export function hfBarPct(h: bigint | null): number {
+  if (h === null || h >= HF_BAR.max) return 100;
+  if (h <= HF_BAR.min) return 0;
+  return Number(((h - HF_BAR.min) * 10_000n) / (HF_BAR.max - HF_BAR.min)) / 100;
+}

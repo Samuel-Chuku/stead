@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   project, hfBps, toBase, depositMax, borrowMax, withdrawMax, repayAllUnits, sweepAmount, sweepSupported, gasTopUp, phaseOf, availability, fallLine,
+  hfFromWad, hfText, hfBarPct, NO_DEBT_WAD, HF_BAR,
   TRIGGER_BPS, UNDER_TRIGGER_WARNING, type Account, type PosFacts,
 } from "../../web/src/own/dashlogic.js";
 
@@ -166,6 +167,35 @@ describe("phase", () => {
     expect(fallLine(16_600n, "WETH")).toBe("WETH can fall 39.8% before liquidation");
     expect(fallLine(null, "WETH")).toBe("no debt: nothing to liquidate");
     expect(fallLine(9_000n, "WETH")).toMatch(/liquidate it now/);
+  });
+});
+
+describe("health factor readouts", () => {
+  it("no debt reads as none, whatever Aave or the contract reports for it", () => {
+    const U256 = 2n ** 256n - 1n;
+    const U128 = 2n ** 128n - 1n; // the keeper logged 340282366920938487808 = this ÷ 1e18
+    expect(hfFromWad(0n, U256)).toBeNull();
+    expect(hfFromWad(B(10), U128)).toBeNull(); // a sentinel is never shown as a number
+    expect(hfFromWad(B(10), NO_DEBT_WAD)).toBeNull();
+    expect(hfFromWad(0n, 16_600n * 10n ** 14n)).toBeNull(); // no debt wins over any value
+    expect(hfFromWad(B(50), 1_660_000_000_000_000_000n)).toBe(16_600n);
+  });
+  it("text: rounded down, 'no debt' without debt, '100+' for a dust debt", () => {
+    expect(hfText(null)).toBe("no debt");
+    expect(hfText(9_960n)).toBe("0.99"); // 0.996 never reads 1.00
+    expect(hfText(16_600n)).toBe("1.66");
+    expect(hfText(999_999n)).toBe("99.99");
+    expect(hfText(1_000_000n)).toBe("100+");
+    expect(hfText(3_402_823_669_209_384_878n)).toBe("100+");
+  });
+  it("bar: 0.90 to 2.10, the trigger and liquidation marks inside it, no debt full", () => {
+    expect(hfBarPct(null)).toBe(100);
+    expect(hfBarPct(HF_BAR.min)).toBe(0);
+    expect(hfBarPct(8_000n)).toBe(0);
+    expect(hfBarPct(30_000n)).toBe(100);
+    expect(hfBarPct(15_000n)).toBe(50);
+    expect(hfBarPct(10_000n)).toBeCloseTo(8.33, 2);
+    expect(hfBarPct(TRIGGER_BPS)).toBeCloseTo(20.83, 2);
   });
 });
 
