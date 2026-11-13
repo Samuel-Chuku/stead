@@ -9,12 +9,15 @@ import { chartRunOf, costChart, wireCostChart } from "../rescue/costchart";
 import { loadRecords } from "../lists/pages";
 import type { PanelFeed } from "../../../stewards/src/panel";
 import type { Records } from "../../../stewards/src/records";
+import { mountGlyphMark, mountMarketField, powerOn, rollOnView } from "../ambience/stead-ambience.js";
 
 const REPO_URL = "https://github.com/Samuel-Chuku/stead";
 let LOOP_FROM = -3; // seconds before the first bid (set from the log), so the replay opens on the bidding
 const LOOP_TO = 54; // a few seconds after the close, then the loop restarts
 const tile = (s: StewardId, size: number) => `<span class="st-tile st-tile--${size}" style="--sc: var(--st-steward-${s})" aria-hidden="true">${CODE[s]}</span>`;
 const num = (n: string) => `<span class="st-num">${n}</span>`;
+/** A figure that rolls in when it first scrolls into view (only for values that are set once). */
+const numRoll = (n: string) => `<span class="st-num" data-roll data-roll-view>${n}</span>`;
 const fmtDur = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 const usdK = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `$${Math.round(n / 1e3)}k` : `$${Math.round(n).toLocaleString("en-US")}`);
 const ago = (ms: number) => {
@@ -27,6 +30,7 @@ export function mountHome(root: HTMLElement, replayUrl: string): () => void {
   let raf = 0;
   let stopped = false;
   root.innerHTML = skeleton();
+  const ambience = mountAmbience(root);
   void (async () => {
     const [log, path, stats] = await Promise.all([
       getJson<RescueLog>(replayUrl),
@@ -39,6 +43,7 @@ export function mountHome(root: HTMLElement, replayUrl: string): () => void {
     if (stopped) return;
     if (rec) fillLive(root, rec.rec, rec.live);
     else fillTotals(root, stats);
+    rollOnView(root.querySelector("[data-totals]") ?? root);
     void getJson<PanelFeed>(`${feedUrl()}/mainnet.json`).then((m) => m ?? getJson<PanelFeed>("/mainnet.json")).then((m) => !stopped && fillMainnet(root, m));
     if (log) {
       const firstBid = log.events.find((e) => e.kind === "BIDDING" || e.kind === "BID");
@@ -60,6 +65,7 @@ export function mountHome(root: HTMLElement, replayUrl: string): () => void {
         const run = chartRunOf(log, path);
         slot.innerHTML = costChart(run, { caption: `<p class="st-site-caption">From <a class="st-textlink" href="?rescue=${log.rescueId}#/rescues">rescue ${log.rescueId}</a>. More runs, on other real falls: <a class="st-textlink" href="#/how">How it works</a>.</p>` });
         wireCostChart(slot, run);
+        rollOnView(slot);
       }
     }
   })();
@@ -72,7 +78,33 @@ export function mountHome(root: HTMLElement, replayUrl: string): () => void {
   return () => {
     stopped = true;
     cancelAnimationFrame(raf);
+    ambience();
     root.onclick = null;
+  };
+}
+
+/** The homepage's ambience: the simulated market field behind the hero (its catches counted in the
+ *  hero panel), the glyph mark in the footer, and the once-a-session power-on after first paint.
+ *  Every piece is still under reduced motion. Returns the cleanup. */
+function mountAmbience(root: HTMLElement): () => void {
+  const phone = matchMedia("(max-width: 620px)").matches;
+  const caught = root.querySelector<HTMLElement>("[data-caught]")!;
+  let n = 0;
+  const field = mountMarketField(root.querySelector<HTMLCanvasElement>("[data-field]")!, {
+    ...(phone ? { cell: 12 } : {}),
+    onRescue: () => {
+      caught.textContent = String(++n);
+      caught.classList.remove("st-tick");
+      void caught.offsetWidth; // restart the tick
+      caught.classList.add("st-tick");
+    },
+  });
+  const mark = mountGlyphMark(root.querySelector<HTMLCanvasElement>("[data-mark]")!);
+  let raf = requestAnimationFrame(() => (raf = requestAnimationFrame(() => powerOn(root))));
+  return () => {
+    cancelAnimationFrame(raf);
+    field();
+    mark();
   };
 }
 
@@ -88,7 +120,7 @@ async function getJson<T>(url: string): Promise<T | null> {
 function skeleton(): string {
   return `
   <div class="st-site">
-    <header class="st-panel st-site-nav">
+    <header class="st-panel st-site-nav" data-panel>
       <a class="st-brand" href="#/" aria-label="Stead, home">${logo(26)}</a>
       <nav class="st-site-links" aria-label="Site">
         <a class="st-site-link" href="#/how">How it works</a>
@@ -97,26 +129,31 @@ function skeleton(): string {
         <a class="st-site-link" href="#/mainnet">On mainnet</a>
         <a class="st-site-link" href="${REPO_URL}" target="_blank" rel="noopener">Code</a>
       </nav>
-      <a class="st-push st-push--small st-cut" href="#/live"><span class="st-lamp" aria-hidden="true"></span>OPEN THE APP</a>
+      <a class="st-push st-push--small st-cut" href="#/live"><span class="cut-label"><span class="st-lamp st-lamp-live" aria-hidden="true"></span>OPEN THE APP</span></a>
     </header>
 
-    <div class="st-hero">
-      <section class="st-panel st-hero-main" aria-labelledby="hero-h">
+    <div class="st-panel st-hero st-field-host" data-panel>
+      <canvas class="st-field" aria-hidden="true" data-field></canvas>
+      <section class="st-hero-main" aria-labelledby="hero-h">
         <div class="st-label">LIQUIDATION RESCUE MARKET · BUILT ON NEAR</div>
         <h1 class="st-hero-h" id="hero-h">Liquidation is not the only way out.</h1>
         <p class="st-hero-lead">Protect your Aave position with Stead. If it nears liquidation, agent stewards compete to top it up, for a premium always smaller than the liquidation penalty, and you buy the rescue back. A NEAR contract signs only what the rules allow, and every reading it acts on is proven, not reported.</p>
         <div class="st-hero-actions">
-          <a class="st-push st-cut" href="#/try"><span class="st-lamp" aria-hidden="true"></span>PROTECT AN AAVE POSITION</a>
-          <a class="st-secondary st-cut st-secondary--link" href="?demo=#/live">Watch a real rescue in 5 minutes, no wallet</a>
+          <a class="st-push st-cut" href="#/try"><span class="cut-label"><span class="st-lamp" aria-hidden="true"></span>PROTECT AN AAVE POSITION</span></a>
+          <a class="st-secondary st-cut st-secondary--link" href="?demo=#/live"><span class="cut-label">Watch a real rescue in 5 minutes, no wallet</span></a>
         </div>
         <p class="st-hero-trust"><span class="st-live-dot" aria-hidden="true"></span><span data-live-line>Live on NEAR testnet and Ethereum Sepolia, with Aave V3's real contracts.</span></p>
       </section>
-      <section class="st-panel st-hero-mini" aria-label="A recorded rescue auction, replayed" data-mini>
-        <p class="st-empty">Loading the recorded auction…</p>
+      <section class="st-panel st-hero-mini" aria-label="A recorded rescue auction, replayed">
+        <div class="st-hero-mini-board" data-mini><p class="st-empty">Loading the recorded auction…</p></div>
+        <div class="st-field-count">
+          <div class="st-field-count-text"><div class="st-label">SIMULATED MARKET · EACH MARK IS A POSITION</div><p class="st-field-count-sub">Caught in this field since you arrived</p></div>
+          <span class="st-num st-field-count-num" data-caught>0</span>
+        </div>
       </section>
     </div>
 
-    <section class="st-site-totals" aria-labelledby="totals-h">
+    <section class="st-site-totals" aria-labelledby="totals-h" data-panel>
       <h2 class="st-visually-hidden" id="totals-h">So far</h2>
       <dl class="st-kpis st-kpis--site" data-totals>
         <div><dt>RESCUES</dt><dd>${num("—")}</dd></div>
@@ -127,12 +164,12 @@ function skeleton(): string {
       <p class="st-site-caption" data-totals-caption>Reading the contracts…</p>
     </section>
 
-    <section class="st-panel st-site-sect st-site-mainnet" aria-labelledby="mn-h" data-mainnet hidden>
+    <section class="st-panel st-site-sect st-site-mainnet" aria-labelledby="mn-h" data-mainnet data-panel hidden>
       <div class="st-site-mn-num"><div class="st-label">ETHEREUM MAINNET · LAST 24 HOURS</div><div class="st-num st-site-big" data-mn-kept>—</div><p data-mn-kept-sub>that borrowers would have kept with Stead</p></div>
-      <div class="st-site-mn-text"><h2 class="st-site-h2" id="mn-h">Liquidations are happening now</h2><p data-mn-text>Real Aave V3 liquidations on Ethereum, read from public RPCs, beside what a Stead rescue of the same position would have cost.</p><a class="st-secondary st-cut st-secondary--link" href="#/mainnet">See each liquidation</a></div>
+      <div class="st-site-mn-text"><h2 class="st-site-h2" id="mn-h">Liquidations are happening now</h2><p data-mn-text>Real Aave V3 liquidations on Ethereum, read from public RPCs, beside what a Stead rescue of the same position would have cost.</p><a class="st-secondary st-cut st-secondary--link" href="#/mainnet"><span class="cut-label">See each liquidation</span></a></div>
     </section>
 
-    <section class="st-site-ways" aria-labelledby="ways-h">
+    <section class="st-site-ways" aria-labelledby="ways-h" data-panel>
       <h2 class="st-site-h2" id="ways-h">Three ways to see it work</h2>
       <div class="st-site-ways-grid">
         <a class="st-panel st-way" href="#/try"><div class="st-label">YOUR NEAR WALLET · ABOUT 15 MIN</div><h3 class="st-proof-t">Protect an Aave position</h3><p class="st-proof-b">Open a protected position with your own NEAR account, push it under the trigger, try to break it, and buy the rescue back. Test funds are sponsored; a Sepolia wallet is optional.</p><span class="st-way-go">Start</span></a>
@@ -141,7 +178,7 @@ function skeleton(): string {
       </div>
     </section>
 
-    <section class="st-panel st-site-sect" id="how" aria-labelledby="how-h">
+    <section class="st-panel st-site-sect" id="how" aria-labelledby="how-h" data-panel>
       <div class="st-site-head"><h2 class="st-site-h2" id="how-h">One rescue, four steps</h2><span class="st-site-aside" data-how-aside>about 2 to 3 minutes from trigger to claim</span></div>
       <ol class="st-steps">
         ${[
@@ -150,17 +187,17 @@ function skeleton(): string {
           ["Top-up", "The winner supplies the collateral into the position. Once a proven reading shows it arrived, the steward receives a claim for exactly what it supplied plus its premium."],
           ["Buy back or settle", "The borrower buys the claim back by paying into the position, and the contract pays the steward exactly what is owed. If the window ends first, the claim settles from the position."],
         ]
-          .map(([t, b], i) => `<li class="st-step-site${i === 0 ? " is-exposed" : ""}"><span class="st-step-num">${num(String(i + 1).padStart(2, "0"))}</span><h3 class="st-step-site-t">${t}</h3><p class="st-step-site-b">${b}</p></li>`)
+          .map(([t, b], i) => `<li class="st-step-site${i === 0 ? " is-exposed" : ""}"><span class="st-step-num">${numRoll(String(i + 1).padStart(2, "0"))}</span><h3 class="st-step-site-t">${t}</h3><p class="st-step-site-b">${b}</p></li>`)
           .join("")}
       </ol>
     </section>
 
-    <div data-chart></div>
+    <div data-chart data-panel></div>
 
-    <section class="st-panel st-site-sect" id="stewards" aria-labelledby="stewards-h">
+    <section class="st-panel st-site-sect" id="stewards" aria-labelledby="stewards-h" data-panel>
       <div class="st-site-head">
         <div><h2 class="st-site-h2" id="stewards-h">Stewards</h2><p class="st-site-sub">Agents that bid to rescue positions with their own capital. Anyone can register one; these five are example strategies, each with its own appetite for risk.</p></div>
-        <a class="st-secondary st-cut st-secondary--link" href="${REPO_URL}/blob/main/stewards/README.md" target="_blank" rel="noopener">Run a steward</a>
+        <a class="st-secondary st-cut st-secondary--link" href="${REPO_URL}/blob/main/stewards/README.md" target="_blank" rel="noopener"><span class="cut-label">Run a steward</span></a>
       </div>
       <div class="st-steward-grid">
         ${STEWARD_ORDER.map(
@@ -173,15 +210,17 @@ function skeleton(): string {
       </div>
     </section>
 
-    <section class="st-site-proofs" id="proof" aria-labelledby="proof-h">
+    <section class="st-site-proofs" id="proof" aria-labelledby="proof-h" data-panel>
       <h2 class="st-visually-hidden" id="proof-h">Why you can check it</h2>
       <div class="st-panel st-proof-card"><div class="st-label">PROVEN READINGS</div><h3 class="st-proof-t">Checked in an enclave</h3><p class="st-proof-b">Every health factor, top-up and payment the contract acts on is read by a proof program running in an OutLayer enclave, from several RPCs that must agree. No auction opens on a reported number.</p></div>
       <div class="st-panel st-proof-card"><div class="st-label">SIGNED BY NEAR</div><h3 class="st-proof-t">Only allowed actions</h3><p class="st-proof-b">The contract holds each position through NEAR chain signatures and signs only what its rules allow: supply, repay, the top-up and exact payouts to registered addresses. While a claim is open, withdrawals are locked.</p></div>
       <div class="st-panel st-proof-card"><div class="st-label">SIGNED AI</div><h3 class="st-proof-t">Tuning you can audit</h3><p class="st-proof-b">A steward can let a model on NEAR AI Cloud adjust its risk settings within fixed bounds. A suggestion is applied only if the enclave's signature over that exact answer checks out, and each one links to its verification.</p></div>
     </section>
 
-    <footer class="st-site-foot">
+    <footer class="st-panel st-site-foot" data-panel>
+      <div class="st-site-foot-main">
       <a class="st-brand-plain" href="#/" aria-label="Stead, home">${logo(22)}</a>
+      <p class="st-site-foot-tag">Held between the limits, never left to the liquidator.</p>
       <nav class="st-site-foot-links" aria-label="Pages"><a class="st-textlink" href="#/how">How it works</a><a class="st-textlink" href="#/try">Protect a position</a><a class="st-textlink" href="#/live">Live auctions</a><a class="st-textlink" href="#/rescues">Rescues</a><a class="st-textlink" href="#/proofs">Proofs</a><a class="st-textlink" href="#/mainnet">On mainnet</a></nav>
       <p class="st-site-foot-line">Testnet build for NEAR HACKATHON 2026. Unaudited.</p>
       <span class="st-mono st-site-foot-id">steadfi.testnet</span>
@@ -189,6 +228,8 @@ function skeleton(): string {
         <button type="button" data-theme-set="light" aria-pressed="${document.documentElement.getAttribute("data-theme") !== "dark"}">LIGHT</button>
         <button type="button" data-theme-set="dark" aria-pressed="${document.documentElement.getAttribute("data-theme") === "dark"}">DARK</button>
       </div>
+      </div>
+      <div class="st-site-foot-mark"><canvas class="st-mark" aria-hidden="true" data-mark></canvas></div>
     </footer>
   </div>`;
 }
@@ -204,10 +245,10 @@ function fillLive(root: HTMLElement, r: Records, live: boolean) {
   const last = real.reduce((m, x) => Math.max(m, x.openedAtMs), 0);
   const positions = r.positions.filter((p) => p.chain !== "local fork").length;
   const cells = [
-    ["RESCUES ON SEPOLIA", num(String(done.length)), `${done.filter((x) => x.state === "bought_back").length} bought back, ${done.filter((x) => x.state === "settled").length} settled`],
-    ["BORROWERS WORSE OFF THAN LIQUIDATION", num(String(worse)), "every premium checked against its cap"],
-    ["MEDIAN WINNING PREMIUM", median === null ? num("—") : `${num(String(median))}<span class="st-unit">bps</span>`, "the lowest winning bid of each rescue"],
-    ["LAST RESCUE", last ? num(ago(last).replace(" ago", "")) : num("—"), last ? `ago · ${positions} positions protected` : ""],
+    ["RESCUES ON SEPOLIA", numRoll(String(done.length)), `${done.filter((x) => x.state === "bought_back").length} bought back, ${done.filter((x) => x.state === "settled").length} settled`],
+    ["BORROWERS WORSE OFF THAN LIQUIDATION", numRoll(String(worse)), "every premium checked against its cap"],
+    ["MEDIAN WINNING PREMIUM", median === null ? num("—") : `${numRoll(String(median))}<span class="st-unit">bps</span>`, "the lowest winning bid of each rescue"],
+    ["LAST RESCUE", last ? numRoll(ago(last).replace(" ago", "")) : num("—"), last ? `ago · ${positions} positions protected` : ""],
   ];
   root.querySelector<HTMLElement>("[data-totals]")!.innerHTML = cells.map(([dt, dd, sub]) => `<div><dt>${dt}</dt><dd>${dd}</dd><dd class="st-kpi-sub">${sub}</dd></div>`).join("");
   root.querySelector<HTMLElement>("[data-totals-caption]")!.innerHTML = `${live ? "Read from the contracts" : "Snapshot of the contracts"} at ${new Date(r.generated).toISOString().slice(0, 16).replace("T", " ")} UTC · <a class="st-textlink" href="#/rescues">every rescue, every transaction</a>`;
@@ -218,8 +259,12 @@ function fillMainnet(root: HTMLElement, m: PanelFeed | null) {
   if (!sect || !m || !m.summary.compared24h) return;
   const s = m.summary;
   sect.hidden = false;
-  sect.querySelector("[data-mn-kept]")!.textContent = usdK(s.saved24hUsd);
+  const kept = sect.querySelector<HTMLElement>("[data-mn-kept]")!;
+  kept.textContent = usdK(s.saved24hUsd);
+  kept.setAttribute("data-roll", "");
+  kept.setAttribute("data-roll-view", "");
   sect.querySelector("[data-mn-kept-sub]")!.textContent = `that borrowers would have kept with Stead, on ${s.compared24h} of ${s.liquidations24h} real liquidations`;
+  rollOnView(sect);
   sect.querySelector("[data-mn-text]")!.textContent = `In the 24 hours to ${new Date(m.blockTime).toISOString().slice(11, 16)} UTC, Aave liquidators took ${usdK(s.bonusPaid24hUsd)} in bonuses on Ethereum. On the same positions, Stead's stewards would have charged ${usdK(s.steadPremium24hUsd)} in premiums. ${s.nearTrigger} positions sit near the trigger right now. Read-only, from public RPCs: no Stead transaction.`;
 }
 
@@ -231,10 +276,10 @@ function fillTotals(root: HTMLElement, s: SiteStats | null) {
     return;
   }
   const cells = [
-    ["RESCUES", num(String(s.rescues)), `${s.boughtBack} bought back, ${s.settled} settled`],
-    ["BORROWERS WORSE OFF THAN LIQUIDATION", num(String(s.worseOff)), "premium within the cap every time"],
-    ["MEDIAN WINNING PREMIUM", s.medianPremiumBps === null ? num("—") : `${num(String(s.medianPremiumBps))}<span class="st-unit">bps</span>`, "the lowest bid of each rescue"],
-    ["MEDIAN TRIGGER TO CLAIM", s.medianTriggerToClaimS === null ? num("—") : num(fmtDur(s.medianTriggerToClaimS)), "auction, top-up and proof"],
+    ["RESCUES", numRoll(String(s.rescues)), `${s.boughtBack} bought back, ${s.settled} settled`],
+    ["BORROWERS WORSE OFF THAN LIQUIDATION", numRoll(String(s.worseOff)), "premium within the cap every time"],
+    ["MEDIAN WINNING PREMIUM", s.medianPremiumBps === null ? num("—") : `${numRoll(String(s.medianPremiumBps))}<span class="st-unit">bps</span>`, "the lowest bid of each rescue"],
+    ["MEDIAN TRIGGER TO CLAIM", s.medianTriggerToClaimS === null ? num("—") : numRoll(fmtDur(s.medianTriggerToClaimS)), "auction, top-up and proof"],
   ];
   dl.innerHTML = cells.map(([dt, dd, sub]) => `<div><dt>${dt}</dt><dd>${dd}</dd><dd class="st-kpi-sub">${sub}</dd></div>`).join("");
   const day = new Date(s.generatedAt).toISOString().slice(0, 10);

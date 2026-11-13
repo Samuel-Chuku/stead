@@ -7,6 +7,7 @@ import { icon } from "../icons";
 import { crown } from "../crown";
 import { story, txLink } from "./story";
 import { chartRunOf, costChart, wireCostChart } from "./costchart";
+import { powerOn, rollOnView } from "../ambience/stead-ambience.js";
 
 type Ev<K extends RescueEvent["kind"]> = Extract<RescueEvent, { kind: K }>;
 export type ProofKind = "readings" | "auction" | "topup" | "claim" | "payouts";
@@ -57,6 +58,8 @@ const shortId = (s: string) => (s.length > 14 ? `${s.slice(0, s.startsWith("0x")
 const tile = (s: StewardId, size: number) => `<span class="st-tile st-tile--${size}" style="--sc: var(--st-steward-${s})" aria-hidden="true">${CODE[s]}</span>`;
 /** A number in Big Shoulders with its unit in Chakra Petch (no word is ever set in Big Shoulders). */
 const num = (n: string, unit = "") => `<span class="st-num">${n}</span>${unit ? `<span class="st-unit">${unit}</span>` : ""}`;
+/** The same, rolling in on first paint (header figures: set once, never live). */
+const numRoll = (n: string, unit = "") => `<span class="st-num" data-roll>${n}</span>${unit ? `<span class="st-unit">${unit}</span>` : ""}`;
 
 /** Open a rescue: the first of `urls` that answers (the live feed's recording, then a published one). */
 export async function mountRescue(root: HTMLElement, urls: string | string[]) {
@@ -87,6 +90,12 @@ export async function mountRescue(root: HTMLElement, urls: string | string[]) {
   root.innerHTML = render(log, path);
   if (path) wireCostChart(root, chartRunOf(log, path));
   wireProofs(root);
+  // the page's top-level panels power on (once a session), then the header figures roll in
+  for (const el of root.querySelectorAll(".st-rescue > :is(section, details, .st-panel)")) el.setAttribute("data-panel", "");
+  requestAnimationFrame(() => {
+    powerOn(root);
+    rollOnView(root);
+  });
   return () => {};
 }
 
@@ -126,11 +135,11 @@ export function render(log: RescueLog, path: CostPath | null): string {
   // ---------- header + KPIs ----------
   const kpis = `
     <dl class="st-kpis">
-      <div><dt>TOP-UP</dt><dd>${num(fmtAmt(open.topUp.amount), m.collateral)}</dd><dd class="st-kpi-sub">${usd(open.topUp.usd)} at the trigger</dd></div>
-      <div><dt>${pooled ? "WINNING PREMIUMS" : "WINNING PREMIUM"}</dt><dd>${num(win ? bpsRange : "—", "bps")}</dd><dd class="st-kpi-sub">${pooled ? `${winners.length} stewards, ${usd(premiumUsd)} in all` : win ? `${win.steward}, ${usd(premiumUsd)}` : ""}</dd></div>
-      <div><dt>PREMIUM CAP</dt><dd>${num(open.capBps.toLocaleString("en-US"), "bps")}</dd><dd class="st-kpi-sub">below Aave's liquidation penalty</dd></div>
-      <div><dt>BACK ABOVE TRIGGER</dt><dd>${num(after ? fmtDur(after.t) : "—")}</dd><dd class="st-kpi-sub">trigger to proven top-up</dd></div>
-      <div><dt>HEALTH FACTOR</dt><dd>${num(trigger.hf.toFixed(2))}<span class="st-unit st-unit--mid">to</span>${num(after ? after.hf.toFixed(2) : "—")}</dd><dd class="st-kpi-sub">proven readings</dd></div>
+      <div><dt>TOP-UP</dt><dd>${numRoll(fmtAmt(open.topUp.amount), m.collateral)}</dd><dd class="st-kpi-sub">${usd(open.topUp.usd)} at the trigger</dd></div>
+      <div><dt>${pooled ? "WINNING PREMIUMS" : "WINNING PREMIUM"}</dt><dd>${win ? numRoll(bpsRange, "bps") : num("—", "bps")}</dd><dd class="st-kpi-sub">${pooled ? `${winners.length} stewards, ${usd(premiumUsd)} in all` : win ? `${win.steward}, ${usd(premiumUsd)}` : ""}</dd></div>
+      <div><dt>PREMIUM CAP</dt><dd>${numRoll(open.capBps.toLocaleString("en-US"), "bps")}</dd><dd class="st-kpi-sub">below Aave's liquidation penalty</dd></div>
+      <div><dt>BACK ABOVE TRIGGER</dt><dd>${after ? numRoll(fmtDur(after.t)) : num("—")}</dd><dd class="st-kpi-sub">trigger to proven top-up</dd></div>
+      <div><dt>HEALTH FACTOR</dt><dd>${numRoll(trigger.hf.toFixed(2))}<span class="st-unit st-unit--mid">to</span>${after ? numRoll(after.hf.toFixed(2)) : num("—")}</dd><dd class="st-kpi-sub">proven readings</dd></div>
     </dl>`;
 
   // ---------- timeline ----------

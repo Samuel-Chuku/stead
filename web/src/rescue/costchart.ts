@@ -154,7 +154,7 @@ export function costChart(run: ChartRun, opts: { title?: boolean; caption?: stri
     </div>
     <div class="st-chart-summary">
       <div class="st-label">BORROWER SAVED</div>
-      <div class="st-saved">${num(`$${Math.round(p.savedUsd.low)}–${Math.round(p.savedUsd.high)}`)}</div>
+      <div class="st-saved"><span class="st-num" data-roll data-roll-view>${`$${Math.round(p.savedUsd.low)}–${Math.round(p.savedUsd.high)}`}</span></div>
       <p class="st-saved-line">Aave's liquidation bonus on this debt is ${usd(p.penaltyUsd.low, 0)}–${usd(p.penaltyUsd.high, 0)} (half or all of it closed). The rescue's premium was ${usd(run.premiumUsd)}.</p>
       <div class="st-bars">
         <div class="st-bar-label">Liquidation penalty</div>

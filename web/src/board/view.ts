@@ -4,6 +4,7 @@ import type { RescueLog, StewardId } from "../../../stewards/src/rescuelog";
 import { CODE, consequence, fmtAmt, isPooled, RISK, RISK_WORD, RULE, STEWARD_ORDER, type Board, type LampId } from "./model";
 import { poolMarkup, updatePool } from "./pool";
 import { crown } from "../crown";
+import { powerOn } from "../ambience/stead-ambience.js";
 
 export type ReplayChoice = { id: string; label: string };
 
@@ -43,7 +44,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
   const liqCost = a ? (a.debtUsd * 0.5 * m.liqBonusBps) / 10_000 : null;
   root.innerHTML = `
   <div class="st-board">
-    <header class="st-annunciator" aria-label="Status">
+    <header class="st-annunciator" aria-label="Status" data-panel>
       <div class="st-lamps">${LAMPS.map((l) => `<div class="st-lamp-cell" data-lamp="${l.id}" data-tone="${l.cls}"><span class="st-dot" aria-hidden="true"></span>${l.id}</div>`).join("")}</div>
       <div class="st-annunciator-right">
         <span class="st-chip-market">SEPOLIA · MARKET ${m.id} · ${m.collateral}/${m.debt}</span>
@@ -55,7 +56,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
     <section class="st-error st-board-warn" role="alert" data-warn hidden><h2>Do not repay on Aave directly</h2><p data-warn-text></p></section>
 
     <div class="st-board-grid">
-      <section class="st-panel st-board-panel st-pos" aria-label="Position">
+      <section class="st-panel st-board-panel st-pos" aria-label="Position" data-panel>
         <div class="st-panel-head">
           <div class="st-label">POSITION ${log.positionId} · ${m.collateral}/${m.debt}</div>
           <div class="st-idline">${esc(log.borrower)}</div>
@@ -91,7 +92,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
         <div class="st-claim-slot" data-claim></div>
       </section>
 
-      <section class="st-panel st-board-panel st-auction" aria-label="Auction">
+      <section class="st-panel st-board-panel st-auction" aria-label="Auction" data-panel>
         <div class="st-auction-head">
           <div class="st-panel-head">
             <div class="st-label">RESCUE AUCTION · LOWEST PREMIUM WINS</div>
@@ -125,7 +126,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
         </div>
       </section>
 
-      <section class="st-panel st-board-panel st-rack" aria-label="Stewards">
+      <section class="st-panel st-board-panel st-rack" aria-label="Stewards" data-panel>
         <div class="st-rack-head st-label"><span>STEWARDS</span><span>RISK APPETITE</span></div>
         <div class="st-rack-cards">
         ${STEWARD_ORDER.map(
@@ -146,13 +147,15 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
     </div>
 
     ${pooled ? poolMarkup(log) : ""}
-    <section class="st-journal" aria-label="Journal">
+    <section class="st-journal" aria-label="Journal" data-panel>
       <div class="st-journal-head">${mode === "live" ? `JOURNAL · LIVE · ${controls.delayS ?? 6} S BEHIND THE CHAIN` : mode === "demo" ? `JOURNAL · DEMO · STARTED FROM THIS PAGE · ${controls.delayS ?? 6} S BEHIND THE CHAIN` : "JOURNAL · REPLAY OF A RECORDED RESCUE, ON LOOP"} · ${esc(log.label.toUpperCase())}</div>
       <div class="st-journal-lines" data-journal data-theme="dark"></div>
     </section>
   </div>`;
 
   const q = <T extends HTMLElement = HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
+  // the board's panels power on once a session, after first paint (its figures are live, so none roll)
+  requestAnimationFrame(() => powerOn(root));
   root.querySelector("[data-toggle]")?.addEventListener("click", controls.onToggle);
   bindModeSwitch(root, mode, controls.onMode);
   for (const btn of root.querySelectorAll<HTMLButtonElement>("[data-pick]")) btn.addEventListener("click", () => btn.dataset.pick !== controls.current && controls.onPick?.(btn.dataset.pick!));
