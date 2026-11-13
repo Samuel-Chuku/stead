@@ -10,7 +10,9 @@ const css = (name, fallback) => getComputedStyle(document.documentElement).getPr
 /*    Every glyph is a simulated Aave position. Slow price waves move  */
 /*    across the field and push health factors down. A glyph that     */
 /*    crosses the trigger flashes amber, gets bracketed (a steward     */
-/*    caught it), and its health resets to the 1.50 target.            */
+/*    caught it), and its health resets to the 1.50 target. The        */
+/*    pointer adds pressure: nearby positions drift toward the trigger */
+/*    and get caught by the same rule.                                 */
 /* ------------------------------------------------------------------ */
 const TRIGGER = 1.15, TARGET = 1.5;
 const BANDS = [ // [min HF, glyph, alpha]. Safe positions draw nothing: the field is
@@ -53,6 +55,7 @@ export function mountMarketField(canvas, opts = {}) {
       caught: 0,                // seconds left showing the bracket
       flash: 0,                 // seconds left of amber
       hf: 2,
+      p: 0,                     // pointer pressure, 0..1: the cursor is a local price drop
     }));
   };
 
@@ -64,22 +67,33 @@ export function mountMarketField(canvas, opts = {}) {
 
   let cooldown = 0;
   const step = (dt) => {
-    const atRisk = [];
+    const atRisk = [], pressed = [];
+    // Pointer pressure: positions near the cursor drift toward the trigger over about a second,
+    // and drift back once it leaves. The catch rule below is unchanged, so they get caught the same way.
+    const R = o.lens, R2 = R * R;
     for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
       const c = cells[j * cols + i];
+      let near = 0;
+      if (mouse.on && dt > 0) {
+        const dx = i * o.cell + o.cell / 2 - mouse.x, dy = j * o.cell + o.cell / 2 - mouse.y, d2 = dx * dx + dy * dy;
+        if (d2 < R2) near = 1 - Math.sqrt(d2) / R;
+      }
+      c.p += near > c.p ? Math.min(near - c.p, dt * 0.9) : -Math.min(c.p, dt * 0.45);
       if (c.caught > 0) { c.caught -= dt; c.flash -= dt; continue; }
-      c.hf = c.h0 * (1 - 0.34 * c.k * Math.max(0, price(i, j, t)));
-      if (c.hf < TRIGGER) atRisk.push(j * cols + i);
+      c.hf = c.h0 * (1 - 0.34 * c.k * Math.max(0, price(i, j, t))) * (1 - 0.3 * c.p);
+      if (c.hf < TRIGGER) { atRisk.push(j * cols + i); if (c.p > 0.25) pressed.push(j * cols + i); }
       c.h0 += (rand(1.35, 2.6) - c.h0) * 0.0004; // slow drift so the market never settles
     }
-    // Stewards catch one position at a time, a few per second at most: never a strobe.
+    // Stewards catch one position at a time, a few per second at most: never a strobe. Positions
+    // pushed under by the pointer are caught first, a little faster.
     cooldown -= dt;
     if (dt > 0 && cooldown <= 0 && atRisk.length) {
-      const idx = atRisk[Math.floor(Math.random() * atRisk.length)], c = cells[idx];
+      const pool = pressed.length ? pressed : atRisk;
+      const idx = pool[Math.floor(Math.random() * pool.length)], c = cells[idx];
       c.flash = 0.35; c.caught = 1.8;
       c.h0 = Math.max(c.h0, TARGET / (1 - 0.34 * c.k) + 0.02); // topped up to the target
       c.hf = TARGET;
-      cooldown = rand(0.35, 0.9);
+      cooldown = pressed.length ? rand(0.25, 0.5) : rand(0.35, 0.9);
       o.onRescue && o.onRescue({ col: idx % cols, row: Math.floor(idx / cols) });
     }
   };
@@ -137,7 +151,12 @@ export function mountMarketField(canvas, opts = {}) {
   const start = () => { if (running || reduce()) return; running = true; last = performance.now(); raf = requestAnimationFrame(loop); };
   const stop = () => { running = false; cancelAnimationFrame(raf); };
 
-  const onMove = (e) => { const r = canvas.getBoundingClientRect(); mouse = { x: e.clientX - r.left, y: e.clientY - r.top, on: true }; };
+  // pressure only where the field shows: not through an opaque panel set on top of it (the replay)
+  const onMove = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const over = e.target instanceof Element ? e.target.closest('.st-panel') : null;
+    mouse = { x: e.clientX - r.left, y: e.clientY - r.top, on: !over || over === host };
+  };
   const onLeave = () => { mouse.on = false; };
   const host = canvas.parentElement;
   host.addEventListener('pointermove', onMove);
@@ -178,8 +197,8 @@ export function powerOn(root = document, { force = false } = {}) {
 /* 3. Number roll: digits spin and settle left to right, the way a     */
 /*    mechanical counter catches up. Non-digits never move.            */
 /* ------------------------------------------------------------------ */
-export function rollNumbers(root = document, { instant = false } = {}) {
-  root.querySelectorAll('[data-roll]').forEach((el) => {
+export function rollNumbers(root = document, { instant = false, selector = '[data-roll]' } = {}) {
+  root.querySelectorAll(selector).forEach((el) => {
     const final = el.dataset.roll || el.textContent;
     el.dataset.roll = final;
     if (instant || reduce()) { el.textContent = final; return; }

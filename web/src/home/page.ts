@@ -1,7 +1,7 @@
 // The homepage (site.md): the product's own components are the imagery. Every figure on it is read
 // from the contracts (stats.json) or from a recorded rescue's event log; nothing is invented.
 import type { CostPath } from "../../../stewards/src/costpath";
-import type { RescueLog, StewardId } from "../../../stewards/src/rescuelog";
+import type { RescueEvent, RescueLog, StewardId } from "../../../stewards/src/rescuelog";
 import type { SiteStats } from "../../../stewards/src/sitestats";
 import { boardAt, CODE, consequence, RISK, RISK_WORD, RULE, STEWARD_ORDER } from "../board/model";
 import { logo } from "../icons";
@@ -9,7 +9,11 @@ import { chartRunOf, costChart, wireCostChart } from "../rescue/costchart";
 import { loadRecords } from "../lists/pages";
 import type { PanelFeed } from "../../../stewards/src/panel";
 import type { Records } from "../../../stewards/src/records";
-import { mountGlyphMark, mountMarketField, powerOn, rollOnView } from "../ambience/stead-ambience.js";
+import { mountGlyphMark, mountMarketField, rollOnView } from "../ambience/stead-ambience.js";
+import { mountDeal, mountPageHf, mountStory, powerOnView } from "../ambience/stead-landing";
+import { FAQ } from "../how/page";
+import type { Liquidation } from "../../../stewards/src/panel";
+import { icon } from "../icons";
 
 const REPO_URL = "https://github.com/Samuel-Chuku/stead";
 let LOOP_FROM = -3; // seconds before the first bid (set from the log), so the replay opens on the bidding
@@ -31,6 +35,7 @@ export function mountHome(root: HTMLElement, replayUrl: string): () => void {
   let stopped = false;
   root.innerHTML = skeleton();
   const ambience = mountAmbience(root);
+  const story = mountStorySection(root);
   void (async () => {
     const [log, path, stats] = await Promise.all([
       getJson<RescueLog>(replayUrl),
@@ -60,6 +65,7 @@ export function mountHome(root: HTMLElement, replayUrl: string): () => void {
         if (!reduced) raf = requestAnimationFrame(frame);
       };
       raf = requestAnimationFrame(frame);
+      story.setLog(log);
       if (path) {
         const slot = root.querySelector<HTMLElement>("[data-chart]")!;
         const run = chartRunOf(log, path);
@@ -75,17 +81,40 @@ export function mountHome(root: HTMLElement, replayUrl: string): () => void {
     e.preventDefault();
     document.getElementById(b.dataset.scroll!)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   };
+  // one answer open at a time
+  const onToggle = (e: Event) => {
+    const d = e.target as HTMLDetailsElement;
+    if (!d.matches?.("details.st-faq-item") || !d.open) return;
+    for (const o of root.querySelectorAll<HTMLDetailsElement>("details.st-faq-item[open]")) if (o !== d) o.open = false;
+  };
+  root.addEventListener("toggle", onToggle, true);
+  // the mainnet feed moves on: bring in new liquidations while the visitor is at the top of the cards
+  let newest = "";
+  const refresh = setInterval(() => {
+    if (document.hidden) return;
+    void getJson<PanelFeed>(`${feedUrl()}/mainnet.json`).then((m) => {
+      const top = m?.liquidations.reduce((a, l) => (l.block > a ? l.block : a), 0);
+      const track = root.querySelector<HTMLElement>("[data-mn-track]");
+      if (stopped || !m || !top || String(top) === newest || (track && track.scrollLeft > 2)) return;
+      newest = String(top);
+      fillMainnet(root, m);
+    });
+  }, 120_000);
   return () => {
     stopped = true;
     cancelAnimationFrame(raf);
+    clearInterval(refresh);
+    root.removeEventListener("toggle", onToggle, true);
     ambience();
+    story.stop();
+    stopDeal();
     root.onclick = null;
   };
 }
 
 /** The homepage's ambience: the simulated market field behind the hero (its catches counted in the
- *  hero panel), the glyph mark in the footer, and the once-a-session power-on after first paint.
- *  Every piece is still under reduced motion. Returns the cleanup. */
+ *  hero panel), the glyph mark in the footer, each section powering on as it enters view, and the
+ *  page's own health factor rail. Every piece is still or absent under reduced motion. Returns the cleanup. */
 function mountAmbience(root: HTMLElement): () => void {
   const phone = matchMedia("(max-width: 620px)").matches;
   const caught = root.querySelector<HTMLElement>("[data-caught]")!;
@@ -100,12 +129,68 @@ function mountAmbience(root: HTMLElement): () => void {
     },
   });
   const mark = mountGlyphMark(root.querySelector<HTMLCanvasElement>("[data-mark]")!);
-  let raf = requestAnimationFrame(() => (raf = requestAnimationFrame(() => powerOn(root))));
+  const rail = mountPageHf(root);
+  let view = () => {};
+  let raf = requestAnimationFrame(() => (raf = requestAnimationFrame(() => (view = powerOnView(root)))));
   return () => {
     cancelAnimationFrame(raf);
+    view();
     field();
     mark();
+    rail();
   };
+}
+
+/** "One rescue, four steps" played by scroll on wide screens: the stage replays the recorded rescue,
+ *  each step a stretch of its real event log (trigger, bids, top-up and claim, buy-back). Elsewhere
+ *  the steps are the plain list. Returns setLog (once the log arrives) and stop. */
+function mountStorySection(root: HTMLElement) {
+  const wrap = root.querySelector<HTMLElement>("[data-story]")!;
+  const stage = wrap.querySelector<HTMLElement>("[data-story-stage]")!;
+  let log: RescueLog | null = null;
+  let spans: [number, number, number][] = []; // [from t, to t, share of the step it takes]
+  let last: [number, number] = [0, 0];
+  let items: HTMLElement[] = [];
+  const draw = (step: number, within: number, lis: HTMLElement[]) => {
+    last = [step, within];
+    items = lis;
+    if (!log) {
+      lis.forEach((li, i) => li.classList.toggle("is-exposed", i === step && step < 2));
+      return;
+    }
+    const [a, b, share] = spans[step];
+    const k = Math.min(1, within / share);
+    const t = step === 0 ? (within < 0.35 ? a : b) : a + (b - a) * k;
+    updateMini(stage, log, t);
+    const below = boardAt(log, t).below;
+    lis.forEach((li, i) => li.classList.toggle("is-exposed", i === step && below));
+    const claim = log.events.find((e) => e.kind === "CLAIM_MINTED" && e.t <= t);
+    const closed = log.events.some((e) => (e.kind === "BOUGHT_BACK" || e.kind === "SETTLED") && e.t <= t);
+    const tag = stage.querySelector<HTMLElement>("[data-story-tag]")!;
+    const done = stage.querySelector<HTMLElement>("[data-story-done]")!;
+    tag.hidden = !claim || closed;
+    done.hidden = !closed;
+  };
+  const stop = mountStory(wrap, draw, (on) => {
+    stage.hidden = !on;
+    if (!on) wrap.querySelectorAll<HTMLElement>(".st-step-site").forEach((li, i) => li.classList.toggle("is-exposed", i === 0));
+  });
+  const setLog = (l: RescueLog) => {
+    const tOf = (...k: RescueEvent["kind"][]) => l.events.find((e) => k.includes(e.kind))?.t;
+    const close = tOf("AUCTION_CLOSE") ?? l.params.auctionS;
+    const claimT = tOf("CLAIM_MINTED") ?? close + 60;
+    const endT = tOf("BOUGHT_BACK", "SETTLED") ?? claimT + 60;
+    spans = [[-1, 0.5, 1], [0, close + 0.5, 0.9], [close + 0.5, claimT + 0.5, 0.7], [claimT + 0.5, endT + 0.5, 0.6]];
+    const c = l.events.find((e) => e.kind === "CLAIM_MINTED") as Extract<RescueEvent, { kind: "CLAIM_MINTED" }> | undefined;
+    stage.innerHTML = `${miniBoard(l)}
+      <div class="st-story-claim">
+        ${c ? `<div class="st-tag st-cut st-cut--l st-story-tag" data-story-tag hidden><div class="st-tag-top">${tile(c.holder, 22)}<span class="st-tag-title">CLAIM ${escHtml(c.claim)} · ${c.holder}</span></div><div class="st-tag-lines">Premium ${escHtml(c.premium)} ${escHtml(c.asset)}. Withdrawals are locked until the borrower buys it back.</div></div>` : `<div data-story-tag hidden></div>`}
+        <p class="st-story-done" data-story-done hidden>Bought back. The claim is closed and the position is free again.</p>
+      </div>`;
+    log = l;
+    if (items.length) draw(last[0], last[1], items);
+  };
+  return { setLog, stop };
 }
 
 async function getJson<T>(url: string): Promise<T | null> {
@@ -167,6 +252,18 @@ function skeleton(): string {
     <section class="st-panel st-site-sect st-site-mainnet" aria-labelledby="mn-h" data-mainnet data-panel hidden>
       <div class="st-site-mn-num"><div class="st-label">ETHEREUM MAINNET · LAST 24 HOURS</div><div class="st-num st-site-big" data-mn-kept>—</div><p data-mn-kept-sub>that borrowers would have kept with Stead</p></div>
       <div class="st-site-mn-text"><h2 class="st-site-h2" id="mn-h">Liquidations are happening now</h2><p data-mn-text>Real Aave V3 liquidations on Ethereum, read from public RPCs, beside what a Stead rescue of the same position would have cost.</p><a class="st-secondary st-cut st-secondary--link" href="#/mainnet"><span class="cut-label">See each liquidation</span></a></div>
+      <div class="st-mn-carousel" data-mn-carousel hidden>
+        <div class="st-mn-car-head">
+          <div class="st-label">POSITIONS STEAD COULD HAVE SAVED · LATEST FIRST</div>
+          <div class="st-mn-car-nav">
+            <span class="st-mn-car-pos" data-mn-pos aria-live="polite"></span>
+            <button class="st-icon-btn st-mn-arrow st-mn-arrow--prev" type="button" data-mn-step="-1" aria-label="Previous liquidations" disabled></button>
+            <button class="st-icon-btn st-mn-arrow" type="button" data-mn-step="1" aria-label="Next liquidations"></button>
+          </div>
+        </div>
+        <div class="st-mn-track" data-mn-track tabindex="0" role="region" aria-label="Real Aave liquidations on Ethereum, each beside a Stead rescue"></div>
+        <p class="st-site-caption">Each card is a real Aave V3 liquidation on Ethereum. The premium is what the lowest steward would have bid at Stead's 1.15 trigger, priced from the same position just before it was liquidated. Read-only: no Stead transaction.</p>
+      </div>
     </section>
 
     <section class="st-site-ways" aria-labelledby="ways-h" data-panel>
@@ -178,18 +275,23 @@ function skeleton(): string {
       </div>
     </section>
 
-    <section class="st-panel st-site-sect" id="how" aria-labelledby="how-h" data-panel>
-      <div class="st-site-head"><h2 class="st-site-h2" id="how-h">One rescue, four steps</h2><span class="st-site-aside" data-how-aside>about 2 to 3 minutes from trigger to claim</span></div>
-      <ol class="st-steps">
-        ${[
-          ["Trigger", "A proven reading shows the loan's health below 1.15. The position is exposed, and an auction opens for the top-up that brings it back to 1.50."],
-          ["Auction", "For 45 seconds, stewards bid the premium down. The lowest bid wins, and no bid can exceed a cap set below Aave's liquidation penalty."],
-          ["Top-up", "The winner supplies the collateral into the position. Once a proven reading shows it arrived, the steward receives a claim for exactly what it supplied plus its premium."],
-          ["Buy back or settle", "The borrower buys the claim back by paying into the position, and the contract pays the steward exactly what is owed. If the window ends first, the claim settles from the position."],
-        ]
-          .map(([t, b], i) => `<li class="st-step-site${i === 0 ? " is-exposed" : ""}"><span class="st-step-num">${numRoll(String(i + 1).padStart(2, "0"))}</span><h3 class="st-step-site-t">${t}</h3><p class="st-step-site-b">${b}</p></li>`)
-          .join("")}
-      </ol>
+    <section class="st-story" id="how" aria-labelledby="how-h" data-story>
+      <div class="st-panel st-site-sect st-story-panel" data-story-panel data-panel>
+        <div class="st-site-head"><h2 class="st-site-h2" id="how-h">One rescue, four steps</h2><span class="st-site-aside" data-how-aside>about 2 to 3 minutes from trigger to claim</span></div>
+        <div class="st-story-body">
+          <ol class="st-steps">
+            ${[
+              ["Trigger", "A proven reading shows the loan's health below 1.15. The position is exposed, and an auction opens for the top-up that brings it back to 1.50."],
+              ["Auction", "For 45 seconds, stewards bid the premium down. The lowest bid wins, and no bid can exceed a cap set below Aave's liquidation penalty."],
+              ["Top-up", "The winner supplies the collateral into the position. Once a proven reading shows it arrived, the steward receives a claim for exactly what it supplied plus its premium."],
+              ["Buy back or settle", "The borrower buys the claim back by paying into the position, and the contract pays the steward exactly what is owed. If the window ends first, the claim settles from the position."],
+            ]
+              .map(([t, b], i) => `<li class="st-step-site${i === 0 ? " is-exposed" : ""}"><span class="st-step-num">${numRoll(String(i + 1).padStart(2, "0"))}</span><h3 class="st-step-site-t">${t}</h3><p class="st-step-site-b">${b}</p></li>`)
+              .join("")}
+          </ol>
+          <div class="st-story-stage" data-story-stage aria-hidden="true" hidden><p class="st-empty">Loading the recorded rescue…</p></div>
+        </div>
+      </div>
     </section>
 
     <div data-chart data-panel></div>
@@ -202,7 +304,7 @@ function skeleton(): string {
       <div class="st-steward-grid">
         ${STEWARD_ORDER.map(
           (s) => `<div class="st-steward-card" style="--sc: var(--st-steward-${s})">
-            <div class="st-steward-card-top">${tile(s, 40)}<span class="st-risk st-risk--site" role="img" aria-label="Risk appetite: ${RISK_WORD[RISK[s]]}">${[1, 2, 3, 4, 5].map((i) => `<span class="st-pip${i <= RISK[s] ? " st-pip--on" : ""}"></span>`).join("")}</span></div>
+            <div class="st-steward-card-top">${tile(s, 40)}<span class="st-risk st-risk--site" role="img" aria-label="Risk appetite: ${RISK_WORD[RISK[s]]}">${[1, 2, 3, 4, 5].map((i) => `<span class="st-pip${i <= RISK[s] ? " st-pip--on" : ""}" style="--i:${i - 1}"></span>`).join("")}</span></div>
             <h3 class="st-steward-name">${s}</h3>
             <p class="st-steward-rule">${RULE[s]}</p>
           </div>`,
@@ -215,6 +317,15 @@ function skeleton(): string {
       <div class="st-panel st-proof-card"><div class="st-label">PROVEN READINGS</div><h3 class="st-proof-t">Checked in an enclave</h3><p class="st-proof-b">Every health factor, top-up and payment the contract acts on is read by a proof program running in an OutLayer enclave, from several RPCs that must agree. No auction opens on a reported number.</p></div>
       <div class="st-panel st-proof-card"><div class="st-label">SIGNED BY NEAR</div><h3 class="st-proof-t">Only allowed actions</h3><p class="st-proof-b">The contract holds each position through NEAR chain signatures and signs only what its rules allow: supply, repay, the top-up and exact payouts to registered addresses. While a claim is open, withdrawals are locked.</p></div>
       <div class="st-panel st-proof-card"><div class="st-label">SIGNED AI</div><h3 class="st-proof-t">Tuning you can audit</h3><p class="st-proof-b">A steward can let a model on NEAR AI Cloud adjust its risk settings within fixed bounds. A suggestion is applied only if the enclave's signature over that exact answer checks out, and each one links to its verification.</p></div>
+    </section>
+
+    <section class="st-panel st-site-sect st-site-faq" aria-labelledby="faq-h" data-panel>
+      <div class="st-site-faq-head">
+        <div class="st-label">QUESTIONS</div>
+        <h2 class="st-site-h2" id="faq-h">What people ask</h2>
+        <p class="st-site-caption">Short answers. The full walk-through, with diagrams and recorded runs, is on <a class="st-textlink" href="#/how">How it works</a>.</p>
+      </div>
+      <div class="st-faq">${FAQ.map(([q, a]) => `<details class="st-faq-item"><summary>${q}<span class="st-item-caret" aria-hidden="true"></span></summary><p>${a}</p></details>`).join("")}</div>
     </section>
 
     <footer class="st-panel st-site-foot" data-panel>
@@ -265,7 +376,80 @@ function fillMainnet(root: HTMLElement, m: PanelFeed | null) {
   kept.setAttribute("data-roll-view", "");
   sect.querySelector("[data-mn-kept-sub]")!.textContent = `that borrowers would have kept with Stead, on ${s.compared24h} of ${s.liquidations24h} real liquidations`;
   rollOnView(sect);
+  fillSaved(sect, m.liquidations);
   sect.querySelector("[data-mn-text]")!.textContent = `In the 24 hours to ${new Date(m.blockTime).toISOString().slice(11, 16)} UTC, Aave liquidators took ${usdK(s.bonusPaid24hUsd)} in bonuses on Ethereum. On the same positions, Stead's stewards would have charged ${usdK(s.steadPremium24hUsd)} in premiums. ${s.nearTrigger} positions sit near the trigger right now. Read-only, from public RPCs: no Stead transaction.`;
+}
+
+// ───────────── positions Stead could have saved: real mainnet liquidations, stepped with arrows ─────────────
+
+let stopDeal = () => {};
+const escHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+const SAVED_MAX = 12;
+
+function savedCard(l: Liquidation, i: number, n: number): string {
+  const s = l.stead!;
+  // the premium's bar is drawn against the liquidator's bonus (always the larger: the cap keeps it so)
+  const share = Math.max(2, Math.min(100, (s.premiumUsd / l.bonusPaidUsd) * 100));
+  const steward = STEWARD_ORDER.includes(s.steward as StewardId) ? (s.steward as StewardId) : null;
+  return `
+  <article class="st-mn-card" aria-roledescription="slide" aria-label="${i + 1} of ${n}">
+    <div class="st-mn-card-top"><span class="st-chip st-chip--liquidated">LIQUIDATED</span><span class="st-mn-when">${l.at.slice(11, 16)} UTC · ${ago(Date.parse(l.at))}</span></div>
+    <div><h3 class="st-mn-pair">${escHtml(l.collateral.symbol)} / ${escHtml(l.debt.symbol)}</h3><p class="st-mn-debt">${usdK(s.debtUsd)} of debt just before</p></div>
+    <div class="st-mn-cmp">
+      <div class="st-mn-row"><span class="st-label">LIQUIDATOR TOOK</span>${num(usdK(l.bonusPaidUsd))}</div>
+      <div class="st-cbar" aria-hidden="true"><span class="st-cbar-low" style="width:100%"></span></div>
+      <div class="st-mn-row"><span class="st-label">STEAD PREMIUM</span>${num(usdK(s.premiumUsd))}</div>
+      <div class="st-cbar" aria-hidden="true"><span class="st-cbar-premium" style="width:${share.toFixed(1)}%"></span></div>
+    </div>
+    <div class="st-mn-kept"><span class="st-num" data-roll data-roll-deal>${usdK(s.savedUsd)}</span><span>the borrower would have kept</span></div>
+    <div class="st-mn-card-foot">${steward ? `${tile(steward, 22)}<span>${steward} at ${s.bps} bps</span>` : `<span>lowest bid ${s.bps} bps</span>`}<a class="st-textlink st-extlink" href="https://etherscan.io/tx/${l.tx}" target="_blank" rel="noopener">Etherscan${icon("external", 13)}</a></div>
+  </article>`;
+}
+
+/** The latest liquidations that have a Stead estimate, newest first, as cards stepped with arrows. */
+function fillSaved(sect: HTMLElement, all: Liquidation[]) {
+  const box = sect.querySelector<HTMLElement>("[data-mn-carousel]")!;
+  const list = all.filter((l) => l.stead && l.stead.savedUsd > 0 && l.bonusPaidUsd > 0).sort((a, b) => b.block - a.block || b.logIndex - a.logIndex).slice(0, SAVED_MAX);
+  if (!list.length) return;
+  const track = box.querySelector<HTMLElement>("[data-mn-track]")!;
+  track.innerHTML = list.map((l, i) => savedCard(l, i, list.length)).join("");
+  box.hidden = false;
+  stopDeal();
+  stopDeal = mountDeal(box, track);
+  const pos = box.querySelector<HTMLElement>("[data-mn-pos]")!;
+  const [prev, next] = box.querySelectorAll<HTMLButtonElement>("[data-mn-step]");
+  const step = () => {
+    const card = track.firstElementChild as HTMLElement;
+    return card.offsetWidth + parseFloat(getComputedStyle(track).columnGap || "0");
+  };
+  const sync = () => {
+    const w = step();
+    const first = Math.round(track.scrollLeft / w);
+    const shown = Math.max(1, Math.round((track.clientWidth + 1) / w));
+    const last = Math.min(list.length, first + shown);
+    pos.textContent = shown > 1 ? `${first + 1}–${last} of ${list.length}` : `${first + 1} of ${list.length}`;
+    prev.disabled = track.scrollLeft <= 2;
+    next.disabled = track.scrollLeft + track.clientWidth >= track.scrollWidth - 2;
+  };
+  let pending = 0;
+  track.onscroll = () => {
+    if (!pending) pending = requestAnimationFrame(() => ((pending = 0), sync()));
+  };
+  const go = (dir: number) => {
+    const w = step();
+    const shown = Math.max(1, Math.round((track.clientWidth + 1) / w));
+    track.scrollBy({ left: dir * shown * w, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  };
+  new ResizeObserver(() => sync()).observe(track);
+  prev.onclick = () => go(-1);
+  next.onclick = () => go(1);
+  track.onkeydown = (e) => {
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      go(e.key === "ArrowRight" ? 1 : -1);
+    }
+  };
+  sync();
 }
 
 function fillTotals(root: HTMLElement, s: SiteStats | null) {

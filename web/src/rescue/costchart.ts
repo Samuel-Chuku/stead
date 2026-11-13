@@ -138,6 +138,9 @@ export function costChart(run: ChartRun, opts: { title?: boolean; caption?: stri
           </g>
           ${ticks.map((h) => `<text class="st-axis-t" x="${f(x(h))}" y="366" text-anchor="middle">${h === 0 ? "trigger" : hr(h)}</text>`).join("")}
           <line class="st-cross" x1="0" x2="0" y1="${P0}" y2="${H1}" visibility="hidden"/>
+          <circle class="st-cross-dot st-cross-dot--price" r="3.5" cx="0" cy="0" visibility="hidden"/>
+          <circle class="st-cross-dot st-cross-dot--without" r="4" cx="0" cy="0" visibility="hidden"/>
+          <circle class="st-cross-dot st-cross-dot--with" r="4.5" cx="0" cy="0" visibility="hidden"/>
           <rect class="st-hit" x="${X0}" y="${P0}" width="${X1 - X0}" height="${H1 - P0}"/>
         </svg>
         <div class="st-tip" role="status" hidden></div>
@@ -179,25 +182,50 @@ export function wireCostChart(root: HTMLElement, run: ChartRun) {
   const cross = root.querySelector<SVGLineElement>(".st-cross");
   const hit = root.querySelector<SVGRectElement>(".st-hit");
   if (!svg || !tip || !cross || !hit) return;
-  const R = rows(run.path);
+  const p = run.path;
+  const R = rows(p);
   const hMax = R[R.length - 1].h;
+  // the same scales the drawing uses, so the dots sit on the lines
+  const rLow = Math.min(...R.map((d) => d.r)), rHigh = Math.max(1, ...R.map((d) => d.r));
+  const yp = (r: number) => P0 + ((rHigh - r) / (rHigh - rLow || 1)) * (P1 - P0);
+  const yMax = Math.max(1.6, Math.ceil(Math.max(...R.map((d) => d.w)) * 10) / 10);
+  const y = (v: number) => H1 - ((v - 0.9) / (yMax - 0.9)) * (H1 - H0);
+  const dot = (k: string) => root.querySelector<SVGCircleElement>(`.st-cross-dot--${k}`);
+  const dots = { price: dot("price"), with: dot("with"), without: dot("without") };
+  const place = (el: SVGCircleElement | null, cx: number, cy: number | null) => {
+    if (!el) return;
+    el.setAttribute("visibility", cy === null ? "hidden" : "visible");
+    if (cy !== null) { el.setAttribute("cx", f(cx)); el.setAttribute("cy", f(cy)); }
+  };
+  let lastH = -1;
   const show = (clientX: number) => {
     const box = svg.getBoundingClientRect();
     const vx = ((clientX - box.left) / box.width) * 760;
     const h = Math.max(0, Math.min(hMax, Math.round(((vx - X0) / (X1 - X0)) * hMax)));
+    if (h === lastH && !tip.hidden) return;
+    lastH = h;
     const d = R.find((r) => r.h === h)!;
     const hx = X0 + (h / hMax) * (X1 - X0);
     cross.setAttribute("x1", String(hx));
     cross.setAttribute("x2", String(hx));
     cross.setAttribute("visibility", "visible");
+    place(dots.price, hx, yp(d.r));
+    place(dots.with, hx, y(d.w));
+    place(dots.without, hx, d.wo === null ? null : y(Math.max(0.9, d.wo)));
     tip.hidden = false;
-    tip.innerHTML = `<b>${h === 0 ? "trigger" : hr(h)}</b> · ${esc(run.sym)} ${pct(d.r)} · with Stead ${d.w.toFixed(2)} · without ${d.wo === null ? "liquidated" : d.wo.toFixed(2)}`;
+    const wo = d.wo === null ? "liquidated" : d.wo < 1 ? `${d.wo.toFixed(2)}, liquidated` : d.wo.toFixed(2);
+    tip.innerHTML = `<b>${h === 0 ? "Trigger hour" : `${hr(h)} after the trigger`}</b> · ${esc(dateOf(p.startMs + h * 3_600_000, true))}<br>${esc(run.sym)} ${pct(d.r)} · HF with Stead <b>${d.w.toFixed(2)}</b> · without <b>${wo}</b>`;
     const left = (hx / 760) * box.width;
-    tip.style.left = `${Math.min(box.width - tip.offsetWidth, Math.max(0, left - tip.offsetWidth / 2))}px`;
+    const scroll = svg.parentElement?.scrollLeft ?? 0;
+    tip.style.left = `${Math.min(scroll + svg.parentElement!.clientWidth - tip.offsetWidth, Math.max(scroll, left - tip.offsetWidth / 2))}px`;
+  };
+  const hide = () => {
+    tip.hidden = true;
+    lastH = -1;
+    cross.setAttribute("visibility", "hidden");
+    Object.values(dots).forEach((el) => el?.setAttribute("visibility", "hidden"));
   };
   hit.addEventListener("pointermove", (e) => show(e.clientX));
-  hit.addEventListener("pointerleave", () => {
-    tip.hidden = true;
-    cross.setAttribute("visibility", "hidden");
-  });
+  hit.addEventListener("pointerdown", (e) => show(e.clientX));
+  hit.addEventListener("pointerleave", hide);
 }

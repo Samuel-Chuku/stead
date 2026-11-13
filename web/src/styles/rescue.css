@@ -16,7 +16,7 @@
 .st-chip { display: inline-flex; align-items: center; gap: 8px; border: var(--st-border); padding: 6px 10px; font-family: var(--st-font-head); font-weight: 700; font-size: 13px; letter-spacing: .02em; white-space: nowrap; }
 .st-chip--rescued { background: var(--st-panel); color: var(--st-ink); }
 .st-chip--open { background: var(--st-exposure); color: var(--st-on-exposure); }
-.st-chip--liquidated { background: var(--st-trip-lamp); color: var(--st-ink); }
+.st-chip--liquidated { background: var(--st-trip-lamp); color: var(--st-on-exposure); } /* dark text on the pale lamp in both themes */
 
 /* §22 KPI strip */
 .st-kpis { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); border: var(--st-border); overflow: hidden; }
@@ -74,7 +74,13 @@
 .st-marker--trip { stroke: var(--st-trip); }
 .st-cross { stroke: var(--st-quiet); stroke-width: 1; }
 .st-hit { fill: transparent; cursor: crosshair; }
-.st-tip { position: absolute; top: -6px; background: var(--st-ink); color: var(--st-panel); padding: 5px 8px; font-family: var(--st-font-head); font-weight: 500; font-size: 12px; white-space: nowrap; pointer-events: none; }
+.st-tip { position: absolute; top: -6px; background: var(--st-ink); color: var(--st-panel); padding: 5px 8px; font-family: var(--st-font-head); font-weight: 500; font-size: 12px; line-height: 1.45; white-space: nowrap; pointer-events: none; }
+.st-tip b { font-weight: 700; }
+/* the crosshair's dots: one on each line at the hour under the pointer */
+.st-cross-dot { fill: var(--st-panel); stroke-width: 2.5; pointer-events: none; }
+.st-cross-dot--with { stroke: var(--st-ink); }
+.st-cross-dot--without { stroke: var(--st-trip); }
+.st-cross-dot--price { stroke: var(--st-quiet); stroke-width: 2; }
 .st-chart-note { font-size: 13px; color: var(--st-quiet); line-height: 1.5; }
 .st-chart-note strong { color: var(--st-ink); }
 .st-chart-year { font-size: 13px; line-height: 1.5; border: var(--st-border); background: var(--st-inset); padding: 8px 12px; }

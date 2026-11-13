@@ -73,7 +73,7 @@ const STEPS: [string, string][] = [
   ["Locked meanwhile", "From the auction until the last claim closes, the borrower may only repay or add collateral. The contract refuses every other request; the position's address has no key anyone holds."],
 ];
 
-const FAQ: [string, string][] = [
+export const FAQ: [string, string][] = [
   ["Who holds the keys to my position?", "Nobody. The position is an Ethereum address derived by NEAR's MPC network for the Stead contract. Only the contract can have a transaction signed for it, and only from a fixed list: Aave supply, borrow, repay and withdraw, approvals to the Aave pool, sending borrowed debt to your own payout address, and the payouts the contract itself queues."],
   ["Why would a steward rescue my position?", "For the premium: a few percent of the top-up at most, because the contract caps every premium below Aave's liquidation penalty. The steward's collateral comes back to it in the same units it supplied, so it is not betting on the price; the premium pays for its capital and for the risk that the price falls too fast for a rescue to help."],
   ["Can the borrower walk away with the steward's top-up?", `No. From the moment the auction opens until the last claim closes, the contract will only sign a repay or a supply for the position. A borrow or a withdrawal is refused on chain: ${out("?demo=#/live", "try it on the demo")}, every refusal is a real NEAR transaction.`],

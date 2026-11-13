@@ -1,0 +1,90 @@
+/* Landing-page motion (the homepage only; every selector sits under .st-site or a homepage-only
+   class). Hard-edged: steps(), no easing, no glow. All of it is still under reduced motion. */
+
+/* ---------- 1. The page's own health factor ----------
+   A rail in the right gutter on wide screens (the page reserves the gutter so the rail never sits
+   on content), a slim bar along the top edge below 900px. Decorative: aria-hidden. */
+.st-pagehf, .st-pagebar { display: none; }
+@media (min-width: 900px) {
+  .st-site:has(~ .st-pagehf) { padding-right: max(24px, calc(88px - max(0px, (100vw - 1280px) / 2))); }
+  .st-pagehf {
+    position: fixed; right: 4px; top: 50%; transform: translateY(-50%); z-index: 5; pointer-events: none;
+    width: 76px; height: min(460px, 72vh); display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+}
+@media (max-width: 899.98px) {
+  .st-pagebar { display: block; position: fixed; left: 0; right: 0; top: 0; height: 4px; z-index: 5; pointer-events: none; background: var(--st-inset); border-bottom: 1px solid var(--st-hair); }
+}
+.st-pagehf-num { font-family: var(--st-font-display); font-weight: 700; font-size: 26px; line-height: 1; color: var(--st-ink); font-variant-numeric: tabular-nums; }
+.st-pagehf-num.is-below { color: var(--st-exposure-ink); }
+.st-pagehf-mid { flex: 1; min-height: 0; display: flex; gap: 6px; align-items: stretch; }
+.st-pagehf-label {
+  writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; text-align: left;
+  font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet);
+}
+.st-pagehf-track { position: relative; width: 14px; border: var(--st-border); background: var(--st-inset); }
+.st-pagehf-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--st-level-safe); }
+.st-pagehf-fill.is-below, .st-pagebar-fill.is-below { background: var(--st-exposure); }
+.st-pagehf-mark { position: absolute; left: -5px; right: -5px; height: 0; }
+.st-pagehf-mark--trigger { border-top: 2px solid var(--st-exposure-ink); }
+.st-pagehf-mark--trip { border-top: 2px solid var(--st-trip); }
+.st-pagebar-fill { display: block; height: 100%; width: 0; background: var(--st-level-safe); }
+/* the catch: a steward tile drops in and a claim tag clips on under it */
+.st-pagehf-catch { position: relative; width: 100%; height: 52px; flex: none; }
+.st-pagehf-claim { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.st-pagehf-claim[hidden] { display: none; }
+.st-pagehf-tag {
+  --c: 8px; --fill: var(--st-exposure); --edge: var(--st-line);
+  color: var(--st-on-exposure); padding: 2px 11px 2px 6px; font-family: var(--st-font-head); font-weight: 700; font-size: var(--st-text-11); letter-spacing: .04em;
+}
+@keyframes st-tile-drop { 0% { transform: translateY(-16px); opacity: 0; } 34% { opacity: 1; } 100% { transform: none; } }
+@keyframes st-tag-clip { from { clip-path: polygon(0 0, 0 0, 0 0, 0 100%, 0 100%); } }
+.st-pagehf-claim.is-drop .st-tile { animation: st-tile-drop 240ms steps(3, end) both; }
+.st-pagehf-claim.is-drop .st-pagehf-tag { animation: st-tag-clip 200ms steps(4, end) 240ms both; }
+
+/* ---------- 2. "One rescue, four steps" played by scroll ----------
+   .is-scrolly is set only on wide, tall screens without reduced motion; otherwise the plain list. */
+.st-story { display: block; scroll-margin-top: 16px; }
+.st-story-stage[hidden], .st-story-tag[hidden], .st-story-done[hidden] { display: none; }
+.st-story.is-scrolly { height: calc(100vh + 4 * 64vh); }
+.st-story.is-scrolly .st-story-panel { position: sticky; top: 16px; height: calc(100vh - 32px); overflow: hidden; justify-content: center; gap: 28px; }
+.st-story.is-scrolly .st-story-body { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; align-items: center; }
+.st-story.is-scrolly .st-steps { grid-template-columns: minmax(0, 1fr); gap: 22px; padding-left: 64px; }
+.st-story.is-scrolly .st-steps::before { left: 23px; right: auto; top: 24px; bottom: 24px; border-top: 0; border-left: 2px solid var(--st-ink); }
+.st-story.is-scrolly .st-step-num { position: absolute; left: -64px; top: 0; }
+.st-story.is-scrolly .st-step-site-t { margin-top: 10px; color: var(--st-quiet); }
+.st-story.is-scrolly .st-step-site.is-active .st-step-site-t { color: var(--st-ink); }
+.st-story.is-scrolly .st-step-site.is-active .st-step-site-b { color: var(--st-ink); }
+.st-story.is-scrolly .st-step-site.is-past .st-step-num { background: var(--st-inset); }
+.st-story.is-scrolly .st-step-site.is-active .st-step-num { background: var(--st-ink); color: var(--st-panel); }
+.st-story.is-scrolly .st-step-site.is-active.is-exposed .st-step-num { background: var(--st-exposure); color: var(--st-on-exposure); }
+.st-story-stage { border: var(--st-border); background: var(--st-panel); padding: 20px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.st-story-claim { min-height: 92px; display: flex; flex-direction: column; justify-content: flex-start; }
+.st-story-done { margin: 0; border-top: 1.5px solid var(--st-line); padding-top: 12px; font-family: var(--st-font-head); font-weight: 600; font-size: 15px; color: var(--st-ink); }
+@media (max-height: 840px) {
+  .st-story-stage { padding: 14px; gap: 10px; }
+  .st-story-stage .st-mini-ladder { --pitch: 44px; --row-h: 38px; }
+  .st-story.is-scrolly .st-steps { gap: 12px; }
+  .st-story.is-scrolly .st-step-site-b { font-size: 14px; }
+}
+
+/* ---------- 4. Liquidation cards deal in ----------
+   The liquidator's bar fills, then the premium bar to its real width; a pointer re-runs them. */
+@keyframes st-deal-bar { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.st-mn-track.is-armed .st-mn-card:not(.is-deal) .st-cbar span { clip-path: inset(0 100% 0 0); }
+.st-mn-card.is-deal .st-cbar-low { animation: st-deal-bar 420ms steps(6, end) var(--d, 0ms) both; }
+.st-mn-card.is-deal .st-cbar-premium { animation: st-deal-bar 280ms steps(4, end) calc(var(--d, 0ms) + 480ms) both; }
+
+/* ---------- 6. Steward cards under the pointer ----------
+   The risk pips light one by one and the tile flickers on. No cut: the cards are passive. */
+@keyframes st-pip-on { from { background: var(--st-hair); } to { background: var(--sc); } }
+@media (hover: hover) {
+  .st-site .st-steward-card:hover .st-pip--on { animation: st-pip-on 90ms steps(1, end) calc(var(--i, 0) * 90ms) both; }
+  .st-site .st-steward-card:hover .st-tile { animation: st-power 360ms steps(1, end); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .st-pagehf, .st-pagebar { display: none; }
+  .st-mn-card .st-cbar span, .st-mn-track.is-armed .st-mn-card:not(.is-deal) .st-cbar span { animation: none; clip-path: none; }
+  .st-site .st-steward-card:hover .st-pip--on, .st-site .st-steward-card:hover .st-tile { animation: none; }
+}
