@@ -16,7 +16,7 @@ describe("rescue page", () => {
   });
 
   it("sets only numbers in Big Shoulders (no word inside .st-num)", () => {
-    const nums = [...html.matchAll(/<span class="st-num">([^<]*)<\/span>/g)].map((m) => m[1]);
+    const nums = [...html.matchAll(/<span class="st-num"[^>]*>([^<]*)<\/span>/g)].map((m) => m[1]);
     expect(nums.length).toBeGreaterThan(5);
     for (const n of nums) expect(n).toMatch(/^[#$0-9.,:–\- ]+$/);
   });

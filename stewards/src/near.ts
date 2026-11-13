@@ -1,12 +1,15 @@
 // Thin NEAR helpers over near-api-js 7: views, calls with tx hash + events + return value.
-import { Account, JsonRpcProvider } from "near-api-js";
+import { Account, JsonRpcProvider, actions } from "near-api-js";
 import { cfg, nearKey } from "./config.js";
+import { isNonceUsed, sendSigned, type TxNode } from "./txsend.js";
 
 export const provider = new JsonRpcProvider({ url: cfg.nearRpc });
 const txProvider = cfg.nearTxRpc === cfg.nearRpc ? provider : new JsonRpcProvider({ url: cfg.nearTxRpc });
 /** Views fail over to these, in order, when the main view RPC keeps failing (comma-separated
  *  NEAR_RPC_FALLBACK). A view is read-only, so asking another node is always safe. */
 const fallbacks = cfg.nearFallback.split(",").map((u) => u.trim()).filter((u) => u && u !== cfg.nearRpc).map((url) => new JsonRpcProvider({ url }));
+/** Where a signed transaction goes: the tx RPC first, then the fallbacks (the same bytes each time). */
+const txNodes: TxNode[] = [txProvider, ...fallbacks.filter((f) => (f as unknown as { connection?: { url?: string } }).connection?.url !== cfg.nearTxRpc)];
 const accounts = new Map<string, Account>();
 
 export function account(id: string): Account {
@@ -130,14 +133,20 @@ export async function call<T = unknown>(signer: string, method: string, args: Re
   const sent = { signer, contract: contractId, method, args, sentAt: new Date().toISOString() };
   let res: any;
   try {
-    res = await withRetry(() => account(signer).callFunctionRaw({
-      contractId,
-      methodName: method,
-      args,
-      gas: opts.gas ?? 100n * TGAS,
-      deposit: opts.deposit ?? 0n,
-      waitUntil: opts.waitUntil ?? "FINAL",
-    }));
+    // sign once, then resend the same bytes through gateway errors (never a second signature: see
+    // txsend.ts); a stale nonce on the first send is re-signed once, as near-api-js itself does
+    const acc = account(signer);
+    const sign = () => acc.createSignedTransaction({ receiverId: contractId, actions: [actions.functionCall(method, args, opts.gas ?? 100n * TGAS, opts.deposit ?? 0n)] });
+    let signed = await withRetry(sign, 8, true);
+    const send = (s: typeof signed) => sendSigned(s, signer, txNodes, opts.waitUntil ?? "FINAL");
+    try {
+      res = await send(signed);
+    } catch (e) {
+      if (!isNonceUsed(e) || (e as { txHash?: string }).txHash) throw e;
+      await (acc as unknown as { nonceManager: { invalidate(pk: unknown): Promise<void> } }).nonceManager.invalidate(signed.transaction.publicKey);
+      signed = await withRetry(sign, 8, true);
+      res = await send(signed);
+    }
   } catch (e) {
     // a refused transaction still has a hash (it's on chain): near-api-js keeps it on the error
     const x = e as { txHash?: string; transactionResult?: { transaction?: { hash?: string }; transaction_outcome?: { id?: string } } };

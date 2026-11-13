@@ -14,6 +14,9 @@ vi.mock("near-api-js", () => ({
     constructor(o: { url: string }) {
       this.url = o.url;
     }
+    async sendTransactionUntil() {
+      return { transaction: { hash: "h" }, transaction_outcome: { outcome: { logs: [] } }, receipts_outcome: [], status: {} };
+    }
     async callFunction(q: { method: string; args: any }) {
       rpc.calls.push({ url: this.url, method: q.method, args: q.args });
       if (rpc.down.has(this.url)) throw new Error("fetch failed");
@@ -22,10 +25,13 @@ vi.mock("near-api-js", () => ({
     }
   },
   Account: class {
-    async callFunctionRaw() {
-      return { transaction: { hash: "h" }, transaction_outcome: { outcome: { logs: [] } }, receipts_outcome: [], status: {} };
+    async createSignedTransaction() {
+      return { transaction: { publicKey: "pk" } };
     }
   },
+  actions: { functionCall: () => ({}) },
+  baseEncode: () => "h",
+  encodeTransaction: () => new Uint8Array(),
 }));
 
 vi.mock("../src/config.js", async (orig) => ({ ...(await orig<typeof import("../src/config.js")>()), nearKey: () => "not-a-key" }));
