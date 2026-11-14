@@ -413,6 +413,10 @@ Planned, not built.
   the runs: a modest cap with the allow-list off, so anyone can protect a position; then higher caps as
   independent stewards bring capital (registration is open; the five running today are example
   strategies) and after a contract audit.
+- **More positions on mainnet.** Any Aave V3 position (outside eMode) can be protected: a Stead market
+  is only a configuration (the pool, the collateral and debt assets, the gas and rescue parameters),
+  added by the owner without new contract code, and a steward serves whichever market it is pointed at. Mainnet runs one market today (WETH collateral, USDC
+  debt, Aave V3 Ethereum); adding the other collateral and debt pairs is part of the post-hackathon plan.
 - **Other DeFi lending markets.** A market is a lending pool, its two assets and its parameters; Aave V3 on
   any EVM chain is a configuration, and other lenders need their own action encoding.
 - **Stead markets for RHEA Lending.** RHEA Lending lives on NEAR, so a Stead market there could read

@@ -4,7 +4,7 @@ FROM node:22.23.3-bookworm-slim@sha256:3ed98443660ff48413b5af19ecefce3b9d50845a9
 WORKDIR /app/stewards
 COPY stewards/package.json stewards/package-lock.json ./
 RUN npm ci --ignore-scripts && npm cache clean --force
-COPY fork/addresses.sh /app/fork/addresses.sh
+COPY fork/addresses.sh fork/addresses-ethereum.sh /app/fork/
 COPY stewards/tsconfig.json ./
 COPY stewards/src ./src
 COPY stewards/scripts/keeper.ts stewards/scripts/steward.ts stewards/scripts/live-feed.ts stewards/scripts/demo-runner.ts stewards/scripts/demo-keys.ts stewards/scripts/mainnet-panel.ts ./scripts/

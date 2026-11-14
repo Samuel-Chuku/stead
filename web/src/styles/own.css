@@ -135,7 +135,7 @@
 }
 .st-dash-phase.is-exposed { background: var(--st-exposure); color: var(--st-on-exposure); border-color: var(--st-line); }
 .st-dash-status .st-np-now { font-size: 20px; }
-.st-dash-kpis { margin: 0; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); border-bottom: var(--st-border); }
+.st-dash-kpis { margin: 0; display: grid; grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, .667fr)); border-bottom: var(--st-border); }
 .st-dash-kpis > div { padding: 12px 16px; background: var(--st-inset); border-right: var(--st-hairline); min-width: 0; }
 .st-dash-kpis > div:last-child { border-right: 0; }
 .st-dash-kpis dt { font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); }
@@ -143,6 +143,14 @@
 .st-dash-big { display: flex; align-items: baseline; gap: 6px; margin-top: 4px !important; min-height: 46px; }
 .st-dash-big .st-num { font-size: 46px; line-height: 1; }
 .st-dash-kpi-hf .st-dash-big .st-num { font-size: 56px; }
+/* collateral, debt and protections share the HF column's old two thirds: a little smaller */
+.st-dash-kpis > div:not(.st-dash-kpi-hf) .st-dash-big .st-num { font-size: 40px; }
+.st-dash-kpis > div:not(.st-dash-kpi-hf) .st-dash-big .st-num, .st-dash-protkpi .st-num { font-weight: 800; }
+/* Stead's protections: the shield and the count, a button onto the list */
+.st-dash-protkpi { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0; border: 0; background: none; color: var(--st-ink); cursor: pointer; }
+.st-dash-protkpi svg { flex: none; }
+.st-dash-protkpi:hover .st-num { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.st-dash-protkpi:focus-visible { outline: 2px solid var(--st-ink); outline-offset: 2px; }
 /* the health factor: big and bold everywhere, coloured by how close it is to the lines */
 .st-dash-hf { font-weight: 800; }
 .st-dash-hf.is-danger, .st-dash-projnow.is-danger, .st-dash-projnum.is-danger { color: var(--st-trip); }
@@ -200,6 +208,15 @@
   98%, 100% { outline: 2px solid var(--st-panel); }
 }
 .st-dash-src { margin: 0; padding: 6px 16px; font-size: 12px; color: var(--st-quiet); line-height: 1.45; }
+
+/* under the position card: the last protection and the last action, in one frame */
+.st-dash-recent { border: var(--st-border); }
+.st-dash-recent > .st-dash-journal { border: 0; border-top: var(--st-hairline); }
+.st-dash-lastprot-strip { padding: 8px 16px 10px; }
+.st-dash-lastprot-strip .st-dash-jhead { margin-bottom: 2px; }
+.st-dash-lastprot-strip .st-label { margin: 0; }
+.st-dash-lastprot-strip .st-dash-protview { gap: 2px; color: var(--st-ink); font-size: 13px; min-height: 36px; }
+.st-dash-lastprot-strip .st-dash-protview:focus-visible { outline-color: var(--st-ink); }
 
 /* the activity journal: the latest line, the rest behind a chevron */
 .st-dash-journal { border: var(--st-border); padding: 8px 16px 10px; }
@@ -376,6 +393,7 @@
 .st-dash-kept { display: block; color: var(--st-quiet); font-size: 12px; line-height: 1.4; }
 .st-dash-addr { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
 .st-dash-addr .st-mono { font-size: 13px; overflow-wrap: anywhere; word-break: break-all; }
+.st-dash-poswallet .st-dash-addr .st-mono { font-size: 17px; font-weight: 600; line-height: 1.35; }
 .st-dash-copy { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex: none; padding: 0; border: var(--st-border); background: var(--st-panel); color: var(--st-ink); cursor: pointer; }
 .st-dash-copy:hover { background: var(--st-inset); }
 .st-dash-copy:focus-visible { outline: 2px solid var(--st-ink); outline-offset: 2px; }
@@ -389,6 +407,13 @@
 .st-dash-bal dd { margin: 1px 0 0; font-variant-numeric: tabular-nums; font-size: 13px; overflow-wrap: anywhere; }
 .st-dash-bal dd strong { font-size: 15px; font-weight: 700; }
 .st-dash-bal dd span { color: var(--st-quiet); }
+/* the position section's tiles: big bold figures, each with its token's mark */
+.st-dash-bal--big > div { padding: 10px 14px; }
+.st-dash-bal--big dt { display: flex; align-items: center; gap: 7px; font-size: var(--st-text-11); }
+.st-dash-bal--big dt .st-tokmark { flex: none; }
+.st-dash-bal--big dd strong.st-num { font-size: 34px; font-weight: 800; line-height: 1.05; }
+.st-dash-bal--big dd { margin-top: 6px; }
+.st-dash-bal--big dd span { font-family: var(--st-font-head); font-weight: 600; font-size: 13px; margin-left: 6px; }
 /* each balance tile's + and − (square, ink outline); an off one stays focusable and says why */
 .st-dash-bal dd.st-dash-tbs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .st-dash-tb { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border: var(--st-border); background: var(--st-panel); color: var(--st-ink); cursor: pointer; }
@@ -397,20 +422,20 @@
 .st-dash-tb[aria-disabled="true"] { border: var(--st-hairline); color: var(--st-quiet); cursor: not-allowed; background: var(--st-panel); }
 .st-dash-tlink { font-size: 13px; min-height: 36px; }
 .st-dash-tilewhy { font-weight: 500; }
-/* the position section's buttons and the newest rescue in one line */
+/* the position section's buttons; the newest rescue in one line under the position card */
 .st-dash-pw-btns { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.st-dash-protbtn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; min-height: 40px; padding: 0 12px; }
-.st-dash-protbtn .st-num { font-size: 16px; line-height: 1; }
-.st-dash-lastprot { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-family: var(--st-font-head); font-size: 13px; }
-.st-dash-lastprot-l { font-weight: 600; color: var(--st-quiet); }
-.st-dash-lastprot .st-dash-linkbtn { min-height: 28px; }
+.st-dash-lastprot { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; font-family: var(--st-font-head); font-size: 14px; }
+.st-dash-lastprot .st-dash-linkbtn { min-height: 32px; display: inline-flex; align-items: baseline; gap: 5px; }
+.st-dash-lastprot .st-dash-linkbtn .st-num { font-size: 20px; line-height: 1; }
+.st-dash-lastprot-amt { font-weight: 600; }
+.st-dash-lastprot-amt b { font-variant-numeric: tabular-nums; }
 .st-dash-lastprot-w { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
-.st-dash-lastprot-w .st-num { font-size: 17px; line-height: 1; }
+.st-dash-lastprot-w .st-num { font-size: 20px; line-height: 1; }
 .st-dash-lastprot-d { font-weight: 600; color: var(--st-quiet); font-variant-numeric: tabular-nums; }
 .st-dash-lastprot.is-none { font-family: var(--st-font-body, inherit); color: var(--st-quiet); }
 
 @media (max-width: 1100px) {
-  .st-dash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .st-dash-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .st-dash-kpi-hf { grid-column: 1 / -1; border-right: 0 !important; border-bottom: var(--st-hairline); }
 }
 @media (max-width: 900px) { .st-dash-actions { grid-template-columns: minmax(0, 1fr); } }
@@ -431,6 +456,26 @@
   .st-dash-go { gap: 6px; }
   .st-dash-bal dd { font-size: 12px; }
   .st-dash-act { padding: 10px 12px; }
+  /* collateral and debt side by side; the protections figure as one full-width row under them */
+  .st-dash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .st-dash-kpis > div:nth-child(3) { border-right: 0; }
+  .st-dash-kpi-prot { grid-column: 1 / -1; border-top: var(--st-hairline); display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "big dt" "big cons"; align-items: center; column-gap: 12px; padding-top: 6px !important; padding-bottom: 6px !important; }
+  .st-dash-kpi-prot dt { grid-area: dt; align-self: end; }
+  .st-dash-kpi-prot .st-dash-big { grid-area: big; min-height: 0; margin-top: 0 !important; }
+  .st-dash-kpi-prot .st-dash-cons { grid-area: cons; align-self: start; margin-top: 0 !important; }
+  .st-dash-protkpi svg { width: 24px; height: 24px; }
+  .st-dash-kpis > div:not(.st-dash-kpi-hf) .st-dash-big .st-num { font-size: 32px; }
+  .st-dash-lastprot-strip { padding: 8px 12px 10px; }
+  .st-dash-lastprot { gap: 4px 10px; font-size: 13px; }
+  .st-dash-poswallet .st-dash-addr { flex-wrap: nowrap; }
+  .st-dash-poswallet .st-dash-addr .st-mono { font-size: 14px; flex: 1 1 auto; min-width: 0; }
+  /* the three balances: one row each, mark and label, the figure, then + and − */
+  .st-dash-bal--big { grid-template-columns: minmax(0, 1fr); }
+  .st-dash-bal--big > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; padding: 8px 10px; }
+  .st-dash-bal--big > div + div { border-left: 0; border-top: var(--st-hairline); }
+  .st-dash-bal--big dt { grid-column: 1 / -1; }
+  .st-dash-bal--big dd strong.st-num { font-size: 26px; }
+  .st-dash-bal--big dd.st-dash-tbs { margin-top: 4px; justify-content: flex-end; }
 }
 
 /* no Ethereum wallet: the pasted payout, shown back with its one rule */

@@ -19,7 +19,7 @@ import {
   positionEmpty, type EmptyFacts,
   flowActivity, sortActivity, clockText, flowMoves, type ActRow,
   nearGate, ACTIVATION_MS, windowRefused, parkedView, repayPlan, defaultRepaySrc, positionRepayOffer, payoutLine, payoutChangeState, durationText,
-  doneView, DONE_KINDS, relayedHash, lastProtection, wethOutAvail, wethOutNext, wethOutArg, commonBlock,
+  doneView, DONE_KINDS, relayedHash, lastProtection, protectionTally, wethOutAvail, wethOutNext, wethOutArg, commonBlock,
 } from "../../web/src/own/dashlogic.js";
 import { NETS, rescueFlow, type RescueView, type ClaimView } from "../../web/src/own/net.js";
 import { readFileSync } from "node:fs";
@@ -1017,6 +1017,22 @@ describe("results and the protections line", () => {
     expect(relayedHash("0x")).toBe("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470");
     expect(relayedHash("")).toBe(relayedHash("0x"));
   });
+  it("the protections figure counts the rescues that ran (had bids) and says how they ended", () => {
+    const o = (outcome: "running" | "bought_back" | "settled" | "failed" | "no_bids") => ({ outcome });
+    expect(protectionTally([])).toEqual({ count: 0, line: "none yet" });
+    // a rescue no steward bid on protected nothing: not counted
+    expect(protectionTally([o("no_bids"), o("no_bids")])).toEqual({ count: 0, line: "none yet" });
+    expect(protectionTally([o("settled"), o("bought_back"), o("no_bids")])).toEqual({ count: 2, line: "1 bought back · 1 settled" });
+    expect(protectionTally([o("bought_back"), o("failed"), o("bought_back"), o("running")])).toEqual({ count: 4, line: "1 running · 2 bought back · 1 failed" });
+  });
+  it("the last protection sits under the position card with the last action; the address section has no protections line", () => {
+    const page = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
+    expect(page).toContain('? `${statusHtml()}<div class="st-dash-recent">${lastProtHtml()}${activityHtml(true)}</div>`');
+    const pw = page.slice(page.indexOf("function positionWalletHtml"), page.indexOf("const wethOutState"));
+    expect(pw).not.toContain("lastProtection");
+    expect(pw).not.toContain("data-prots");
+    expect(page).toContain("${protKpi}");
+  });
   it("the line under the address shows the newest rescue with bids, else the newest without", () => {
     expect(lastProtection([{ id: 78 }, { id: 60 }], [{ id: 90 }])).toEqual({ id: 78 });
     expect(lastProtection([], [{ id: 90 }, { id: 80 }])).toEqual({ id: 90 });
@@ -1024,7 +1040,6 @@ describe("results and the protections line", () => {
   });
   it("the protections live in a dialog off the position section, not under the last action", () => {
     const page = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
-    expect(page).toContain("? `${statusHtml()}${activityHtml(true)}`");
     expect(page).not.toContain("protHtml()");
     expect(page).toMatch(/modal\("prot", `POSITION \$\{s\.pos\.id\} · PROTECTIONS`, "Protections", protListHtml/);
   });

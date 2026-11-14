@@ -12,6 +12,7 @@ import { connectNear, disconnectNear, nearAccount, onNearAccount, setNearNetwork
 import { createPublicClient, createWalletClient, custom, fallback, getAddress as getAddr, http, parseAbi, parseUnits, type Address, type Hex } from "viem";
 import { mainnet } from "viem/chains";
 import { icon } from "../icons";
+import { tokenMark } from "./tokenmarks";
 import { crown, bindCrowns } from "../crown";
 import { CODE } from "../board/model";
 import { dialogHtml as svDialogHtml, showSteward, stewardPanel, flowSeq } from "../mainnet/runs";
@@ -24,7 +25,7 @@ import {
   ladderStep, bidBarPct, premiumCostBase, stewardIdOf, fundAsk, gasLow, liveStewardView, positionEmpty,
   flowActivity, sortActivity, clockText, flowMoves, type ActRow,
   nearGate, windowRefused, parkedView, repayPlan, defaultRepaySrc, positionRepayOffer, payoutLine, payoutChangeState, durationText,
-  doneView, relayedHash, lastProtection, wethOutAvail, wethOutNext, wethOutArg, type DoneKind,
+  doneView, relayedHash, lastProtection, protectionTally, wethOutAvail, wethOutNext, wethOutArg, type DoneKind,
   type Account, type Avail, type Op, type Phase, type Projection, type SeenBid, type LadderRow,
 } from "./dashlogic";
 
@@ -1140,6 +1141,8 @@ export function mountDash(root: HTMLElement): () => void {
       : waiting
         ? `<span class="st-num">${fmt(s!.posBal.coll, C.decimals, 6)}</span><span class="st-dash-unit">${C.symbol}</span>`
         : `<span class="st-num">${usd8(a.collBase, 2)}</span>`;
+    const tally = protectionTally(protRows().rows);
+    const protKpi = `<div class="st-dash-kpi-prot"><dt>STEAD PROTECTIONS</dt><dd class="st-dash-big"><button type="button" class="st-dash-protkpi" data-prots="kpi" aria-haspopup="dialog" aria-label="${tally.count} Stead protection${tally.count === 1 ? "" : "s"} on this position: open the list">${icon("rescues", 30)}<span class="st-num">${protLoading() && !tally.count ? "…" : tally.count}</span></button></dd><dd class="st-dash-cons">${protLoading() && !tally.count ? "reading…" : tally.line}</dd></div>`;
     const collSub = !a ? "" : waiting ? `waiting to be supplied · ${usdOf(s!.posBal.coll, s!.prices.coll, C.decimals)}` : a.collBase > 0n ? `${fmt(collUnits, C.decimals, 6)} ${C.symbol} supplied` : "nothing supplied";
     return `<section class="st-own-live st-dash-status" data-own-live aria-label="Your position" role="status">
       <div class="st-np-head"><span class="${lamp}" aria-hidden="true"></span><span class="st-np-label">POSITION ${pos.id}</span>${chip}<span class="st-np-now">${now}</span>${!busy && isEmpty() ? `<button type="button" class="st-secondary st-cut st-dash-freshbtn" data-fresh>Open a new position</button>` : ""}</div>
@@ -1147,9 +1150,28 @@ export function mountDash(root: HTMLElement): () => void {
         <div class="st-dash-kpi-hf"><dt>HEALTH FACTOR</dt><dd class="st-dash-big st-dash-hfrow">${hf === null ? `<span class="st-dash-nodebt">no debt</span>` : `<span class="st-num st-dash-hf${hfCls(hf)}">${hfLabel}</span>`}${riskBtn}</dd><dd class="st-dash-cons">${hf === null ? "nothing to liquidate" : fallLine(hf, C.symbol)}</dd><dd>${bar}</dd></div>
         <div><dt>COLLATERAL</dt><dd class="st-dash-big">${collNum}</dd><dd class="st-dash-cons">${collSub}</dd></div>
         <div><dt>DEBT</dt><dd class="st-dash-big"><span class="st-num">${a ? usd8(a.debtBase, 2) : "…"}</span></dd><dd class="st-dash-cons">${a ? (a.debtBase > 0n ? `${fmt(debtUnits, D.decimals, 2)} ${D.symbol} borrowed` : "nothing borrowed") : ""}</dd></div>
+        ${protKpi}
       </dl>
       <p class="st-dash-src">${C.symbol} <strong>${s!.prices.coll ? usd8(s!.prices.coll, 2) : "…"}</strong> · Aave V3, read every ${FAST_MS / 1000} s and on each block</p>
     </section>`;
+  }
+
+  /** This position's rescues (with bids, and the ones no steward bid on), and whether they are still being read. */
+  const protRows = () => (s?.pos ? protectionRows(stories().map((x) => x.rescue), s.pos.id) : { rows: [] as ProtectionRow[], noBids: [] as ProtectionRow[] });
+  const protLoading = () => histState === "loading" || histState === "idle";
+  /** The newest rescue in one strip under the position card: number, outcome, winner and premium,
+   *  top-up, date; View opens every one. */
+  function lastProtHtml(): string {
+    if (!s?.pos) return "";
+    const { rows, noBids } = protRows();
+    const last = lastProtection(rows, noBids);
+    const line = last
+      ? `<p class="st-dash-lastprot"><button type="button" class="st-dash-linkbtn" data-prot="${last.id}" aria-haspopup="dialog">Rescue <b class="st-num">${last.id}</b></button><span class="st-dash-pchip is-${last.outcome}">${esc(last.outcome === "running" ? last.stage : OUTCOME_WORD[last.outcome])}</span>${last.winners.map((w) => `<span class="st-dash-lastprot-w">${protTile(w.steward)}${esc(w.name)} <b class="st-num">${w.bps}</b> bps</span>`).join("")}${last.winners.length ? `<span class="st-dash-lastprot-amt">topped up <b>${fmt(BigInt(last.topupUnits), C.decimals, 6)}</b> ${C.symbol}</span>` : ""}<span class="st-dash-lastprot-d">${dayText(last.openedMs)}</span></p>`
+      : `<p class="st-dash-lastprot is-none">${protLoading() ? "Reading this position's protections…" : "No protections yet. Stewards act if its health factor falls under 1.15."}</p>`;
+    return `<div class="st-dash-lastprot-strip">
+      <div class="st-dash-jhead"><span class="st-label">LAST PROTECTION · POSITION ${s.pos.id}</span><button type="button" class="st-dash-jmore st-dash-protview" data-prots="view" aria-haspopup="dialog">View${glyph("M6 3.5 10.5 8 6 12.5", 14)}</button></div>
+      ${line}
+    </div>`;
   }
 
   /** The "Fund position" dialog: what to send, the address large with a copy button, its QR code,
@@ -1401,24 +1423,16 @@ export function mountDash(root: HTMLElement): () => void {
     const supplyIt = b.coll > 0n && av.deposit.on ? `<button type="button" class="st-dash-linkbtn st-dash-tlink" data-tile-go="supply">Supply it</button>` : "";
     const repayIt = b.debt > 0n && f.hasDebt && repayAny.on ? `<button type="button" class="st-dash-linkbtn st-dash-tlink" data-tile-go="repay">Repay with it</button>` : "";
     const why = tileWhy && Date.now() - tileWhyAt < 8000 ? `<p class="st-dash-why st-dash-tilewhy" role="status">${esc(tileWhy)}</p>` : "";
-    // the newest rescue, in one line; the button opens every one
-    const { rows, noBids } = s ? protectionRows(stories().map((x) => x.rescue), pos.id) : { rows: [], noBids: [] };
-    const last = lastProtection(rows, noBids);
-    const loading = histState === "loading" || histState === "idle";
-    const lastLine = last
-      ? `<p class="st-dash-lastprot"><span class="st-dash-lastprot-l">Last protection:</span> <button type="button" class="st-dash-linkbtn" data-prot="${last.id}" aria-haspopup="dialog">Rescue ${last.id}</button> <span class="st-dash-pchip is-${last.outcome}">${esc(last.outcome === "running" ? last.stage : OUTCOME_WORD[last.outcome])}</span>${last.winners.map((w) => ` <span class="st-dash-lastprot-w">${protTile(w.steward)}${esc(w.name)} <b class="st-num">${w.bps}</b> bps</span>`).join("")} <span class="st-dash-lastprot-d">${dayText(last.openedMs)}</span></p>`
-      : `<p class="st-dash-lastprot is-none">${loading ? "Reading this position's protections…" : "No protections yet. Stewards act if its health factor falls under 1.15."}</p>`;
     return `<section class="st-dash-poswallet" aria-label="The position's address and balances">
-      <div class="st-dash-pw-head"><div class="st-label">POSITION ADDRESS · ETHEREUM</div><div class="st-dash-pw-btns"><button type="button" class="st-secondary st-cut st-dash-protbtn" data-prots aria-haspopup="dialog">${icon("rescues", 14)}Protections${rows.length ? ` <b class="st-num">${rows.length}</b>` : ""}</button><button type="button" class="st-push st-push--small st-cut" data-fund aria-haspopup="dialog"${busy && !gasWait ? " disabled" : ""}><span class="st-lamp" aria-hidden="true"></span>Fund position</button></div></div>
-      ${lastLine}
+      <div class="st-dash-pw-head"><div class="st-label">POSITION ADDRESS · ETHEREUM</div><div class="st-dash-pw-btns"><button type="button" class="st-push st-push--small st-cut" data-fund aria-haspopup="dialog"${busy && !gasWait ? " disabled" : ""}><span class="st-lamp" aria-hidden="true"></span>Fund position</button></div></div>
       <p class="st-dash-addr"><span class="st-mono">${esc(addr)}</span><button type="button" class="st-dash-copy" data-copy="${addr}" aria-label="Copy the position's address">${copied ? icon("check", 16) : copyGlyph()}</button><span class="st-dash-copied" role="status">${copied ? "Copied" : ""}</span></p>
       <p class="st-dash-links">${ext(net.evmAddress(addr), "Etherscan")}${ext(`https://debank.com/profile/${addr}`, "DeBank")}<span>${ext("https://app.aave.com/?marketName=proto_mainnet_v3", "Aave")}: Watch wallet, then paste the address</span></p>
       ${low ? `<p class="st-dash-gaslow" role="alert"><span class="st-dash-gaslow-tag">GAS LOW</span>Position gas low: add a little ETH (the + on ETH · GAS).</p>` : ""}
       ${parkedHtml(["wethout", "move", "sweep", "send", "payoutReq", "payoutApply"])}
-      <dl class="st-dash-bal">
-        <div${flashArrival ? ' class="is-flash"' : ""}><dt>${C.symbol} HERE</dt><dd><strong>${fmt(b.coll, C.decimals, 8)}</strong></dd><dd class="st-dash-tbs">${tileBtn("plus", "coll", `Deposit ${C.symbol} to the position`, !inWhy, inWhy)}${tileBtn("minus", "coll", `Withdraw ${C.symbol} from the position (supplies it, then withdraws to your payout)`, wo.on, wo.why)}${supplyIt}</dd></div>
-        <div><dt>${D.symbol} HERE</dt><dd><strong>${fmt(b.debt, D.decimals, 6)}</strong></dd><dd class="st-dash-tbs">${tileBtn("plus", "debt", `Deposit ${D.symbol} to the position`, !inWhy, inWhy)}${tileBtn("minus", "debt", `Withdraw ${D.symbol} from the position`, av.move.on, av.move.why)}${repayIt}</dd></div>
-        <div><dt>ETH · GAS</dt><dd><strong>${fmt(b.eth, 18, 6)}</strong><span> · ~${txsLeft.toString()} tx</span></dd><dd class="st-dash-tbs">${tileBtn("plus", "eth", "Add ETH for gas", true, "")}${tileBtn("minus", "eth", `Return ETH${av.sweep.on ? ` (${fmt(f.sweepUnits, 18, 6)})` : ""} to your payout`, av.sweep.on, av.sweep.why)}</dd></div>
+      <dl class="st-dash-bal st-dash-bal--big">
+        <div${flashArrival ? ' class="is-flash"' : ""}><dt>${tokenMark(C.symbol)}${C.symbol} HERE</dt><dd><strong class="st-num">${fmt(b.coll, C.decimals, 8)}</strong></dd><dd class="st-dash-tbs">${tileBtn("plus", "coll", `Deposit ${C.symbol} to the position`, !inWhy, inWhy)}${tileBtn("minus", "coll", `Withdraw ${C.symbol} from the position (supplies it, then withdraws to your payout)`, wo.on, wo.why)}${supplyIt}</dd></div>
+        <div><dt>${tokenMark(D.symbol)}${D.symbol} HERE</dt><dd><strong class="st-num">${fmt(b.debt, D.decimals, 6)}</strong></dd><dd class="st-dash-tbs">${tileBtn("plus", "debt", `Deposit ${D.symbol} to the position`, !inWhy, inWhy)}${tileBtn("minus", "debt", `Withdraw ${D.symbol} from the position`, av.move.on, av.move.why)}${repayIt}</dd></div>
+        <div><dt>${tokenMark("ETH")}ETH · GAS</dt><dd><strong class="st-num">${fmt(b.eth, 18, 6)}</strong><span> ~${txsLeft.toString()} tx</span></dd><dd class="st-dash-tbs">${tileBtn("plus", "eth", "Add ETH for gas", true, "")}${tileBtn("minus", "eth", `Return ETH${av.sweep.on ? ` (${fmt(f.sweepUnits, 18, 6)})` : ""} to your payout`, av.sweep.on, av.sweep.why)}</dd></div>
       </dl>
       ${why}
       ${disc("how-gas", "About these balances and gas", () => `<p>These sit at the position's own address on Ethereum, not on Aave. + sends to it (from your Ethereum wallet, or from any wallet to the address); − sends to your payout, the only place the contract pays out. ${C.symbol} here can't be sent on its own: − supplies it to Aave and withdraws the same amount, two transactions. The position pays the gas of what it sends: each may cost at most ${Number(gas.evmGas.gas_limit).toLocaleString("en-US")} gas at ${fmt(BigInt(gas.evmGas.max_fee_per_gas), 9, 2)} gwei (${fmt(upfront, 18, 6)} ETH, wanted up front; the real cost is lower). ${gasNote} The ETH returns only with no debt and no rescue.</p>`)}
@@ -2106,7 +2120,7 @@ export function mountDash(root: HTMLElement): () => void {
       : fresh
         ? newPositionHtml()
         : full
-        ? `${statusHtml()}${activityHtml(true)}`
+        ? `${statusHtml()}<div class="st-dash-recent">${lastProtHtml()}${activityHtml(true)}</div>`
         : pos
           ? `<p class="st-own-hint">Position ${pos.id} is registered; its Ethereum address is being derived.</p>`
           : newPositionHtml();
@@ -2195,7 +2209,7 @@ export function mountDash(root: HTMLElement): () => void {
       render();
     });
     root.querySelectorAll<HTMLButtonElement>("[data-prot]").forEach((b) => b.addEventListener("click", () => openProt(Number(b.dataset.prot), b)));
-    root.querySelector<HTMLElement>("[data-prots]")?.addEventListener("click", (ev) => openProt(null, ev.currentTarget as HTMLElement));
+    root.querySelectorAll<HTMLElement>("[data-prots]").forEach((b) => b.addEventListener("click", () => openProt(null, b)));
     root.querySelectorAll<HTMLElement>("[data-ask]").forEach((b) => b.addEventListener("click", () => ask(b.dataset.ask as "withdraw" | "sweep", b)));
     // a balance tile's + and −; an off one says why (touch has no tooltip)
     root.querySelectorAll<HTMLElement>("[data-tile]").forEach((b) =>

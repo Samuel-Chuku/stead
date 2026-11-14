@@ -9,7 +9,7 @@ import { getAddress, isAddress, keccak256, type Address } from "viem";
 import { CODE, STEWARD_ORDER } from "../board/model";
 import type { StewardId } from "../../../stewards/src/rescuelog";
 import type { Move, RescueView as SvRescue, StewardView } from "../../../stewards/src/stewardview";
-import { directLines, evmRef, rescueOutcome, type ClaimView, type FlowStep, type RescueView } from "./net";
+import { directLines, evmRef, rescueOutcome, type ClaimView, type FlowStep, type Outcome, type RescueView } from "./net";
 
 // Aave V3 units: getUserAccountData gives collateral, debt and available borrows in the base
 // currency (USD, 8 decimals) and the liquidation threshold in bps; the oracle gives prices with 8
@@ -859,6 +859,18 @@ export const relayedHash = (signedRaw: string) => keccak256((signedRaw.startsWit
  *  else the newest without. */
 export function lastProtection<T extends { id: number }>(rows: T[], noBids: T[]): T | null {
   return rows[0] ?? noBids[0] ?? null;
+}
+
+/** The position card's protections figure: how many rescues actually ran (had bids; a rescue no
+ *  steward bid on protected nothing), and how they ended, in words ("1 bought back · 1 settled"). */
+export function protectionTally(rows: { outcome: Outcome }[]): { count: number; line: string } {
+  const ran = rows.filter((r) => r.outcome !== "no_bids");
+  if (!ran.length) return { count: 0, line: "none yet" };
+  const n = (o: Outcome) => ran.filter((r) => r.outcome === o).length;
+  const parts = ([["running", "running"], ["bought_back", "bought back"], ["settled", "settled"], ["failed", "failed"]] as const)
+    .filter(([o]) => n(o) > 0)
+    .map(([o, w]) => `${n(o)} ${w}`);
+  return { count: ran.length, line: parts.join(" · ") };
 }
 
 // ── WETH out of the position's address: the contract never sends idle WETH, so it is supplied to
