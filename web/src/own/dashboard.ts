@@ -846,8 +846,10 @@ export function mountDash(root: HTMLElement): () => void {
       const pasted = checkPayout(payoutText, refuseList());
       if (!evm && !pasted.ok) throw new Error(`connect your Ethereum wallet or paste a payout address first (${pasted.why})`);
       const payout = evm ?? (pasted as { address: Address }).address;
-      // the position shown before (an empty one when starting fresh): the new one must be another
-      const oldId = s?.pos?.id ?? null;
+      // every position this account owned before (the list, or the one shown): the new one is none of
+      // them. From the positions list nothing is shown, so "not the one shown" would accept an old one.
+      const before = new Set<number>([...(owned ?? []).map((o) => o.id), ...(s?.pos ? [s.pos.id] : [])]);
+      if (!owned) for (const o of await readOwned().catch(() => [] as Owned[])) before.add(o.id);
       const mark = txs.length;
       listMode = false;
       const forget = () => {
@@ -865,10 +867,10 @@ export function mountDash(root: HTMLElement): () => void {
         forget();
         noPosUntil = 0;
         p = await findPosition();
-        if (p?.evm_address && p.id !== oldId) break;
+        if (p?.evm_address && !before.has(p.id)) break;
         await sleep(2000);
       }
-      if (!p?.evm_address || p.id === oldId) throw new Error("the new position didn't appear yet; it will show on the next read");
+      if (!p?.evm_address || before.has(p.id)) throw new Error("the new position didn't appear yet; it will show on the next read");
       setOpened(p.id);
       owned = null;
       newOpen = false;

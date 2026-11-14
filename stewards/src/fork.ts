@@ -53,9 +53,15 @@ export function wallet(key: Hex): WalletClient & { address: Address } {
   return Object.assign(w, { address: account.address });
 }
 
+/** Gas for a write: the estimate plus 30 %. Sending the bare estimate let an Aave supply on mainnet
+ *  run out of gas (it used 97 % of the limit and reverted): the state it runs in can differ from the
+ *  one it was estimated in. Unused gas is not charged. */
+export const withHeadroom = (estimate: bigint) => (estimate * 13n) / 10n;
+
 /** Send a contract write and wait for its receipt; returns the tx hash. */
 export async function write(w: WalletClient, address: Address, abi: any, functionName: string, args: unknown[], onSent?: (hash: Hex) => void): Promise<Hex> {
-  const hash = await w.writeContract({ address, abi, functionName, args, account: w.account!, chain: fork } as any);
+  const est = await pub.estimateContractGas({ address, abi, functionName, args, account: w.account! } as any);
+  const hash = await w.writeContract({ address, abi, functionName, args, account: w.account!, chain: fork, gas: withHeadroom(est) } as any);
   onSent?.(hash);
   const r = await pub.waitForTransactionReceipt({ hash });
   if (r.status !== "success") throw new Error(`${functionName} reverted (${hash})`);

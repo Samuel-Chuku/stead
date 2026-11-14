@@ -1,0 +1,29 @@
+{
+ "title": "NEAR Intents preflight: deep buys 0.002 ETH with USDC on NEAR",
+ "label": "REAL FUNDS, Ethereum mainnet + NEAR mainnet",
+ "contract": "app.usestead.near",
+ "nearNetwork": "mainnet",
+ "evmChain": "ethereum",
+ "evmChainId": 1,
+ "started": "2026-11-13T18:42:17.968Z",
+ "addresses": {
+  "deep": "0x26E2ab6ec0e027f01F41CF65eE5375f0692fD41d"
+ },
+ "entries": [
+  {
+   "chain": "near-mainnet",
+   "tx": "4SKRLmGiSW9RhiHXpxAfBqu1vQPHUWjDFf8HsPRLGyG3",
+   "at": "2026-11-13T18:42:21.703Z",
+   "step": "0: one real NEAR Intents swap, timed",
+   "what": "registers ba9db063… on the USDC contract (NEAR Intents deposit address)",
+   "actor": "deep",
+   "ok": true,
+   "key": false,
+   "signer": "deep.usestead.near",
+   "receiver": "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+   "method": "storage_deposit"
+  }
+ ],
+ "finished": "2026-11-13T18:42:26.939Z",
+ "outcome": "NEAR Intents preflight: FAILED in 7 s (3.998321 USDC quoted, 303 bps, estimate 29 s)"
+}

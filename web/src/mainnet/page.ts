@@ -1,12 +1,14 @@
-// The read-only mainnet panel: real Aave V3 positions on Ethereum mainnet and the real liquidations
-// of the last 24 hours, each with what Stead's contract and stewards would have done at the 1.15
-// trigger. Nothing here is a Stead transaction: the figures are the contract's formulas and the
-// stewards' real strategies applied to public reads (stewards/scripts/mainnet-panel.ts).
+// The On mainnet page: Stead's real rescues on Ethereum mainnet, read from its contract on NEAR
+// mainnet (chainlist.ts), then real Aave V3 positions on Ethereum and the real liquidations of the
+// last 24 hours, each with what Stead's contract and stewards would have done at the 1.15 trigger
+// (the contract's formulas and the stewards' real strategies applied to public reads:
+// stewards/scripts/mainnet-panel.ts).
 import type { Liquidation, PanelFeed, PanelPosition, TriggerEvent } from "../../../stewards/src/panel";
 import { crown } from "../crown";
 import { list, wire, type Item } from "../lists/pages";
 import { icon } from "../icons";
 import { loadRuns, runsHtml, wireRuns } from "./runs";
+import { chainSectionHtml, mountChainRuns } from "./chainlist";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const usd = (n: number, dp = 0) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
@@ -119,9 +121,9 @@ function render(f: PanelFeed, live: boolean, runs: string) {
   return `
   <section class="st-panel st-sect st-list">
     <header class="st-list-head">
-      <div class="st-label">ETHEREUM MAINNET · READ-ONLY</div>
+      <div class="st-label">ETHEREUM MAINNET</div>
       <h1 class="st-page-title">Aave on mainnet, with Stead</h1>
-      <p class="st-list-sub">Real Aave V3 positions and real liquidations on Ethereum, read from public RPCs. Next to each, what Stead's contract and stewards would have done at the 1.15 trigger: the same formulas and strategies as on testnet. Below the totals, Stead's own capped rescues with real funds.</p>
+      <p class="st-list-sub">Stead runs on Ethereum mainnet with real funds: below the totals, every rescue its contract has run, read straight from the contract. Then real Aave V3 positions and real liquidations on Ethereum, read from public RPCs, each with what Stead's contract and stewards would have done at the 1.15 trigger.</p>
       <p class="st-list-src">${live ? `<span class="st-live-dot" aria-hidden="true"></span>` : ""}${live ? "Read" : "Snapshot read"} at block ${f.block.toLocaleString("en-US")}, ${when(f.blockTime)} · ${f.coverage.borrowers.toLocaleString("en-US")} borrowers followed</p>
     </header>
     <dl class="st-kpis">
@@ -131,6 +133,7 @@ function render(f: PanelFeed, live: boolean, runs: string) {
       <div><dt>NEAR THE TRIGGER</dt><dd><span class="st-num">${s.nearTrigger}</span></dd><dd class="st-kpi-sub">${usdBig(s.debtNearTriggerUsd)} of debt, ${s.belowTrigger} below 1.15</dd></div>
     </dl>
   </section>
+  ${chainSectionHtml()}
   ${runs}
   <section class="st-panel st-sect st-list" data-list>
     <div class="st-sect-head"><div><div class="st-label">LIQUIDATIONS · LAST 24 HOURS</div><h2 class="st-panel-title">What borrowers paid, and what Stead would have charged</h2></div></div>
@@ -160,6 +163,7 @@ export function mountMainnet(root: HTMLElement): () => void {
       root.innerHTML = render(feed, live, runsHtml(runs));
       wire(root, stop.signal);
       wireRuns(root, stop.signal);
+      mountChainRuns(root, stop.signal, runs?.runs ?? null);
     },
     (e) => {
       if (!gone) root.innerHTML = `<section class="st-error" role="alert"><h2>Mainnet panel not loaded</h2><p>Neither the live feed nor the site's snapshot answered (${esc(String((e as Error).message))}). Reload the page to try again.</p></section>`;

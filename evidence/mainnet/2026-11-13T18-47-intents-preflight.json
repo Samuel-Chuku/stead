@@ -1,0 +1,52 @@
+{
+ "title": "NEAR Intents preflight: deep buys 0.002 ETH with USDC on NEAR",
+ "label": "REAL FUNDS, Ethereum mainnet + NEAR mainnet",
+ "contract": "app.usestead.near",
+ "nearNetwork": "mainnet",
+ "evmChain": "ethereum",
+ "evmChainId": 1,
+ "started": "2026-11-13T18:47:15.406Z",
+ "addresses": {
+  "deep": "0x26E2ab6ec0e027f01F41CF65eE5375f0692fD41d"
+ },
+ "entries": [
+  {
+   "chain": "near-mainnet",
+   "tx": "3oPFT9f7Q948CEEceJtfaAf4yWPYreV49jWE5SREYCh6",
+   "at": "2026-11-13T18:47:18.084Z",
+   "step": "0: one real NEAR Intents swap, timed",
+   "what": "registers c91a0eee… on the USDC contract (NEAR Intents deposit address)",
+   "actor": "deep",
+   "ok": true,
+   "key": false,
+   "signer": "deep.usestead.near",
+   "receiver": "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+   "method": "storage_deposit"
+  },
+  {
+   "chain": "near-mainnet",
+   "tx": "DDr7KWDriEs567hLDCNf6gGW5EvNb2EAxawQAotASBA5",
+   "at": "2026-11-13T18:47:22.781Z",
+   "step": "0: one real NEAR Intents swap, timed",
+   "what": "sends 3.998958 USDC to the NEAR Intents deposit address c91a0eee…",
+   "actor": "deep",
+   "ok": true,
+   "key": true,
+   "signer": "deep.usestead.near",
+   "receiver": "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+   "method": "ft_transfer"
+  },
+  {
+   "chain": "ethereum",
+   "at": "2026-11-13T18:48:36.107Z",
+   "step": "0: one real NEAR Intents swap, timed",
+   "tx": "0x1f08d7f597856927cac9c624251c5fbdf729279682b081933ee9c3bb921793aa",
+   "what": "a NEAR Intents solver delivers 0.002 ETH to deep",
+   "actor": "NEAR Intents solver",
+   "ok": true,
+   "key": true
+  }
+ ],
+ "finished": "2026-11-13T18:48:36.311Z",
+ "outcome": "NEAR Intents preflight: SUCCESS in 79 s (3.998958 USDC quoted, 311 bps, estimate 29 s)"
+}

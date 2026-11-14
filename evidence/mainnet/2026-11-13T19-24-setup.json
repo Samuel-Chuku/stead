@@ -1,0 +1,66 @@
+{
+ "title": "Contract setup: market, size cap, allow-list",
+ "label": "REAL FUNDS, Ethereum mainnet + NEAR mainnet",
+ "contract": "app.usestead.near",
+ "nearNetwork": "mainnet",
+ "evmChain": "ethereum",
+ "evmChainId": 1,
+ "started": "2026-11-13T19:24:47.022Z",
+ "addresses": {},
+ "entries": [
+  {
+   "chain": "near-mainnet",
+   "tx": "DmxdzwUJizTqvWDJvGr6amhD2sW4N1duP8TYs2L7YXkR",
+   "at": "2026-11-13T19:24:47.681Z",
+   "step": "0: market WETH/USDC, size cap $150, allow-list = borrower.usestead.near",
+   "what": "add_market 0: WETH (LT 84 %, bonus 5 %) / USDC (6 dp), gas cap 375332, max fee 1 gwei",
+   "actor": "contract owner",
+   "ok": true,
+   "key": true,
+   "signer": "usestead.near",
+   "receiver": "app.usestead.near",
+   "method": "add_market"
+  },
+  {
+   "chain": "near-mainnet",
+   "tx": "8BxDT4u5XLSBLCCoj9SaLpBVSJ7GDmZnVDY7MsFM5WLH",
+   "at": "2026-11-13T19:24:51.721Z",
+   "step": "0: market WETH/USDC, size cap $150, allow-list = borrower.usestead.near",
+   "what": "set_limits: cap $150, borrowers [borrower.usestead.near]",
+   "actor": "contract owner",
+   "ok": true,
+   "key": true,
+   "signer": "usestead.near",
+   "receiver": "app.usestead.near",
+   "method": "set_limits"
+  },
+  {
+   "chain": "near-mainnet",
+   "tx": "4kJJQBLS959cD7GNfKj3d3v8vWqynLCrxdA65oR5KKSw",
+   "at": "2026-11-13T19:24:57.735Z",
+   "step": "0: market WETH/USDC, size cap $150, allow-list = borrower.usestead.near",
+   "what": "set_verify_config: market 0 reads only verified proofs (program 1f871f1b…, secret usestead.near/stead)",
+   "actor": "contract owner",
+   "ok": true,
+   "key": true,
+   "signer": "usestead.near",
+   "receiver": "app.usestead.near",
+   "method": "set_verify_config"
+  },
+  {
+   "chain": "near-mainnet",
+   "tx": "CdZqhrvNFC1oEToaiEFgFiXtoXqzduYjJPkvvrbpivji",
+   "at": "2026-11-13T19:25:02.064Z",
+   "step": "0: market WETH/USDC, size cap $150, allow-list = borrower.usestead.near",
+   "what": "set_params: auction 120 s, top-up deadline 180 s (the rest unchanged)",
+   "actor": "contract owner",
+   "ok": true,
+   "key": true,
+   "signer": "usestead.near",
+   "receiver": "app.usestead.near",
+   "method": "set_params"
+  }
+ ],
+ "finished": "2026-11-13T19:25:07.722Z",
+ "outcome": "market 0, cap $150, borrowers [borrower.usestead.near]"
+}

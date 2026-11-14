@@ -1,64 +1,61 @@
 # Stead
 
-**A liquidation rescue market on NEAR.**
+Stead is a liquidation rescue market on NEAR for Aave V3 positions on Ethereum.
+An Aave liquidation charges the borrower the liquidation bonus; with Stead, steward agents compete to
+top up the position's collateral instead, for a premium the contract caps below that bonus.
 
-## Protect an Aave position now: [app.usestead.xyz](https://app.usestead.xyz/#/try)
+## Check it in 5 minutes
 
-A protected position is an Aave position at an address only the Stead contract can sign for, through
-NEAR's chain signatures: your NEAR account owns it, and when its health falls below 1.15, stewards compete
-to rescue it. Everything runs on testnets (NEAR testnet and Ethereum Sepolia) against Aave V3's real
-contracts. Test funds are sponsored, so nothing needs to be bought.
+| Do | See |
+|---|---|
+| `cd contract && cargo test -p stead-core` | **132 passed**, 0 failed |
+| `cd stewards && npm ci && npm test` | **402 passed** in 34 files, with no `.env`, keys or network |
+| Open [app.usestead.xyz/?demo=#/live](https://app.usestead.xyz/?demo=#/live) and press **One steward** | an auction opens on a verified HF 1.14, stewards bid, the winner tops up, the claim is bought back; every step links its transaction (about 5 min, testnet) |
+| `curl -s https://rpc.testnet.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"call_function","finality":"final","account_id":"steadfi.testnet","method_name":"get_rescues","args_base64":"eyJmcm9tIjowLCJsaW1pdCI6NTB9"}}'` | JSON of every rescue on the main testnet contract (the result bytes are JSON) |
+| The mainnet run | [Mainnet](#mainnet-real-funds-2026-11-14) under Recorded runs: rescue 81, every NEAR and Ethereum transaction linked and re-checked on chain |
 
-**With your own NEAR wallet** ([Protect a position](https://app.usestead.xyz/#/try), about 12 minutes):
-1. **Connect** a NEAR testnet wallet (Meteor, Intear, Nightly, Ledger, NEAR CLI and more, through NEAR
-   Connector). A Sepolia wallet is optional: without one, the sponsor holds the Sepolia side.
-2. **Open a protected position**: your NEAR account registers it; its Ethereum address is derived by NEAR's MPC
-   network, and only the Stead contract can have a transaction signed for it. The sponsor sends 60 LINK
-   and gas; the contract supplies the LINK on Aave and borrows straight to a health factor of 1.14, just
-   under the 1.15 trigger (on mainnet a falling price takes it there; Sepolia's prices are fixed).
-3. **Watch the rescue**: a proven reading opens a real 45-second auction among the stewards; watch the
-   bids, the winner's top-up and its proof on the live board.
-4. **Try to break it**: while the claim is open, ask to withdraw or borrow. The contract refuses on
-   chain, and the refusal is linked.
-5. **Choose the ending**: buy back (the owed LINK goes into the position, and the steward is paid exactly
-   what it is owed), or wait out the 5-minute window and watch the claim settle at the oracle price.
-6. **Close** and read your rescue's story: every step from the trigger to the payouts, each linked to
-   its NEAR or Sepolia transaction.
-
-**Without a wallet** ([Live auctions › DEMO](https://app.usestead.xyz/?demo=#/live), about 5 minutes
-from the trigger to the payout): press **One steward** or **Pooled rescue**. A demo borrower runs the same rescue; the page shows
-every transaction it sends and lets you try the same forbidden actions.
-
-**Read first?** [How it works](https://app.usestead.xyz/#/how): two diagrams, the rescue step by step, and
-the questions people ask.
-
-A NEAR contract controls Aave V3 positions through NEAR chain signatures. When a position nears
-liquidation, **stewards** bid to top up its collateral. The lowest premium wins, capped below what an
-Aave liquidation would cost the borrower. The rescue becomes a **claim NFT** that the borrower can buy
-back within 24 hours.
+The hosted demo ([app.usestead.xyz](https://app.usestead.xyz), its bots and feeds) stays up through
+judging, until at least 2026-11-18.
 
 **Invariant:** a borrower is never worse off than they would have been after an Aave liquidation.
 
-- The contract holds the position: every EVM transaction is built on NEAR and signed by the MPC network
-  (`v1.signer-prod.testnet`), from a fixed allow-list of calls.
-- Decisions on Sepolia rest on **verified reads**: an OutLayer program (TEE) proves the position's
-  Aave state from Ethereum storage proofs, with at least three RPCs, and a majority of those that
-  answer, agreeing on the block.
-- Claims are owed in the units the steward supplied (LINK, WBTC), not USD, so a rescue costs the borrower
-  only its premium.
+- The contract holds the position: every EVM transaction is built on NEAR and signed by NEAR's MPC
+  network (`v1.signer` on mainnet, `v1.signer-prod.testnet` on testnet), from a fixed allow-list of calls.
+- Decisions rest on **verified reads**: an OutLayer program (TEE) proves the position's Aave state from
+  Ethereum storage proofs, with at least three RPCs, and a majority of those that answer, agreeing on the block.
+- The winner gets a **claim NFT** owed in the units it supplied (WETH, LINK, WBTC), not USD, plus a
+  fixed-unit premium, so a rescue costs the borrower only its premium. The borrower buys it back
+  within 24 hours, or it settles at the oracle price.
+- Stewards are agents with their own strategies; each can tune its risk with a model on NEAR AI Cloud,
+  and a guard applies a change only if its reasoning matches the steward's own data.
 
-Built for the NEAR HACKATHON (deadline 2026-11-14). Rescues run on **testnets** (NEAR testnet, Ethereum
-Sepolia); a **read-only** view applies Stead's formulas to real Aave positions on Ethereum mainnet.
+**Protect a position yourself** ([app.usestead.xyz/#/try](https://app.usestead.xyz/#/try), testnet, about
+12 minutes): connect a NEAR testnet wallet, open a protected position, watch the rescue, try to withdraw
+while the claim is open (the contract refuses on chain), then buy back or let it settle. Test funds are
+sponsored. Mainnet is not open to the public: the contract has not been audited.
 
-| | |
-|---|---|
-| Contract | [`steadfi.testnet`](https://testnet.nearblocks.io/address/steadfi.testnet) (NEAR testnet) |
-| Market | **2**: Sepolia Aave V3, LINK collateral, DAI debt, gas cap 670k per signed tx. Market 1 is legacy (its 500k cap is too low for a new account's first borrow); it holds only position 9's recorded run |
-| Demo contract | [`sepolia-demo.steadfi.testnet`](https://testnet.nearblocks.io/address/sepolia-demo.steadfi.testnet): the same code with a 3-minute buy-back window, so both endings can be shown in one sitting; LINK and WBTC markets |
-| Stewards and keeper | running 24/7 on both contracts: `patient`, `swift`, `deep`, `pool` `.steadfi.testnet`; on the demo contract also `hedged` |
-| Proof program | OutLayer WASM, SHA-256 `a680957fecee3ad5f8c08dcdf8d44f1736c4d748c4eeb0a9833b6da4545e464e` ([source](verifier/)) |
-| A verified rescue | position [`0x98deab0b…5b34`](https://sepolia.etherscan.io/address/0x98deab0b3751f5421aa3c32ac6b8dca0010e5b34) on Sepolia ([the run](#recorded-runs)) |
-| Evidence | [`evidence/README.md`](evidence/README.md): replays on real 2026 prices, stress tests, every recorded run re-read on chain |
+## What runs where
+
+All four run the same source. The size cap and the borrower allow-list are owner settings,
+off by default (0 and empty), so the testnet contracts are unaffected by them.
+
+| Account | Chains | What it's for | Money |
+|---|---|---|---|
+| [`steadfi.testnet`](https://testnet.nearblocks.io/address/steadfi.testnet) | NEAR testnet, Ethereum Sepolia | The main deployment: market 2 (LINK/DAI), the 24-hour buy-back, verified reads; the bots run on it 24/7 | testnet tokens only |
+| [`sepolia-demo.steadfi.testnet`](https://testnet.nearblocks.io/address/sepolia-demo.steadfi.testnet) | NEAR testnet, Ethereum Sepolia | The same code with a 5-minute buy-back window, so a demo shows both endings in one sitting; LINK and WBTC markets | testnet tokens only |
+| `stead-mainnet-dry.testnet` | NEAR testnet, a local copy of Ethereum mainnet | Rehearsals of the mainnet runs with the exact market, caps, gas profile and balances | none (local copy) |
+| [`app.usestead.near`](https://nearblocks.io/address/app.usestead.near) | NEAR mainnet, Ethereum mainnet | Real rescues on Aave V3 Ethereum (WETH collateral, USDC debt). Three completed, each won by `deep` at 150 bps: rescue 78 settled at the oracle price, rescues 80 and 81 bought back. Three earlier attempts had bids but no top-up proven (0 and 1: the winner held less WETH than it bid; 79: the winner's supply ran out of gas); both steward bugs are fixed, and rescue 80 rescued 79's position right after | real and capped: at most $150 of collateral per position and a borrower allow-list; not open to the public, because the contract has not been audited |
+
+The contract code is the same on all three NEAR accounts: SHA-256 of the wasm
+`f0c0a62067ccd6a1748ac9837e7604d64948d4fb20b28fc51a62af9cd77a5d62` (see [Reproduce](#reproduce)). On
+mainnet the proof program is `291b2cd482b9bfad2bb17f9c6efa73f549af015934f0cc900c467e3ca7206990` and the
+three stewards (`deep`, `patient`, `swift` `.usestead.near`) and the keeper run on our server.
+
+Why a separate mainnet contract instead of a mainnet market on `steadfi.testnet`: real funds should only
+answer to mainnet keys and the mainnet MPC network (`v1.signer`). A testnet signer can be reset, and
+testnet accounts aren't meant to hold value. Position 2 on `app.usestead.near` is still open after rescue
+81 (its collateral is ours and capped); the contract's full-access key is deleted once every position is
+closed, and that DeleteKey transaction will be linked under [Recorded runs](#recorded-runs).
 
 ### What else is on the site
 
@@ -70,32 +67,14 @@ Sepolia); a **read-only** view applies Stead's formulas to real Aave positions o
   **REPLAY** plays recorded rescues 8, 10 and 11.
 - **Rescues, Positions, Claims, Stewards, Proofs**: every record read from the contracts, every step
   linked to its transaction.
-- **On mainnet**: real Aave V3 liquidations on Ethereum in the last 24 hours, each beside what a Stead
-  rescue would have cost the same borrower. Read-only, public RPCs.
+- **On mainnet**: the real rescues on `app.usestead.near`, read from the contract with their full flow,
+  and real Aave V3 liquidations on Ethereum in the last 24 hours, each beside what a Stead rescue would
+  have cost the same borrower.
 - The read-only feeds behind the site: `https://live.usestead.xyz/live.json` (open rescues),
   `/records.json` (the list pages), `/mainnet.json` (the mainnet panel), `/demo/status`.
 
 Demo runs are limited to one of each kind at a time, two minutes apart, one per visitor every ten
 minutes, and paced so the test funds last through judging.
-
-### Which contract is which
-
-All four run the same source. The size cap and the borrower allow-list are owner settings,
-off by default (0 and empty), so the testnet contracts are unaffected by them.
-
-| Account | Chains | What it's for | Money |
-|---|---|---|---|
-| [`steadfi.testnet`](https://testnet.nearblocks.io/address/steadfi.testnet) | NEAR testnet, Ethereum Sepolia | The main deployment: market 2 (LINK/DAI), the 24-hour buy-back, verified reads; the bots run on it 24/7 | testnet tokens only |
-| [`sepolia-demo.steadfi.testnet`](https://testnet.nearblocks.io/address/sepolia-demo.steadfi.testnet) | NEAR testnet, Ethereum Sepolia | The same code with a 3-minute buy-back window, so a demo shows both endings in one sitting | testnet tokens only |
-| `stead-mainnet-dry.testnet` | NEAR testnet, a local copy of Ethereum mainnet | Rehearsals of the mainnet runs with the exact market, caps, gas profile and balances | none (local copy) |
-| `app.usestead.near` | NEAR mainnet, Ethereum mainnet | Two small real rescues on Aave V3 Ethereum (WETH collateral, USDC debt), both pooled between two stewards: one bought back, one settled | real and capped: at most $150 of collateral per position, a borrower allow-list, a fresh position per run, closed to $0 afterwards |
-
-Why a separate mainnet contract instead of a mainnet market on `steadfi.testnet`: real funds should only
-answer to mainnet keys and the mainnet MPC network (`v1.signer`). A testnet signer can be reset, and
-testnet accounts aren't meant to hold value. Like the testnet contracts, `app.usestead.near` loses its
-full-access key once every position is closed. The DeleteKey transactions are linked under
-[Recorded runs](#recorded-runs). Until the mainnet runs are recorded, `evidence/mainnet/` is empty and
-the evidence page says so.
 
 ## How to test
 
@@ -133,10 +112,10 @@ switched off). Anything that needs an RPC, OutLayer or keys is opt-in and skips 
 
 | Command | Expected |
 |---|---|
-| `cd contract && cargo test -p stead-core` | **116 passed**, 0 failed: rules 66, settlement and liquidation watch 24, owner limits 10, stewards 10, invariant sweeps 3, OutLayer request and output parsing 2 (one a real Ethereum mainnet proof), migration dry-run 1 (prints `skipped` unless `STEAD_STATE_FILE` points at a downloaded contract state) |
-| `cd verifier && cargo test` | **18 passed, 1 ignored**: the proof program against recorded Sepolia RPC answers (`tests/fixtures/`), plus 5 unit tests; `record` is the live recorder, opt-in: `cargo test -- --ignored record` |
-| `cd stewards && npm ci && npm test` | **210 passed** in 27 files, with no `.env`, keys or network: strategies, hedging, polling, settlement repay, NEAR Intents quotes, AI tuning, the replay model, the run evidence trail and its on-chain checker, the read-only mainnet feed, the rescue event log rebuilt from the chains, the live feed that follows rescues block by block (checked identical to the recordings), the live board in LIVE, DEMO and REPLAY modes, the demo runner's rules (slots, spacing, budget pacing, exact buy-back, reset), the list pages' records, the rescue page with its cost chart and the real price falls it replays, the homepage totals, the sponsored faucet's limits, the AI tuner's guard (rejected unless its reasoning matches the steward's own data), the undercut rule |
-| `cd contract && cargo near build non-reproducible-wasm --no-abi` | `target/near/stead.wasm`; SHA-256 `9035456a230787ac45cfaed411d552397cdad864d753bf2a5ba00e9970b17585`, the code deployed on `steadfi.testnet` and `sepolia-demo.steadfi.testnet` (compare with `view_code`) |
+| `cd contract && cargo test -p stead-core` | **132 passed**, 0 failed: rules 68, settlement and liquidation watch 24, leftover-gas sweep 11, owner limits 10, stewards 10, OutLayer request and output parsing 4 (one a real Ethereum mainnet proof), invariant sweeps 3, migration dry-runs 2 (they print `skipped` unless `STEAD_STATE_FILE` points at a downloaded contract state) |
+| `cd verifier && cargo test` | **25 passed, 2 ignored**: the proof program against recorded Sepolia and Ethereum mainnet RPC answers (`tests/fixtures/`), including the market's own reserve prices; the 2 ignored are the live recorders, opt-in: `cargo test -- --ignored` |
+| `cd stewards && npm ci && npm test` | **402 passed** in 34 files, with no `.env`, keys or network: strategies, hedging, polling, settlement repay, bidding within the wallet's balance, gas headroom on Ethereum writes, NEAR Intents quotes, AI tuning and its guard, the replay model, the run evidence trail and its on-chain checker, the read-only mainnet feed, the rescue event log rebuilt from the chains, the live feed, the live board, the demo runner's rules, the list pages, the rescue page and its cost chart, the homepage totals, the sponsored faucet's limits, the mainnet position dashboard's rules (what each action may sign, payouts, the pause before a NEAR signature, the positions list), the mainnet rescues read from the contract, the undercut rule |
+| `cd contract && cargo near build non-reproducible-wasm --no-abi` | `target/near/stead.wasm`; SHA-256 `f0c0a62067ccd6a1748ac9837e7604d64948d4fb20b28fc51a62af9cd77a5d62`, the code deployed on `steadfi.testnet`, `sepolia-demo.steadfi.testnet` and `app.usestead.near` (`view_account` shows its code hash in base58: `HCoEB9cjsybpY22ccH8x1nCykW337x4UGD8qsyPnQnJD` on mainnet) |
 
 Run from the workspace root, `cargo test` would also try to build the NEAR contract crate for the host,
 which near-sdk refuses; the rules live in `stead-core`, hence `-p stead-core`.
@@ -193,12 +172,46 @@ The contract signs an EVM transaction only from a fixed allow-list. Tests are in
 ## Recorded runs
 
 Every transaction below is re-read on chain by the evidence harness (`cd stewards && npx tsx
-scripts/evidence.ts`, results in [evidence/README.md](evidence/README.md)). A run with real funds
-records its own trail as it goes, in `evidence/mainnet/`: every NEAR call by every actor (borrower,
+scripts/evidence.ts`, results in [evidence/README.md](evidence/README.md)). A scripted run with real funds
+records its own trail as it goes, in `evidence/mainnet/` (the dashboard run below had its trail rebuilt from the explorers): every NEAR call by every actor (borrower,
 stewards, keeper) and every Ethereum transaction sent from the run's own addresses, plus the
 contract's final state. The harness checks each transaction's sender, target or method and outcome
 against the trail, re-reads the contract's positions, rescues and claims, and writes
 `evidence/live-checked.json` for the front end.
+
+### Mainnet, real funds (2026-11-14)
+
+Contract [`app.usestead.near`](https://nearblocks.io/address/app.usestead.near), market 0: Aave V3
+Ethereum, WETH collateral, USDC debt. Position 2's Ethereum address
+[`0x3f3ddb3f…44e8`](https://etherscan.io/address/0x3f3ddb3f32447fcd4168ff1d088fd415b61644e8) is derived
+by NEAR's MPC network; only the contract can sign for it. This run was driven from the mainnet
+dashboard, so its trail
+([`evidence/mainnet/2026-11-14T12-36-rescue-81.json`](evidence/mainnet/2026-11-14T12-36-rescue-81.json))
+was rebuilt after the run from NearBlocks and Blockscout; the harness re-checks all 28 transactions on
+chain ([evidence/README.md §4](evidence/README.md)).
+
+| Step | Evidence |
+|---|---|
+| The borrower registers position 2 | NEAR [`CyqXxmDn…`](https://nearblocks.io/txns/CyqXxmDnJ3bdpTZtEX9zZse5F7aYVkeEjk4cL7bcQ6XN) |
+| The borrower's wallet sends 0.03 WETH to the position; the contract approves and supplies it to Aave (MPC-signed) | Ethereum [`0x1b238e7b…`](https://etherscan.io/tx/0x1b238e7be02ecaf15c887a554c902329b0d86041b151acf93dbab52d8c8717ff), [`0xbf8f3953…`](https://etherscan.io/tx/0xbf8f395358d9621b71a8a1a26e4cc81051bc6c34626818aa46799eb4835806d2), [`0xe055a2c6…`](https://etherscan.io/tx/0xe055a2c6716753a38329023e5de15167e3b490115cea76a8ea257fa304867bb9) |
+| The contract borrows 42 USDC: health factor 1.146, under the 1.15 trigger; the USDC goes to the borrower's payout | NEAR [`3Q4m9Jev…`](https://nearblocks.io/txns/3Q4m9Jev23SWvmAmyLFFu3CzfYv1ETcoxc3yPmBvtfs6); Ethereum [`0x85a1d8a6…`](https://etherscan.io/tx/0x85a1d8a648e232d904b941511f20a61cb1ac74a2b615ab00de2d28112a1408cf), [`0x25c22583…`](https://etherscan.io/tx/0x25c22583b3fca7a0def8340e5fcab5e2863f6263b35a7a3ce64a616885a75ec3) |
+| An OutLayer-verified reading (HF 1.146) opens auction 81, premium cap 593 bps | NEAR [`HFpBeiKB…`](https://nearblocks.io/txns/HFpBeiKBQfPmgVZtwrTw3YWww7Txd9GPfP81aVxiivok) |
+| Bids: `swift` 400 bps then 280 (its floor), `deep` 150, `patient` 253 | NEAR [`E29rEu9z…`](https://nearblocks.io/txns/E29rEu9zqE7sQszgEu7uAUaiWcoUWZhYvhP8a5HLYmMA), [`3sFLqnMa…`](https://nearblocks.io/txns/3sFLqnMa1FVKNnfj5zExhJZ9EbZnj2N6uK7gwE21Z9Lu), [`BJH6QJbR…`](https://nearblocks.io/txns/BJH6QJbRwyKUo2gUuZRGfVT4K7u6gaHnvMGVqLLfLza6), [`226pDQST…`](https://nearblocks.io/txns/226pDQSTHLobEqjSsVcDrmdFwofAG8T4tNWKeRQ7eu4r) |
+| `deep` closes the auction and wins at 150 bps | NEAR [`4rT3AtTR…`](https://nearblocks.io/txns/4rT3AtTRq9mkT1CyJJV5SxJus7vvTUUGeMheMZdd4YC7) |
+| `deep` supplies 0.009268 WETH to Aave on the position's behalf | Ethereum [`0xe2f3616f…`](https://etherscan.io/tx/0xe2f3616f2d23ba27770acab6d0bb8d5b3f180724261c37043217b8484babf6b4) |
+| A verified reading proves the top-up (HF 1.50); claim NFT `2-0-0` minted to `deep`, owed 0.009407 WETH | NEAR [`6Xt4psYm…`](https://nearblocks.io/txns/6Xt4psYmjb1tSh8d95FvQrgXGQP3fTN2R1oGnCD6Ugz6) |
+| The borrower pays exactly 0.00940684 WETH into the position; a verified reading proves it and the buy-back commits | Ethereum [`0x549c293e…`](https://etherscan.io/tx/0x549c293ee072211154e9090d2b2ee6f4eabdb4d01ddf50b0ebddcbff54345173); NEAR [`HvpHzHzV…`](https://nearblocks.io/txns/HvpHzHzV5QjBJnyrunZaf666VGcFMTSetgGysWacybAA) |
+| The contract signs and pays `deep` exactly what it is owed | NEAR [`3MoiF9FK…`](https://nearblocks.io/txns/3MoiF9FKeytfbe4C6W8eyQbV4nx6A5vRmtBGuvJPefQm); Ethereum [`0xe5212b4c…`](https://etherscan.io/tx/0xe5212b4c3c2e9a03c46de534f3c86e3e4679cdbf79c2008b122c9a9e518749d8) |
+
+**The borrower's cost:** `deep`'s premium, $0.27 (the contract's `premium_base` 26,544,627 at 8
+decimals: 150 bps of the $17.70 top-up). **Against an Aave liquidation:** $1.05, the contract's premium
+cap for this rescue (593 bps of the same top-up), which is Aave's liquidation penalty on this position:
+50 % close factor × 5 % WETH bonus × $41.99 debt.
+
+The other completed mainnet rescues, read from the contract (`get_rescue` on `app.usestead.near`):
+rescue 78 on position 0, settled at the oracle price after the buy-back window ended (`deep` repaid
+30.46 USDC of the debt and was paid 0.028569 WETH in two legs); rescue 80 on position 1, bought back
+with USDC the borrower had left at the position. Both won by `deep` at 150 bps.
 
 **Verified rescue on Sepolia** (2026-11-05, position 9, rescue 12, legacy market 1). Every Aave reading that drove a
 decision came from the proof program.
@@ -387,8 +400,8 @@ or bond is lost because of it.
 
 Planned, not built.
 
-- **Sealed bids in a TEE.** Stead already uses OutLayer (Intel TDX, worker attestation checked on
-  chain) for verified readings. An OutLayer program would generate an auction key inside the TEE and
+- **Sealed bids in a TEE.** Stead already uses OutLayer (Intel TDX, attestation published by
+  OutLayer) for verified readings. An OutLayer program would generate an auction key inside the TEE and
   publish its public key; each steward posts its bid encrypted to that key, with its bond, in one
   transaction; when the window closes the contract hands the encrypted bids to the program, which
   decrypts them inside the TEE and returns only the winning bids. The contract still checks the cap
@@ -409,7 +422,7 @@ Planned, not built.
   transaction: a flash loan repays the old loan, the collateral moves into a new protected position, and
   the debt is re-borrowed there.
 - **Opening mainnet.** The mainnet contract starts closed on purpose: a $150 size cap and an allow-list
-  with only our borrower, for the two recorded runs. Both are owner settings, bounded in the code. After
+  with only our borrower, for the recorded runs (three completed rescues). Both are owner settings, bounded in the code. After
   the runs: a modest cap with the allow-list off, so anyone can protect a position; then higher caps as
   independent stewards bring capital (registration is open; the five running today are example
   strategies) and after a contract audit.
@@ -423,6 +436,12 @@ Planned, not built.
   the health factor directly by cross-contract view: no chain signatures, no proofs, and top-ups
   attributable on chain.
 
+## The other entry
+
+Samuel Chuku, who built Stead, is also a contributor to **ProofStream on NEAR**, a separate NEAR HACKATHON entry: milestone payouts for open-source work, released by verified GitHub facts and two independent AI reviews. The two share no code, accounts or keys.
+- **ProofStream repository:** https://github.com/Samuel-Chuku/proofstream-near
+- **Website:** https://near.proofstream.site
+
 ## Repository
 
 | Path | What |
@@ -433,14 +452,15 @@ Planned, not built.
 | `stewards/` | Keeper and steward bots (TypeScript); `deploy/` holds the container and systemd setup |
 | `fork/` | Local Sepolia fork with a settable price feed (anvil, chain id 31337) |
 | `evidence/` | Replays on real 2026 prices, stress-test output, recorded runs re-read on chain (`stewards/scripts/evidence.ts`) |
-| `web/` | Front end (to come) |
+| `web/` | Front end (TypeScript, Vite): the live board (LIVE, DEMO, REPLAY), the list pages, how it works, the mainnet panel, and the position dashboards for testnet and mainnet (NEAR wallets through NEAR Connector, an optional Ethereum wallet) |
 
 ## Built with
 
 - **Contract:** near-sdk 5.30.0, omni-transaction 0.5.0 (EVM transaction building), borsh, serde.
 - **Proof program:** rlp, tiny-keccak, serde; runs on OutLayer.
 - **Bots and scripts:** viem 2.57.7, near-api-js 7.3.1; tests with vitest; Foundry's anvil for the local fork.
-- **NEAR services:** chain signatures (MPC `v1.signer-prod.testnet`), OutLayer (TEE-verified reads), NEAR Intents 1Click (dry quotes), NEAR AI Cloud (optional steward tuning).
+- **Front end:** TypeScript, Vite 8, viem 2.57.7, @hot-labs/near-connect 0.12.0 (NEAR wallets), the ethereumjs VM for in-browser simulation, qrcode-generator 1.4.4.
+- **NEAR services:** chain signatures (MPC `v1.signer` on mainnet, `v1.signer-prod.testnet` on testnet), OutLayer (TEE-verified reads), NEAR Intents 1Click (steward capital), NEAR AI Cloud (steward risk tuning, on for the mainnet and testnet stewards).
 - **AI-assisted code:** the team designed the idea, the framework, the rescue economics and the front end; an AI coding assistant (Claude Code) helped write the code under the team's direction and review.
 
 ## Provenance: what came from the feasibility spike

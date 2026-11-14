@@ -1,6 +1,7 @@
-// "Live on mainnet": the capped rescues with real funds, read from the evidence harness's checked
-// trails (stewards/scripts/evidence.ts writes /mainnet-runs.json from evidence/mainnet/, real runs
-// only). Before the runs, the panel says what is planned and what is already checked.
+// "Live on mainnet": the rescues with real funds. The list is read straight from the contract
+// (chainlist.ts); when the site also has the evidence harness's checked trails
+// (stewards/scripts/evidence.ts writes /mainnet-runs.json from evidence/mainnet/, real runs only),
+// each recorded run follows the list, every transaction re-checked on chain.
 import type { WebRuns } from "../../../stewards/src/trailcheck";
 import type { Move, RescueView, StewardView } from "../../../stewards/src/stewardview";
 import { icon } from "../icons";
@@ -18,9 +19,6 @@ const plainWhat = (s: string) => s.replace(/\s*→\s*/g, " to ");
 const chainName: Record<string, string> = { ethereum: "Ethereum", "near-mainnet": "NEAR", "near-testnet": "NEAR testnet", sepolia: "Sepolia", "ethereum-copy": "local copy" };
 const ext = (href: string, label: string) => `<a class="st-textlink st-extlink" href="${href}" target="_blank" rel="noopener">${label}${icon("external", 13)}</a>`;
 
-// the read-only preflight on Ethereum mainnet: OutLayer ran the pinned proof program on a real Aave position
-const PREFLIGHT_TX = "7GCYZhCDkTPrzp7xSJ2syonU24wrqGD9MMSWbc6oZiXK";
-
 export async function loadRuns(): Promise<WebRuns | null> {
   try {
     // development only: `?runs=<file>.json` reads another file from the dev server (a local preview)
@@ -32,26 +30,6 @@ export async function loadRuns(): Promise<WebRuns | null> {
   } catch {
     return null;
   }
-}
-
-function planned(): string {
-  return `
-  <section class="st-panel st-sect st-mn-runs">
-    <div class="st-sect-head">
-      <div>
-        <div class="st-label">REAL RESCUES · ETHEREUM MAINNET</div>
-        <h2 class="st-panel-title">Two small rescues with real funds, recorded transaction by transaction</h2>
-      </div>
-      <span class="st-chip">PLANNED</span>
-    </div>
-    <div class="st-mn-plan">
-      <div><h3>Run 1 · one steward, bought back</h3><p>A WETH/USDC position falls under 1.15. The stewards bid, the lowest premium tops it up alone, and the borrower buys the claim back. The contract pays the steward exactly what it is owed.</p></div>
-      <div><h3>Run 2 · pooled, settled</h3><p>No steward may cover the whole top-up, so two share it, each with its own claim. Nobody buys it back, so a claim owner settles at the oracle price and each owner is paid exactly.</p></div>
-      <div><h3>Limits</h3><p>At most $150 of collateral per position and one allow-listed borrower, both owner settings bounded in the code. Every decision rests on a verified reading. Both positions are closed to zero at the end.</p></div>
-    </div>
-    <p class="st-chart-year"><strong>Already checked on mainnet, read-only:</strong> OutLayer ran Stead's pinned proof program on a real Aave position on Ethereum. Six independent RPCs agreed, and the collateral, debt, liquidation threshold and balances it proved equal Aave's own figures at that block. ${ext(`https://testnet.nearblocks.io/txns/${PREFLIGHT_TX}`, "The OutLayer run")}</p>
-    <p class="st-list-note">This panel fills from the runs' evidence: every transaction is re-checked on chain and the contract's state is compared with the recording.</p>
-  </section>`;
 }
 
 function entryRow(e: Entry, showAll: boolean): string {
@@ -224,29 +202,32 @@ export function stewardPanel(v: StewardView, x: RescueView): string {
 let current: WebRuns | null = null;
 
 const RUN_NOTE = "Read from the run's recorded transactions, each re-checked on chain. Times are when each transaction was sent (NEAR) or its block's time (Ethereum); the NEAR Intents delivery is when it was seen.";
-/** The steward's view dialog (empty; `showSteward` fills it). `note` is the line under the moves. */
-export function dialogHtml(note = RUN_NOTE): string {
-  return `<dialog class="st-sv-dialog" aria-labelledby="st-sv-title">
+/** The steward's view dialog (empty; `showSteward` fills it). `note` is the line under the moves;
+ *  `o.id` names a second dialog of the same look on one page (its title is `#<id>-title`). */
+export function dialogHtml(note = RUN_NOTE, o: { id?: string; close?: string } = {}): string {
+  const id = o.id ?? "st-sv";
+  return `<dialog class="st-sv-dialog" data-dlg="${id}" aria-labelledby="${id}-title">
     <div class="st-sv-top">
-      <div><div class="st-label" data-sv-label></div><h2 class="st-panel-title st-sv-title" id="st-sv-title"></h2></div>
-      <button type="button" class="st-icon-btn" data-sv-close aria-label="Close the steward's view">${icon("close", 16)}</button>
+      <div><div class="st-label" data-sv-label></div><h2 class="st-panel-title st-sv-title" id="${id}-title"></h2></div>
+      <button type="button" class="st-icon-btn" data-sv-close aria-label="${esc(o.close ?? "Close the steward's view")}">${icon("close", 16)}</button>
     </div>
     <div class="st-sv-tabs" role="tablist" aria-label="Winning stewards" hidden></div>
-    <div class="st-sv-panel" role="tabpanel" id="st-sv-panel" tabindex="-1"></div>
+    <div class="st-sv-panel" role="tabpanel" id="${id}-panel" tabindex="-1"></div>
     <p class="st-list-note st-sv-note">${esc(note)}</p>
   </dialog>`;
 }
 
+/** The recorded runs, when the site has them (none: the contract's list stands alone). */
 export function runsHtml(data: WebRuns | null): string {
   current = data;
-  if (!data) return planned();
+  if (!data) return "";
   return data.runs.map(runSection).join("") + (data.runs.some((r) => r.rescues?.length) ? dialogHtml() : "");
 }
 
 export function showSteward(dlg: HTMLDialogElement, x: RescueView, k: number, focusTab = false) {
   const v = x.stewards[k];
   dlg.querySelector("[data-sv-label]")!.textContent = `STEWARD'S VIEW · RESCUE ${x.rescue}${x.pooled ? " · POOLED" : ""}`;
-  dlg.querySelector("#st-sv-title")!.innerHTML = `${tile(v.steward, 32)}<span>${esc(possessive(v.steward))} moves</span>`;
+  dlg.querySelector(".st-sv-title")!.innerHTML = `${tile(v.steward, 32)}<span>${esc(possessive(v.steward))} moves</span>`;
   const tabs = dlg.querySelector<HTMLElement>(".st-sv-tabs")!;
   tabs.hidden = !x.pooled;
   tabs.innerHTML = x.pooled
@@ -274,7 +255,7 @@ export function wireRuns(root: HTMLElement, signal: AbortSignal) {
   );
   // the steward's view: a modal dialog (the page behind is inert, Escape closes it), focus back on
   // the button that opened it
-  const dlg = root.querySelector<HTMLDialogElement>(".st-sv-dialog");
+  const dlg = root.querySelector<HTMLDialogElement>('.st-sv-dialog[data-dlg="st-sv"]');
   if (dlg) {
     let open: RescueView | undefined;
     let opener: HTMLElement | null = null;

@@ -1044,3 +1044,13 @@ describe("results and the protections line", () => {
     expect(page).toMatch(/modal\("prot", `POSITION \$\{s\.pos\.id\} · PROTECTIONS`, "Protections", protListHtml/);
   });
 });
+
+describe("opening a new position from the positions list", () => {
+  it("waits for a position the account did not own before, never an old one", () => {
+    const src = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
+    const reg = src.slice(src.indexOf("const register = () =>"), src.indexOf("/** The size cap is checked"));
+    expect(reg).toMatch(/const before = new Set<number>\(\[\.\.\.\(owned \?\? \[\]\)\.map/);
+    expect(reg).toMatch(/!before\.has\(p\.id\)\) break/);
+    expect(reg).not.toMatch(/p\.id !== oldId/);
+  });
+});

@@ -80,3 +80,11 @@ describe("a steward never bids more than it can supply", () => {
     expect(bidCapacity(6n, undefined)).toBe(6n);
   });
 });
+
+import { withHeadroom } from "../src/fork.js";
+describe("gas for a steward's Ethereum write", () => {
+  it("sends the estimate plus 30 %, never the bare estimate", () => {
+    expect(withHeadroom(146_549n)).toBe(190_513n);
+    expect(withHeadroom(146_549n) > 146_549n).toBe(true);
+  });
+});
