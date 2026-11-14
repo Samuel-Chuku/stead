@@ -1,0 +1,111 @@
+{
+  "source": "app.usestead.near get_rescue(78) and get_claim(\"0-78-0\") on NEAR mainnet, read 2026-11-14",
+  "rescue": {
+    "id": 78,
+    "position_id": 0,
+    "seq": 78,
+    "state": "settled",
+    "opened_at": "1794639856148464982",
+    "closes_at": "1794639976148464982",
+    "topup_deadline": "1794640158466780578",
+    "topup_units": "12384387129772345",
+    "topup_base": "2357382352",
+    "collateral_price_base": "190351151599",
+    "debt_price_base": "99973126",
+    "cap_bps": 583,
+    "bids": [
+      {
+        "steward": "swift.usestead.near",
+        "premium_bps": 280,
+        "amount_units": "12384387129772345",
+        "bond": "100000000000000000000000",
+        "seq": 2
+      },
+      {
+        "steward": "deep.usestead.near",
+        "premium_bps": 150,
+        "amount_units": "12384387129772345",
+        "bond": "100000000000000000000000",
+        "seq": 1
+      },
+      {
+        "steward": "patient.usestead.near",
+        "premium_bps": 268,
+        "amount_units": "12384387129772345",
+        "bond": "100000000000000000000000",
+        "seq": 3
+      }
+    ],
+    "members": [
+      {
+        "steward": "deep.usestead.near",
+        "premium_bps": 150,
+        "share_units": "12384387129772345",
+        "share_base": "2357382352",
+        "premium_units": "185765806946585",
+        "premium_base": "35360735",
+        "bond": "100000000000000000000000",
+        "confirmed": true,
+        "evm_tx": "verified@26411620",
+        "claim_id": "0-78-0"
+      }
+    ],
+    "claims_opened_at": "1794640066775770430",
+    "settlement": {
+      "settler": "deep.usestead.near",
+      "early": false,
+      "price_base": "190351151599",
+      "collateral_base": "9819236110",
+      "debt_base": "5498775562",
+      "owed_units": "12570152936718930",
+      "owed_base": "2392743088",
+      "repay_base": "3045316977",
+      "repay_units": "30461356",
+      "repay_collateral_units": "15998416355343964",
+      "full_close": false,
+      "repay_confirmed": true,
+      "committed": true,
+      "legs": [
+        {
+          "to": "0x26e2ab6ec0e027f01f41cf65ee5375f0692fd41d",
+          "amount": {
+            "exact": "28382803485116309"
+          },
+          "claim_id": "0-78-0",
+          "done": true
+        },
+        {
+          "to": "0x26e2ab6ec0e027f01f41cf65ee5375f0692fd41d",
+          "amount": {
+            "exact": "185765806946585"
+          },
+          "claim_id": "0-78-0",
+          "done": true
+        }
+      ],
+      "started_at": "1794640248796379992"
+    },
+    "next_bid_seq": 4
+  },
+  "claims": [
+    {
+      "token_id": "0-78-0",
+      "rescue_id": 78,
+      "position_id": 0,
+      "owner": "deep.usestead.near",
+      "asset": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+      "share_units": "12384387129772345",
+      "premium_bps": 150,
+      "premium_units": "185765806946585",
+      "owed_units": "12570152936718930",
+      "trigger_price_base": "190351151599",
+      "share_base": "2357382352",
+      "premium_base": "35360735",
+      "opened_at": "1794640066775770430",
+      "expires_at": "1794640246775770430",
+      "status": "settled",
+      "evm_topup_tx": "verified@26411620",
+      "paid_by_tx": null
+    }
+  ]
+}

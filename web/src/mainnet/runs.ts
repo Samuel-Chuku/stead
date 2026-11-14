@@ -121,7 +121,7 @@ function dur(sec: number): string {
   const m = Math.floor(sec / 60), r = sec % 60;
   return `${n(m)}${u("min")}${r ? `${n(r)}${u("s")}` : ""}`;
 }
-const capitalWord: Record<StewardView["capital"], string> = { own: "Own WETH", intents: "NEAR Intents · 1Click", "intents-fallback": "Own WETH, after NEAR Intents" };
+const capitalWord: Record<NonNullable<StewardView["capital"]>, string> = { own: "Own WETH", intents: "NEAR Intents · 1Click", "intents-fallback": "Own WETH, after NEAR Intents" };
 const outcomeWord: Record<StewardView["outcome"], string> = { "bought back": "Bought back, paid out", settled: "Settled at the oracle price", open: "Claim open" };
 
 function movesRow(r: Run, i: number): string {
@@ -136,18 +136,20 @@ function movesRow(r: Run, i: number): string {
 }
 
 function evidence(m: Move): string {
-  if (!m.tx) return `<span class="st-sv-off">off chain</span>`;
+  if (!m.tx) return `<span class="st-sv-off">${esc(m.note ?? "off chain")}</span>`;
   if (m.kind === "reported") return `<span class="st-evidence st-evidence--reported"><span class="st-evidence-mark" aria-hidden="true"></span>REPORTED · KEEPER</span>`;
   if (!m.confirmed) return `<span class="st-evidence st-evidence--unverified">NOT CONFIRMED</span>`;
   return `<span class="st-evidence st-evidence--proven"><span class="st-evidence-mark" aria-hidden="true"></span>${m.ok === false ? "REFUSED, AS RECORDED" : "ON CHAIN"}</span>`;
 }
 function where(m: Move): string {
+  if (!m.tx && m.link) return ext(m.link, "Etherscan"); // a step the contract records without a transaction: where to see it
   if (!m.tx || !m.chain) return "";
   const hash = `<span class="st-mono">${esc(shortTx(m.tx))}</span>`;
   const name = chainName[m.chain] ?? m.chain;
   return m.link ? ext(m.link, `${esc(name)} ${hash}`) : `<span class="st-sv-where">${esc(name)} ${hash}</span>`;
 }
 function actorTag(m: Move, steward: string): string {
+  if (m.actor === "borrower") return `<span class="st-sv-by st-sv-by--other">by the borrower</span>`;
   if (m.actor === steward) return `<span class="st-sv-by">${tile(steward)}<span>${esc(steward)}</span></span>`;
   const who = m.actor === "contract" ? "the contract" : m.actor.replace(/^keeper \(temporary reporter\)$/, "keeper, temporary reporter");
   return `<span class="st-sv-by st-sv-by--other">by ${esc(who)}</span>`;
@@ -156,7 +158,7 @@ function moveItem(m: Move, steward: string): string {
   const fig = m.figure ? `<span class="st-sv-fig"><span class="st-sv-n">${esc(amt(m.figure.value))}</span><span class="st-sv-u">${esc(m.figure.unit)}</span></span>` : "";
   return `<li class="st-sv-move${m.ok === false ? " is-refused" : ""}${m.tx ? "" : " is-off"}">
     <span class="st-sv-dot" aria-hidden="true"></span>
-    <div class="st-sv-time">${m.at ? `${hms(m.at)} UTC` : ""}</div>
+    <div class="st-sv-time">${m.at ? `${hms(m.at)} UTC` : m.after ? `<span class="st-sv-after">after ${hms(m.after)}</span>` : ""}</div>
     <div class="st-sv-body">
       <div class="st-sv-head"><h4>${esc(m.title)}</h4>${fig}</div>
       <p>${esc(sentence(m.detail))}</p>
@@ -171,11 +173,23 @@ function gap(a: Move | undefined, b: Move): string {
   return `<li class="st-sv-gap" aria-label="${s} seconds later"><span aria-hidden="true">+${dur(s)}</span></li>`;
 }
 
-function stewardPanel(v: StewardView, x: RescueView): string {
+/** A whole rescue's steps as one timeline (the steward's view's styling): each step's actor, its
+ *  time or the time it follows, its figure and where to see it. */
+export function flowSeq(moves: Move[]): string {
+  let html = "";
+  let prev: Move | undefined;
+  for (const m of moves) {
+    html += gap(prev, m) + moveItem(m, m.actor in CODE ? m.actor : "");
+    if (m.at) prev = m;
+  }
+  return `<ol class="st-sv-seq">${html}</ol>`;
+}
+
+export function stewardPanel(v: StewardView, x: RescueView): string {
   const timed = v.moves.filter((m) => m.at);
   const span = timed.length > 1 ? Math.round((Date.parse(timed[timed.length - 1].at!) - Date.parse(timed[0].at!)) / 1000) : 0;
   const claim = v.moves.find((m) => m.kind === "claim");
-  const toClaim = claim?.at ? Math.round((Date.parse(claim.at) - Date.parse(v.moves[0].at!)) / 1000) : undefined;
+  const toClaim = claim?.at && v.moves[0].at ? Math.round((Date.parse(claim.at) - Date.parse(v.moves[0].at!)) / 1000) : undefined;
   // the sequence: timed moves in order; the Intents leg grouped under its own heading
   let html = "";
   let prev: Move | undefined;
@@ -201,7 +215,7 @@ function stewardPanel(v: StewardView, x: RescueView): string {
     <dl class="st-kpis st-sv-kpis">
       <div><dt>PREMIUM</dt><dd><span class="st-num">${v.premiumBps}</span> <span class="st-sv-u">bps</span></dd><dd class="st-kpi-sub">${x.pooled ? "its own bid, pooled" : "lowest bid"}</dd></div>
       ${v.share ? `<div><dt>TOPPED UP</dt><dd><span class="st-num">${esc(amt(v.share.amount))}</span> <span class="st-sv-u">${esc(v.share.asset)}</span></dd><dd class="st-kpi-sub">to ${esc(x.position ?? "the position")}</dd></div>` : ""}
-      <div><dt>CAPITAL</dt><dd class="st-kpi-word">${capitalWord[v.capital]}</dd><dd class="st-kpi-sub">${v.intentsSeconds !== undefined ? `delivered in ${v.intentsSeconds} s` : v.capital === "own" ? "already in its wallet" : "no delivery in time"}</dd></div>
+      ${v.capital ? `<div><dt>CAPITAL</dt><dd class="st-kpi-word">${capitalWord[v.capital]}</dd><dd class="st-kpi-sub">${v.intentsSeconds !== undefined ? `delivered in ${v.intentsSeconds} s` : v.capital === "own" ? "already in its wallet" : "no delivery in time"}</dd></div>` : ""}
       ${toClaim !== undefined ? `<div><dt>BID TO CLAIM</dt><dd class="st-sv-kpi-dur">${dur(toClaim)}</dd><dd class="st-kpi-sub">${esc(outcomeWord[v.outcome])}${span ? `, ${Math.round(span / 60)} min in all` : ""}</dd></div>` : ""}
     </dl>
     <ol class="st-sv-seq">${html}</ol>`;
@@ -209,7 +223,9 @@ function stewardPanel(v: StewardView, x: RescueView): string {
 
 let current: WebRuns | null = null;
 
-function dialogHtml(): string {
+const RUN_NOTE = "Read from the run's recorded transactions, each re-checked on chain. Times are when each transaction was sent (NEAR) or its block's time (Ethereum); the NEAR Intents delivery is when it was seen.";
+/** The steward's view dialog (empty; `showSteward` fills it). `note` is the line under the moves. */
+export function dialogHtml(note = RUN_NOTE): string {
   return `<dialog class="st-sv-dialog" aria-labelledby="st-sv-title">
     <div class="st-sv-top">
       <div><div class="st-label" data-sv-label></div><h2 class="st-panel-title st-sv-title" id="st-sv-title"></h2></div>
@@ -217,7 +233,7 @@ function dialogHtml(): string {
     </div>
     <div class="st-sv-tabs" role="tablist" aria-label="Winning stewards" hidden></div>
     <div class="st-sv-panel" role="tabpanel" id="st-sv-panel" tabindex="-1"></div>
-    <p class="st-list-note st-sv-note">Read from the run's recorded transactions, each re-checked on chain. Times are when each transaction was sent (NEAR) or its block's time (Ethereum); the NEAR Intents delivery is when it was seen.</p>
+    <p class="st-list-note st-sv-note">${esc(note)}</p>
   </dialog>`;
 }
 
@@ -227,7 +243,7 @@ export function runsHtml(data: WebRuns | null): string {
   return data.runs.map(runSection).join("") + (data.runs.some((r) => r.rescues?.length) ? dialogHtml() : "");
 }
 
-function showSteward(dlg: HTMLDialogElement, x: RescueView, k: number, focusTab = false) {
+export function showSteward(dlg: HTMLDialogElement, x: RescueView, k: number, focusTab = false) {
   const v = x.stewards[k];
   dlg.querySelector("[data-sv-label]")!.textContent = `STEWARD'S VIEW · RESCUE ${x.rescue}${x.pooled ? " · POOLED" : ""}`;
   dlg.querySelector("#st-sv-title")!.innerHTML = `${tile(v.steward, 32)}<span>${esc(possessive(v.steward))} moves</span>`;

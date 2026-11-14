@@ -15,7 +15,11 @@ import {
   TRIGGER_BPS, UNDER_TRIGGER_WARNING, type Account, type PosFacts,
   hfBand, hfPulses, riskLines, pctText, linePrice, ltvView, premiumCapBase, barZones, BAR_MARKS, EARLY_SETTLE_BPS, CAUTION_BPS,
   ladderStep, bidBarPct, premiumCostBase, stewardIdOf, LATE_MS, type SeenBid,
+  KEPT_DEBT, KEPT_RESCUE, LOW_GAS_WEI, gasLow, fundAsk, liveStewardView,
+  positionEmpty, type EmptyFacts,
+  flowActivity, sortActivity, clockText, flowMoves, type ActRow,
 } from "../../web/src/own/dashlogic.js";
+import { NETS, rescueFlow, type RescueView, type ClaimView } from "../../web/src/own/net.js";
 import { readFileSync } from "node:fs";
 
 const E18 = 10n ** 18n;
@@ -212,10 +216,19 @@ describe("which actions the contract would sign", () => {
     registered: true, evmConnected: true, marketOk: true, paused: false, locked: false, claimOpen: false, escrowHeld: false, refundPending: false,
     outflows: 0, pendingTx: false, hasColl: true, hasDebt: true, idleDebtUnits: usdc(3), idleCollUnits: 0n, repayFromWallet: false, sweepSupported: true, sweepUnits: 10n ** 14n,
   };
-  it("safe: every action but the buy-back", () => {
+  it("safe: every action but the buy-back (and the leftover ETH, kept for gas while there is debt)", () => {
     const a = availability(SAFE);
-    for (const k of ["deposit", "borrow", "repay", "withdraw", "sweep", "move"] as const) expect(a[k].on, k).toBe(true);
+    for (const k of ["deposit", "borrow", "repay", "withdraw", "move"] as const) expect(a[k].on, k).toBe(true);
     expect(a.buyback.on).toBe(false);
+    expect(a.sweep).toMatchObject({ on: false, why: KEPT_DEBT });
+  });
+  it("the leftover ETH is offered back only with no debt and no rescue: otherwise it pays the position's gas", () => {
+    const free = { ...SAFE, hasDebt: false };
+    expect(availability(free).sweep.on).toBe(true);
+    expect(availability({ ...free, locked: true }).sweep).toMatchObject({ on: false, why: KEPT_RESCUE });
+    expect(availability({ ...free, locked: true, claimOpen: true }).sweep).toMatchObject({ on: false, why: KEPT_RESCUE });
+    expect(availability({ ...free, escrowHeld: true }).sweep).toMatchObject({ on: false, why: KEPT_RESCUE });
+    expect(availability({ ...free, hasDebt: true }).sweep).toMatchObject({ on: false, why: KEPT_DEBT });
   });
   it("auction running: only repay; withdraw and borrow refused but can be tried anyway; no deposit transfer", () => {
     const a = availability({ ...SAFE, locked: true });
@@ -637,5 +650,217 @@ describe("the borrow and the move to the wallet are separate", () => {
     expect(m).toContain("typed && typed > 0n ? typed : idle");
     expect(m).toMatch(/if \(units > idle\) throw/);
     expect((m.match(/signAction\(/g) ?? []).length).toBe(1);
+  });
+});
+
+describe("the position's gas", () => {
+  const CAP = 375_332n * 10n ** 9n; // the signing cap: 375,332 gas at 1 gwei
+  it("is low under 0.0004 ETH while the position has debt or a rescue runs, never without either", () => {
+    expect(LOW_GAS_WEI).toBe(4n * 10n ** 14n);
+    expect(gasLow({ ethWei: LOW_GAS_WEI - 1n, hasDebt: true, locked: false, upfrontWei: CAP })).toBe(true);
+    expect(gasLow({ ethWei: LOW_GAS_WEI, hasDebt: true, locked: false, upfrontWei: CAP })).toBe(false);
+    expect(gasLow({ ethWei: 0n, hasDebt: false, locked: true, upfrontWei: CAP })).toBe(true);
+    expect(gasLow({ ethWei: 0n, hasDebt: false, locked: false, upfrontWei: CAP })).toBe(false);
+  });
+  it("never counts as enough below one transaction at the caps", () => {
+    const big = 10n ** 15n;
+    expect(gasLow({ ethWei: big - 1n, hasDebt: true, locked: false, upfrontWei: big })).toBe(true);
+  });
+  it("the Fund dialog: WETH plus missing gas normally, only ETH while an auction or top-up runs, the exact buy-back while a claim is open", () => {
+    const F = { registered: true, locked: false, claimOpen: false, ethWei: 10n ** 15n, upfrontWei: 4n * 10n ** 14n, gasWaitWei: 0n, dueUnits: 0n };
+    expect(fundAsk(F)).toEqual({ kind: "fund", gasWei: 0n });
+    expect(fundAsk({ ...F, ethWei: 0n })).toEqual({ kind: "fund", gasWei: 8n * 10n ** 14n });
+    expect(fundAsk({ ...F, locked: true })).toEqual({ kind: "gas", gasWei: 0n });
+    expect(fundAsk({ ...F, locked: true, ethWei: 0n })).toEqual({ kind: "gas", gasWei: 8n * 10n ** 14n });
+    expect(fundAsk({ ...F, locked: true, claimOpen: true, dueUnits: 5n })).toEqual({ kind: "buyback", wethUnits: 5n, gasWei: 0n });
+    expect(fundAsk({ ...F, gasWaitWei: 7n })).toEqual({ kind: "gas", gasWei: 7n });
+    expect(fundAsk({ ...F, registered: false }).kind).toBe("none");
+  });
+});
+
+describe("the steward's view of a live rescue", () => {
+  const coll = { symbol: "WETH", decimals: 18 };
+  const base = { id: 3, opened_at: "1000000000000", closes_at: "0", claims_opened_at: "0", settlement: null };
+  const bids = [
+    { steward: "swift.usestead.near", premium_bps: 210, amount_units: "16000000000000000", seq: 0 },
+    { steward: "deep.usestead.near", premium_bps: 140, amount_units: "16000000000000000", seq: 1 },
+    { steward: "swift.usestead.near", premium_bps: 120, amount_units: "16000000000000000", seq: 2 },
+  ];
+  const o = { posId: 0, coll, seenMs: (k: string) => (k === "topup:3:deep.usestead.near" ? 2_000_000 : null), evmTxUrl: (h: string) => `https://etherscan.io/tx/${h}` };
+  it("while the auction runs: the leading bidder only, its latest bid and how often it bid", () => {
+    const v = liveStewardView({ ...base, state: "auction", bids, members: [] }, [], o)!;
+    expect(v.stewards.map((x) => x.steward)).toEqual(["swift"]);
+    expect(v.stewards[0].premiumBps).toBe(120);
+    expect(v.stewards[0].moves).toHaveLength(1);
+    expect(v.stewards[0].moves[0]).toMatchObject({ kind: "bid", title: "Leading bid" });
+    expect(v.stewards[0].moves[0].detail).toContain("bid 2 times");
+    expect(v.stewards[0].share).toBeUndefined();
+    expect(liveStewardView({ ...base, state: "auction", bids: [], members: [] }, [], o)).toBeNull();
+  });
+  it("after it closes: the winner's supply (its Ethereum transaction), the confirmation and the claim, from the contract's records", () => {
+    const m = { steward: "deep.usestead.near", premium_bps: 140, share_units: "16000000000000000", confirmed: true, evm_tx: "0xabc", claim_id: "0-0-0" };
+    const v = liveStewardView({ ...base, state: "open", claims_opened_at: "3000000000000", bids, members: [m] }, [{ token_id: "0-0-0", owner: m.steward, owed_units: "16224000000000000", status: "open" }], o)!;
+    expect(v.pooled).toBe(false);
+    const d = v.stewards[0];
+    expect(d.steward).toBe("deep");
+    expect(d.share).toEqual({ amount: "0.016", asset: "WETH" });
+    expect(d.moves.map((x) => x.kind)).toEqual(["bid", "supply", "verified", "claim"]);
+    expect(d.moves[1]).toMatchObject({ tx: "0xabc", link: "https://etherscan.io/tx/0xabc", confirmed: true, at: new Date(2_000_000).toISOString() });
+    expect(d.moves[3].figure).toEqual({ value: "0.016224", unit: "WETH" });
+    expect(d.moves[3].at).toBe(new Date(3_000_000).toISOString());
+    expect(d.capital).toBeUndefined(); // not known from the contract: the view leaves it out
+  });
+  it("a top-up proven by a verified read names the block it read, never a made-up transaction link", () => {
+    const m = { steward: "deep.usestead.near", premium_bps: 140, share_units: "16000000000000000", confirmed: true, evm_tx: "verified@26411620", claim_id: null };
+    const v = liveStewardView({ ...base, state: "open", bids, members: [m] }, [], { ...o, evmBlockUrl: (n: number) => `https://etherscan.io/block/${n}` })!;
+    expect(v.stewards[0].moves[1]).toMatchObject({ kind: "supply", tx: "block 26411620", link: "https://etherscan.io/block/26411620" });
+  });
+  it("a pooled rescue shows each winner; a top-up still under way has no transaction yet", () => {
+    const ms = [
+      { steward: "deep.usestead.near", premium_bps: 140, share_units: "8000000000000000", confirmed: false, evm_tx: null, claim_id: null },
+      { steward: "swift.usestead.near", premium_bps: 120, share_units: "8000000000000000", confirmed: false, evm_tx: null, claim_id: null },
+    ];
+    const v = liveStewardView({ ...base, state: "top_up_pending", bids, members: ms }, [], o)!;
+    expect(v.pooled).toBe(true);
+    expect(v.stewards.map((x) => x.steward)).toEqual(["deep", "swift"]);
+    expect(v.stewards[0].moves[0].title).toBe("Bid filled");
+    expect(v.stewards[0].moves[1]).toMatchObject({ kind: "supply", title: "Topping up" });
+    expect(v.stewards[0].moves[1].tx).toBeUndefined();
+  });
+});
+
+describe("the dashboard page", () => {
+  const src = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
+  it("the Return button is drawn only when the contract would sign the return", () => {
+    expect(src).toContain('const ret = av.sweep.on ? `<span class="st-dash-ret">${btn(`Return ${fmt(f.sweepUnits, 18, 6)} ETH`, "data-go=sweep", false)}</span>`');
+  });
+  it("the funding block is a dialog, not a section of the page", () => {
+    expect(src).not.toContain('<section class="st-dash-fund"');
+    expect(src).toMatch(/modal\("fund"/);
+  });
+  it("the activity orders by the contract's records, never by when the page first saw a step", () => {
+    const act = src.slice(src.indexOf("function activityHtml("), src.indexOf("function protRowHtml("));
+    expect(act).toContain("sortActivity([...own, ...steps])");
+    expect(act).not.toContain("seenAt");
+    expect(act).not.toMatch(/Date\.now\(\)\s*\)/);
+  });
+  it("the protections are read once per page load, 50 rescues a page, and a finished rescue is not read again", () => {
+    const load = src.slice(src.indexOf("async function loadHist("), src.indexOf("async function rereadOne("));
+    expect(load).toContain('nearView<RescueView[]>("get_rescues", { from, limit: 50 })');
+    expect(load).toContain("if (hist.has(r.id)) continue");
+    const again = src.slice(src.indexOf("async function rereadOne("), src.indexOf("// the position's last rescue id"));
+    expect(again).toContain("!rescueFinished(h.rescue)");
+  });
+  it("the empty position's button reads Open a new position", () => {
+    expect(src).toContain("data-fresh>Open a new position</button>");
+    expect(src).not.toMatch(/Start a new position/i);
+  });
+  it("the health bar sweeps now and then in hard steps, its phase kept across redraws, inside the bar", () => {
+    const css = readFileSync(new URL("../../web/src/styles/own.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.st-dash-bar-sweep \{[^}]*animation: st-dash-sweep 9s steps\(\d+, end\) infinite/);
+    expect(css).toMatch(/\.st-dash-bar-fill \{[^}]*overflow: hidden/);
+    expect(src).toContain('<span class="st-dash-bar-sweep" style="animation-delay:-${Date.now() % SWEEP_MS}ms"></span>');
+    // reduced motion stops every animation (tokens.css), and the band rests out of view
+    expect(css).toMatch(/\.st-dash-bar-sweep \{[^}]*transform: translateX\(-100%\)/);
+    const tokens = readFileSync(new URL("../../web/src/styles/tokens.css", import.meta.url), "utf8");
+    expect(tokens).toMatch(/prefers-reduced-motion: reduce\) \{\s*\*, \*::before, \*::after \{ animation: none !important/);
+  });
+});
+
+describe("the activity and the protections, from the contract's own records", () => {
+  const M = NETS.mainnet;
+  const F = JSON.parse(readFileSync(new URL("./fixtures/mainnet-rescue-78.json", import.meta.url), "utf8")) as { rescue: RescueView; claims: ClaimView[] };
+  const R = F.rescue;
+  const ms = (ns: string) => Number(BigInt(ns) / 1_000_000n);
+  const more = { debt: M.debt, evmTx: M.evmTx, evmBlock: M.evmBlock, evmAddress: M.evmAddress };
+  const tx = (at: number, html: string): ActRow => ({ at, ord: -1, exact: true, afterMs: at, html });
+  it("LAST ACTION after a settled rescue is the settlement's end, not the top-up", () => {
+    const rows = sortActivity(flowActivity([F], M.collateral, "Ethereum", more));
+    expect(rows[0].html).toBe("Settled: <strong>deep</strong> paid 0.028569 WETH");
+    expect(rows[0].exact).toBe(false);
+    expect(rows[0].afterMs).toBe(ms(R.settlement!.started_at));
+    // newest first: the settlement's steps, then its start, the lapse, the claim, the proof, the top-up, the close, the opening
+    const order = rows.map((r) => r.html.replace(/<[^>]+>/g, "").split(/[ :(]/)[0]);
+    expect(order).toEqual(["Settled", "0.000186", "0.028383", "deep", "Settlement", "Buy-back", "Claim", "Top-up", "deep", "Auction", "Auction"]);
+  });
+  it("a top-up the page saw late still sorts before the claim and the settlement", () => {
+    const rows = sortActivity(flowActivity([F], M.collateral, "Ethereum", more));
+    const at = (needle: string) => rows.findIndex((r) => r.html.includes(needle));
+    expect(at("tops up")).toBeGreaterThan(at("Claim 0-78-0 minted"));
+    expect(at("tops up")).toBeGreaterThan(at("Settlement started"));
+    expect(at("tops up")).toBeGreaterThan(at("Settled"));
+  });
+  it("the visitor's own transactions interleave with the rescue by real time", () => {
+    const supply = tx(ms(R.opened_at) - 60_000, "Supply 0.04 WETH on Aave");
+    const during = tx(ms(R.claims_opened_at) + 30_000, "Deposit refused");
+    const after = tx(ms(R.settlement!.started_at) + 3_600_000, "Withdraw 0.01 WETH");
+    const rows = sortActivity([supply, during, after, ...flowActivity([F], M.collateral, "Ethereum", more)]);
+    expect(rows[0].html).toBe("Withdraw 0.01 WETH");
+    expect(rows[1].html).toContain("Settled");
+    const i = rows.findIndex((r) => r === during);
+    expect(rows[i - 1].html).toContain("Buy-back window closed");
+    expect(rows[i + 1].html).toContain("Claim 0-78-0 minted");
+    expect(rows.at(-1)).toBe(supply);
+  });
+  it("leaves the bids to the ladder, and the rescues that ended with no bids out (unless it is the newest)", () => {
+    const noBid = (id: number): { rescue: RescueView; claims: ClaimView[] } => ({ rescue: { ...R, id, state: "failed", bids: [], members: [], settlement: null, opened_at: String(BigInt(R.opened_at) - BigInt(100 - id) * 60_000_000_000n), closes_at: String(BigInt(R.opened_at) - BigInt(100 - id) * 60_000_000_000n + 120_000_000_000n) }, claims: [] });
+    const rows = flowActivity([noBid(5), F, noBid(77)], M.collateral, "Ethereum", more);
+    expect(rows.some((r) => r.html.includes(" bids "))).toBe(false);
+    expect(rows.filter((r) => r.html === "Auction closed: no winner")).toHaveLength(0);
+    const newest = flowActivity([F, noBid(90)], M.collateral, "Ethereum", more);
+    expect(newest.filter((r) => r.html === "Auction closed: no winner")).toHaveLength(1);
+  });
+  it("draws each step's explorer link when asked", () => {
+    const rows = flowActivity([F], M.collateral, "Ethereum", { ...more, linkHtml: (h, l) => `[${l}](${h})` });
+    expect(rows.find((r) => r.html.startsWith("Top-up proven"))!.html).toBe("Top-up proven on Ethereum[Etherscan](https://etherscan.io/block/26411620)");
+    expect(rows.find((r) => r.html.startsWith("0.000186"))!.html).toContain("[Payout](https://etherscan.io/address/0x26e2ab6ec0e027f01f41cf65ee5375f0692fd41d#tokentxns)");
+  });
+  it("the full-flow timeline: each step's time or the time it follows, where to see it, its figure", () => {
+    const mv = flowMoves(rescueFlow(R, F.claims, { coll: M.collateral, evmName: "Ethereum", ...more }));
+    expect(mv[0]).toMatchObject({ title: "Auction opened", at: new Date(ms(R.opened_at)).toISOString(), actor: "contract" });
+    const proven = mv.find((m) => m.title === "Top-up proven")!;
+    expect(proven).toMatchObject({ chain: "ethereum", tx: "block 26411620", link: "https://etherscan.io/block/26411620", confirmed: true });
+    expect(proven.at).toBeUndefined();
+    expect(proven.after).toBe(new Date(ms(R.closes_at)).toISOString());
+    const leg = mv.find((m) => m.kind === "settle-leg" && m.figure?.value === "0.028383")!;
+    expect(leg.tx).toBeUndefined();
+    expect(leg.link).toContain("/address/0x26e2");
+    expect(leg.note).toBe("contract record");
+    expect(mv.find((m) => m.kind === "settle-repay")).toMatchObject({ actor: "deep", figure: { value: "30.46", unit: "USDC" } });
+  });
+  it("journal times: the time alone today, the date on another day", () => {
+    const t = Date.UTC(2026, 10, 14, 8, 24, 16);
+    expect(clockText(t, t + 3_600_000)).toBe("08:24:16");
+    expect(clockText(t, t + 86_400_000)).toBe("Nov 14 08:24");
+  });
+});
+
+describe("starting a new position beside an empty one", () => {
+  const EMPTY: EmptyFacts = { acctKnown: true, collBase: 0n, debtBase: 0n, activeAuction: false, openRescues: 0, escrowHeld: false, refundPending: false, outflows: 0, pendingTx: false, idleCollUnits: 0n, idleDebtUnits: 0n };
+  it("a position with nothing on Aave, no rescue and nothing held is empty", () => {
+    expect(positionEmpty(EMPTY)).toBe(true);
+  });
+  it("is not decided before Aave's account data is read", () => {
+    expect(positionEmpty({ ...EMPTY, acctKnown: false })).toBe(false);
+  });
+  it("any debt, collateral, rescue, held balance or transaction in flight keeps it in use", () => {
+    const busy: Partial<EmptyFacts>[] = [
+      { debtBase: 1n },
+      { collBase: 1n },
+      { activeAuction: true },
+      { openRescues: 1 },
+      { escrowHeld: true },
+      { refundPending: true },
+      { outflows: 1 },
+      { pendingTx: true },
+      { idleCollUnits: 1n },
+      { idleDebtUnits: 1n },
+    ];
+    for (const b of busy) expect(positionEmpty({ ...EMPTY, ...b }), JSON.stringify(b, (_k, v) => (typeof v === "bigint" ? v.toString() : v))).toBe(false);
+  });
+  it("the page registers the new position with the same call as the first one", () => {
+    const src = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
+    expect(src.match(/stead\("register_position"/g)?.length).toBe(1);
+    expect(src).toContain('stead("register_position", { market_id: net.market, payout }');
   });
 });

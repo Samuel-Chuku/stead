@@ -45,12 +45,14 @@ export interface Move {
   detail: string; // one plain sentence
   actor: string; // who acted: the steward, the NEAR Intents solver, the keeper, the position, the contract
   at?: string; // absent for an off-chain step (the 1Click quote)
+  after?: string; // a step with no time of its own: the last recorded time before it
   chain?: TrailChain;
   tx?: string;
   link?: string;
   confirmed?: boolean;
   ok?: boolean;
   intents?: boolean; // part of the NEAR Intents leg
+  note?: string; // for a step with no transaction of its own: where it comes from ("contract record")
   figure?: { value: string; unit: string };
 }
 
@@ -58,7 +60,7 @@ export interface StewardView {
   steward: string;
   premiumBps: number;
   share?: { amount: string; asset: string };
-  capital: "own" | "intents" | "intents-fallback";
+  capital?: "own" | "intents" | "intents-fallback"; // absent when not known (a live rescue)
   intentsSeconds?: number; // USDC sent on NEAR → the solver's ETH seen on Ethereum
   outcome: "bought back" | "settled" | "open";
   moves: Move[];

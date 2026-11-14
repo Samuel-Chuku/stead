@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   NETS, netFromSearch, gasFromMarket, marketMismatch, allowed, capUsd, borrowUnits, withdrawUnits, repayUnits, valueBase, walletNeeds, isShort,
-  directLines, ladder, rescueClock, type MarketView, type RescueView, type ClaimView,
+  directLines, ladder, rescueClock, rescueFlow, evmRef, rescueOutcome, protectionRows, rescueFinished, OUTCOME_WORD, type MarketView, type RescueView, type ClaimView,
 } from "../../web/src/own/net.js";
 
 const E18 = 10n ** 18n;
@@ -174,7 +174,10 @@ describe("the rescue read straight from the contract", () => {
       "Claim 4-0 minted to <strong>patient</strong>: owed 0.011693 WETH",
     ]);
     expect(l[0].atMs).toBe(1763000000000);
-    expect(l[1].atMs).toBeNull(); // bids carry no time: the page uses when it first saw them
+    // bids carry no time on chain: each sorts by its place in the flow, just after the step before it
+    expect(l[1].atMs).toBe(1763000000001);
+    expect(l[1].exact).toBe(false);
+    expect(l[1].afterMs).toBe(1763000000000);
     expect(new Set(l.map((x) => x.key)).size).toBe(l.length);
   });
   it("orders the ladder lowest premium first, each steward's latest bid only", () => {
@@ -189,6 +192,127 @@ describe("the rescue read straight from the contract", () => {
     expect(directLines({ ...r, state: "bought_back" }, [], M.collateral, "Ethereum").at(-1)!.html).toBe("Bought back");
     const s = directLines({ ...r, state: "settled", settlement: { started_at: "1763000400000000000" } }, [], M.collateral, "Ethereum");
     expect(s.slice(-2).map((x) => x.html)).toEqual(["Settlement started at the oracle price", "Settled"]);
+  });
+});
+
+// rescue 78 on app.usestead.near (position 0), as get_rescue and get_claim returned it: deep won at
+// 150 bps, its top-up was proven by a verified read, the buy-back lapsed, and deep settled it
+// (repaid 30.46 USDC for the position, then two legs of WETH withdrawn from Aave to its payout)
+const F78 = JSON.parse(readFileSync(new URL("./fixtures/mainnet-rescue-78.json", import.meta.url), "utf8")) as { rescue: RescueView; claims: ClaimView[] };
+const R78 = F78.rescue;
+const C78 = F78.claims;
+const ms = (ns: string) => Number(BigInt(ns) / 1_000_000n);
+
+describe("a rescue's whole flow, from the contract's own records (rescue 78)", () => {
+  const O = { coll: M.collateral, evmName: "Ethereum", debt: M.debt, evmTx: M.evmTx, evmBlock: M.evmBlock, evmAddress: M.evmAddress };
+  it("every step in the order the rescue ran: auction, each bid by sequence, close, top-up, proof, claim, lapse, settlement, repay, legs, settled", () => {
+    const f = rescueFlow(R78, C78, O);
+    expect(f.map((x) => x.kind)).toEqual(["open", "bid", "bid", "bid", "close", "topup", "proven", "claim", "lapsed", "settle", "repay", "leg", "leg", "settled"]);
+    expect(f.filter((x) => x.kind === "bid").map((x) => x.actor)).toEqual(["deep", "swift", "patient"]);
+    expect(f.map((x) => x.order)).toEqual(f.map((_, i) => i));
+  });
+  it("a step's time is the contract's own; an untimed one sorts just after the step before it, never by when a page saw it", () => {
+    const f = rescueFlow(R78, C78, O);
+    const k = (kind: string) => f.find((x) => x.kind === kind)!;
+    expect(k("open").exactMs).toBe(ms(R78.opened_at));
+    expect(k("close").exactMs).toBe(ms(R78.closes_at));
+    expect(k("claim").exactMs).toBe(ms(C78[0].opened_at!));
+    expect(k("lapsed").exactMs).toBe(ms(C78[0].expires_at!));
+    expect(k("settle").exactMs).toBe(ms(R78.settlement!.started_at));
+    for (const x of ["topup", "repay", "leg", "settled"]) expect(k(x).exactMs, x).toBeNull();
+    // the top-up has no time on chain: it sits after the close and before the claim
+    expect(k("topup").atMs).toBe(ms(R78.closes_at) + 1);
+    expect(k("topup").afterMs).toBe(ms(R78.closes_at));
+    expect(k("topup").atMs).toBeLessThan(k("claim").atMs);
+    // the settlement's steps follow its start, in order
+    expect(k("repay").afterMs).toBe(ms(R78.settlement!.started_at));
+    expect(f.at(-1)!.atMs).toBe(ms(R78.settlement!.started_at) + 4);
+    // strictly increasing: sorting by time is sorting by the flow
+    for (let i = 1; i < f.length; i++) expect(f[i].atMs).toBeGreaterThan(f[i - 1].atMs);
+  });
+  it("the proof's Ethereum block gives the proven step its time, once the page has read it", () => {
+    const blockMs = (n: number) => (n === 26411620 ? ms(R78.claims_opened_at) - 9000 : null);
+    const p = rescueFlow(R78, C78, { ...O, blockMs }).find((x) => x.kind === "proven")!;
+    expect(p.exactMs).toBe(ms(R78.claims_opened_at) - 9000);
+    expect(p.link).toEqual({ href: "https://etherscan.io/block/26411620", ref: "block 26411620", kind: "block" });
+    expect(rescueFlow(R78, C78, O).find((x) => x.kind === "proven")!.exactMs).toBeNull();
+  });
+  it("the settlement's amounts: the settler's repay in USDC, each leg's WETH to its payout, the total paid", () => {
+    const f = rescueFlow(R78, C78, O);
+    expect(f.find((x) => x.kind === "repay")!.html).toBe("<strong>deep</strong> repaid 30.46 USDC of the position's debt on Aave");
+    const legs = f.filter((x) => x.kind === "leg");
+    expect(legs.map((x) => x.html)).toEqual([
+      "0.028383 WETH withdrawn from Aave and paid to <strong>deep</strong>'s payout (the supplied amount and the repay, at the oracle price)",
+      "0.000186 WETH withdrawn from Aave and paid to <strong>deep</strong>'s payout (the premium)",
+    ]);
+    expect(legs[0].link).toEqual({ href: "https://etherscan.io/address/0x26e2ab6ec0e027f01f41cf65ee5375f0692fd41d#tokentxns", ref: "0x26e2ab6ec0e027f01f41cf65ee5375f0692fd41d", kind: "address" });
+    expect(f.at(-1)!.html).toBe("Settled: <strong>deep</strong> paid 0.028569 WETH");
+    expect(f.find((x) => x.kind === "settle")!.html).toBe("Settlement started at the oracle price by <strong>deep</strong>");
+  });
+  it("a leg still in flight reads as being sent; a dropped premium leg is not shown", () => {
+    const st = R78.settlement!;
+    const r = { ...R78, state: "settling", settlement: { ...st, legs: [{ ...st.legs![0], done: false }, { ...st.legs![1], amount: { exact: "0" } }] } };
+    const legs = rescueFlow(r, C78, O).filter((x) => x.kind === "leg");
+    expect(legs).toHaveLength(1);
+    expect(legs[0].pending).toBe(true);
+    expect(legs[0].html).toContain("being withdrawn from Aave");
+    expect(rescueFlow(r, C78, O).some((x) => x.kind === "settled")).toBe(false);
+  });
+  it("a buy-back: the payment into the position (proven at its block), the exact owed amount paid, bought back", () => {
+    const c = [{ ...C78[0], status: "bought_back", paid_by_tx: "escrow@26411700" }];
+    const f = rescueFlow({ ...R78, state: "bought_back", settlement: null }, c, { ...O, blockMs: (n) => (n === 26411700 ? 1794640100000 : null) });
+    expect(f.slice(-3).map((x) => x.kind)).toEqual(["escrow", "payout", "bought"]);
+    expect(f.at(-3)!.exactMs).toBe(1794640100000);
+    expect(f.at(-2)!.html).toBe("<strong>deep</strong> paid 0.01257 WETH: claim 0-78-0 closed");
+    expect(f.some((x) => x.kind === "lapsed")).toBe(false);
+  });
+  it("names what the contract records on Ethereum: a transaction, or the block a proof read", () => {
+    expect(evmRef("verified@26411620")).toEqual({ block: 26411620 });
+    expect(evmRef("escrow@5")).toEqual({ block: 5 });
+    expect(evmRef("0xabc")).toEqual({ tx: "0xabc" });
+    expect(evmRef(null)).toBeNull();
+    expect(evmRef("nonsense")).toBeNull();
+  });
+  it("a failed rescue: no bids ends at the close; covering bids with no proven top-up end after it, untimed", () => {
+    const none = { ...R78, state: "failed", bids: [], members: [], settlement: null };
+    expect(rescueFlow(none, [], O).map((x) => x.kind)).toEqual(["open", "close"]);
+    expect(rescueOutcome(none)).toBe("no_bids");
+    // rescue 0 on position 0: two bids for the whole top-up, no member kept (the contract drops a winner that never tops up)
+    const missed = { ...R78, id: 0, state: "failed", bids: [{ steward: "swift.usestead.near", premium_bps: 316, amount_units: R78.topup_units, seq: 2 }, { steward: "patient.usestead.near", premium_bps: 321, amount_units: R78.topup_units, seq: 1 }], members: [], settlement: null };
+    const f = rescueFlow(missed, [], O);
+    expect(f.map((x) => x.kind)).toEqual(["open", "bid", "bid", "close", "failed"]);
+    expect(f[3].html).toBe("Auction closed: lowest bid <strong>swift</strong> at 316 bps");
+    expect(f[4].exactMs).toBeNull();
+    expect(f[4].afterMs).toBe(ms(R78.closes_at));
+    expect(rescueOutcome(missed)).toBe("failed");
+    expect(protectionRows([missed]).rows[0]).toMatchObject({ outcome: "failed", covered: true, bids: 2 });
+    // bids short of the top-up: nobody wins
+    const short = { ...missed, bids: [{ ...missed.bids[0], amount_units: "1" }] };
+    expect(rescueFlow(short, [], O).at(-1)!.html).toBe("Auction closed: the bids did not cover the top-up");
+    expect(protectionRows([short]).rows[0].covered).toBe(false);
+  });
+});
+
+describe("the position's protections", () => {
+  const noBid = (id: number, pos = 0): RescueView => ({ ...R78, id, position_id: pos, state: "failed", bids: [], members: [], settlement: null, opened_at: String(BigInt(R78.opened_at) - BigInt(78 - id) * 3_600_000_000_000n) });
+  const live: RescueView = { ...R78, id: 80, state: "open", settlement: null };
+  it("one row per rescue on the position, newest first, with the no-bid ones apart", () => {
+    const { rows, noBids } = protectionRows([noBid(1), R78, noBid(77), live, noBid(79, 3), R78]);
+    expect(rows.map((x) => [x.id, x.outcome, x.stage])).toEqual([[80, "running", "claim open"], [78, "settled", ""]]);
+    expect(noBids.map((x) => x.id)).toEqual([79, 77, 1]); // without a position filter every rescue counts
+    expect(protectionRows([noBid(1), R78, noBid(79, 3)], 0).noBids.map((x) => x.id)).toEqual([1]);
+  });
+  it("each row: winners and premiums, the top-up filled, when it opened", () => {
+    const r = protectionRows([R78], 0).rows[0];
+    expect(r.winners).toEqual([{ steward: "deep.usestead.near", name: "deep", bps: 150, units: "12384387129772345" }]);
+    expect(r.topupUnits).toBe("12384387129772345");
+    expect(r.openedMs).toBe(ms(R78.opened_at));
+    expect(r.bids).toBe(3);
+    expect(OUTCOME_WORD[r.outcome]).toBe("Settled");
+  });
+  it("a finished rescue is never read again; a running one is", () => {
+    for (const st of ["bought_back", "settled", "failed"]) expect(rescueFinished({ state: st })).toBe(true);
+    for (const st of ["auction", "top_up_pending", "open", "settling"]) expect(rescueFinished({ state: st })).toBe(false);
   });
 });
 

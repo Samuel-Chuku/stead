@@ -1,24 +1,28 @@
 // "Protect a position" on mainnet: a position dashboard (the testnet page keeps its guided demo).
-// The visitor connects a NEAR mainnet wallet (it owns the position and signs its Stead calls) and an
-// Ethereum wallet (it funds the position and is its payout). The page reads the contract and
+// The visitor connects a NEAR mainnet wallet (it owns the position and signs its Stead calls) and,
+// optionally, an Ethereum wallet (it funds the position and is its payout). The page reads the contract and
 // Ethereum every few seconds and offers the normal actions: deposit, borrow, repay, withdraw, buy
 // back while a claim is open, and return leftover gas ETH. Each action shows the health factor it
 // would leave before anything is signed. Nothing here holds a key: the wallets sign.
 // Without an Ethereum wallet the visitor pastes the payout address and sends WETH and gas ETH
 // straight to the position's address (shown with a QR code); every step after that is a NEAR call.
-import { connectNear, nearAccount, onNearAccount, setNearNetwork, steadCall } from "../wallet/near";
+// One NEAR account may own several positions: the page shows one (remembered per account, else the
+// newest), and an empty one offers to open a new position beside it.
+import { connectNear, disconnectNear, nearAccount, onNearAccount, setNearNetwork, steadCall } from "../wallet/near";
 import { createPublicClient, createWalletClient, custom, fallback, http, parseAbi, parseUnits, type Address, type Hex } from "viem";
 import { mainnet } from "viem/chains";
 import { icon } from "../icons";
 import { crown, bindCrowns } from "../crown";
 import { CODE } from "../board/model";
-import { NETS, gasFromMarket, marketMismatch, allowed, capUsd, directLines, ladder, units as fmtUnits, type MarketView, type LimitsView, type ParamsView, type RescueView, type ClaimView } from "./net";
+import { dialogHtml as svDialogHtml, showSteward, stewardPanel, flowSeq } from "../mainnet/runs";
+import { NETS, gasFromMarket, marketMismatch, allowed, capUsd, rescueFlow, protectionRows, rescueFinished, OUTCOME_WORD, units as fmtUnits, type MarketView, type LimitsView, type ParamsView, type RescueView, type ClaimView, type ProtectionRow } from "./net";
 import {
   project, depositMax, borrowMax, withdrawMax, repayAllUnits, sweepAmount, sweepSupported, gasTopUp, phaseOf, availability, fallLine,
   hfFromWad, hfText, hfBarPct, TRIGGER_BPS, TRANSFER_GAS, KEEPER_TOPS_UP_GAS, UNDER_TRIGGER_WARNING,
-  checkPayout, gasAsk, arrived, depositPlan, buybackDue, fundPrompt, qrSvg,
+  checkPayout, gasAsk, arrived, depositPlan, buybackDue, qrSvg,
   hfBand, hfPulses, riskLines, pctText, ltvView, premiumCapBase, barZones, BAR_MARKS, EARLY_SETTLE_BPS, linePrice,
-  ladderStep, bidBarPct, premiumCostBase, stewardIdOf,
+  ladderStep, bidBarPct, premiumCostBase, stewardIdOf, fundAsk, gasLow, liveStewardView, positionEmpty,
+  flowActivity, sortActivity, clockText, flowMoves, type ActRow,
   type Account, type Avail, type Op, type Phase, type Projection, type SeenBid, type LadderRow,
 } from "./dashlogic";
 
@@ -92,6 +96,8 @@ type State = {
   books: Books | null;
   rescue: RescueView | null;
   claims: ClaimView[];
+  /** The position's last finished rescue, so its story stays in the activity after it closes. */
+  past: { rescue: RescueView; claims: ClaimView[] } | null;
 };
 
 export function mountDash(root: HTMLElement): () => void {
@@ -110,10 +116,54 @@ export function mountDash(root: HTMLElement): () => void {
   let mismatch: string[] = [];
   let gas = { evmGas: net.evmGas, txUpfrontWei: net.txUpfrontWei };
   const seenAt = new Map<string, number>();
+  // every rescue the position has had, with its claims: found once per page load by paging the
+  // contract's rescues; a finished one never changes, so it is never read again
+  type Hist = { rescue: RescueView; claims: ClaimView[]; readAt: number };
+  const hist = new Map<number, Hist>();
+  let histPos: number | null = null;
+  let histState: "idle" | "loading" | "done" | "failed" = "idle";
+  let histFailedAt = 0;
+  let showNoBids = false;
+  let showAllProt = false;
+  // the times of the Ethereum blocks the contract's proofs name, read once each
+  const blockTimes = new Map<number, number | null>();
+  const wantBlock = (n: number) => {
+    if (blockTimes.has(n)) return;
+    blockTimes.set(n, null);
+    pub.getBlock({ blockNumber: BigInt(n) }).then(
+      (b) => {
+        blockTimes.set(n, Number(b.timestamp) * 1000);
+        render();
+      },
+      () => setTimeout(() => blockTimes.delete(n), 30_000), // try again later
+    );
+  };
+  /** How the rescue steps are drawn: the debt token for the settler's repay, the explorer links,
+   *  and the proof blocks' times. */
+  const flowOpts = () => ({
+    debt: D,
+    evmTx: net.evmTx,
+    evmBlock: net.evmBlock,
+    evmAddress: net.evmAddress,
+    blockMs: (n: number) => {
+      wantBlock(n);
+      return blockTimes.get(n) ?? null;
+    },
+  });
+  /** Every rescue story the page holds for the shown position: the history, then the live reads on top. */
+  const stories = (): { rescue: RescueView; claims: ClaimView[] }[] => {
+    if (!s?.pos) return [];
+    const out: { rescue: RescueView; claims: ClaimView[] }[] = histPos === s.pos.id ? [...hist.values()] : [];
+    if (s.past) out.push(s.past);
+    if (s.rescue) out.push({ rescue: s.rescue, claims: s.claims });
+    return out;
+  };
   // what the visitor typed in each action, kept across the re-renders
   const amt: Record<string, string> = {};
   const all: Record<string, boolean> = {};
   let repayFrom: "position" | "wallet" = "wallet";
+  // without an Ethereum wallet there is nothing to repay from but the position's own USDC
+  const repaySrc = () => (evm ? repayFrom : "position");
   // which side of each token card is showing, which disclosures are open, when the address was copied
   let wethMode: "deposit" | "withdraw" = "deposit";
   let usdcMode: "borrow" | "repay" = "borrow";
@@ -128,6 +178,8 @@ export function mountDash(root: HTMLElement): () => void {
   let flashArrival = false;
   let autoDeposit = "";
   let prefillKey = "";
+  // opening a new position beside an empty one: the empty position's id while its form shows
+  let freshFrom: number | null = null;
 
   // ── saved per NEAR account: its transactions and its position id (the keys the earlier mainnet page used) ──
   const TXKEY = () => `stead-own-txs-mainnet-${near}`;
@@ -244,6 +296,7 @@ export function mountDash(root: HTMLElement): () => void {
       gasWait = gasAsk(bal, upfront);
       busy = `The position needs about ${fmt(gasWait, 18, 4)} ETH for gas: send it to the position's address`;
       render();
+      openFund(null);
       try {
         for (let i = 0; i < 300; i++) {
           await sleep(FAST_MS);
@@ -388,7 +441,8 @@ export function mountDash(root: HTMLElement): () => void {
         if (rid !== null) {
           rescue = await nearView<RescueView>("get_rescue", { rescue_id: rid });
           claims = (await Promise.all(rescue.members.filter((m) => m.claim_id).map((m) => nearView<ClaimView>("get_claim", { token_id: m.claim_id })))).filter(Boolean);
-        }
+          lastRescue(pos.id, rid);
+        } else past = await readPast(pos.id).catch(() => past);
       }
       let nearYocto = s?.nearYocto ?? null;
       if (near && Date.now() - nearBalAt > 30_000) {
@@ -400,7 +454,20 @@ export function mountDash(root: HTMLElement): () => void {
       const fresh = e.seq > shownSeq || !s || s.pos?.id !== pos?.id;
       if (fresh) shownSeq = e.seq;
       const evmPart = fresh ? { wallet: e.wallet, acct: e.acct, maxLtv: e.maxLtv, hf: e.hf, prices: e.prices, posBal: e.posBal, allow: e.allow } : { wallet: s!.wallet, acct: s!.acct, maxLtv: s!.maxLtv, hf: s!.hf, prices: s!.prices, posBal: s!.posBal, allow: s!.allow };
-      s = { nearYocto, pos, books, rescue, claims, ...evmPart };
+      s = { nearYocto, pos, books, rescue, claims, past: rescue ? null : past, ...evmPart };
+      if (pos) {
+        if (histPos !== pos.id) {
+          hist.clear();
+          histPos = pos.id;
+          histState = "idle";
+          showNoBids = showAllProt = false;
+        }
+        const keep = (r: RescueView, c: ClaimView[]) => hist.set(r.id, { rescue: r, claims: c, readAt: Date.now() });
+        if (rescue) keep(rescue, claims);
+        else if (past) keep(past.rescue, past.claims);
+        if (histState === "idle" || (histState === "failed" && Date.now() - histFailedAt > 60_000)) void loadHist(pos.id);
+        else if (histState === "done") void rereadOne(pos.id, rescue?.id ?? null);
+      }
       stepLadder();
       if (fresh) noteArrival(pos?.evm_address ? pos.id : null, e.posBal.coll);
       if (error.startsWith("Reading the chains failed")) error = "";
@@ -411,6 +478,101 @@ export function mountDash(root: HTMLElement): () => void {
     }
     render();
   }
+  /** Every rescue of the position, once per page load: the contract's rescues 50 at a time (its
+   *  limit), the ones on this position kept with their claims; gently, one read per 1.5 s. */
+  async function loadHist(posId: number) {
+    histState = "loading";
+    try {
+      const found: RescueView[] = [];
+      let from = 0;
+      for (let pages = 0; pages < 400; pages++) {
+        const page = await nearView<RescueView[]>("get_rescues", { from, limit: 50 });
+        for (const x of page) if (x.position_id === posId) found.push(x);
+        if (page.length < 50) break;
+        from = page[page.length - 1].id + 1;
+        await sleep(1500);
+      }
+      if (gone || histPos !== posId) return;
+      for (const r of found.sort((a, b) => b.id - a.id)) {
+        if (hist.has(r.id)) continue; // the live read already holds it
+        const claims: ClaimView[] = [];
+        for (const m of r.members) {
+          if (!m.claim_id) continue;
+          await sleep(1500);
+          const c = await nearView<ClaimView | null>("get_claim", { token_id: m.claim_id }).catch(() => null);
+          if (c) claims.push(c);
+        }
+        if (gone || histPos !== posId) return;
+        if (!hist.has(r.id)) hist.set(r.id, { rescue: r, claims, readAt: Date.now() });
+      }
+      histState = "done";
+      if (lastRid === null && hist.size && lastRidPos === posId) lastRescue(posId, Math.max(...hist.keys()));
+    } catch {
+      if (histPos === posId) {
+        histState = "failed";
+        histFailedAt = Date.now();
+      }
+    }
+    render();
+  }
+  /** A rescue in the history that is still running but not the one the page reads each time (a
+   *  stacked one): read again, at most one per refresh and each at most every 30 s. */
+  async function rereadOne(posId: number, liveId: number | null) {
+    const x = [...hist.values()].find((h) => h.rescue.id !== liveId && !rescueFinished(h.rescue) && Date.now() - h.readAt > 30_000);
+    if (!x) return;
+    x.readAt = Date.now();
+    const r = await nearView<RescueView | null>("get_rescue", { rescue_id: x.rescue.id }).catch(() => null);
+    if (!r || histPos !== posId) return;
+    const claims = (await Promise.all(r.members.filter((m) => m.claim_id).map((m) => nearView<ClaimView>("get_claim", { token_id: m.claim_id }).catch(() => null)))).filter(Boolean) as ClaimView[];
+    hist.set(r.id, { rescue: r, claims, readAt: Date.now() });
+  }
+  // the position's last rescue id, remembered per position (found once by scanning the contract's rescues)
+  let lastRid: number | null = null, lastRidPos: number | null = null, scanned = false;
+  let past: State["past"] = null, pastAt = 0;
+  function lastRescue(posId: number, rid: number) {
+    lastRid = rid;
+    lastRidPos = posId;
+    try {
+      localStorage.setItem(`stead-own-mainnet-lastrescue-${posId}`, String(rid));
+    } catch {
+      /* ignore */
+    }
+  }
+  async function readPast(posId: number): Promise<State["past"]> {
+    if (lastRidPos !== posId) {
+      lastRid = null;
+      lastRidPos = posId;
+      scanned = false;
+      past = null;
+      try {
+        const v = Number(localStorage.getItem(`stead-own-mainnet-lastrescue-${posId}`) ?? "NaN");
+        if (Number.isInteger(v)) lastRid = v;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (lastRid === null && histPos === posId && histState === "done" && hist.size) lastRescue(posId, Math.max(...hist.keys()));
+    if (lastRid === null && !scanned && histState === "failed") {
+      scanned = true;
+      for (let from = 0; from < 5000; from += 50) {
+        const page = await nearView<(RescueView & { position_id: number })[]>("get_rescues", { from, limit: 50 });
+        for (const x of page) if (x.position_id === posId && (lastRid === null || x.id > lastRid)) lastRid = x.id;
+        if (page.length < 50) break;
+      }
+      if (lastRid !== null) lastRescue(posId, lastRid);
+    }
+    if (lastRid === null) return null;
+    // a finished rescue no longer changes: read it again only now and then
+    if (past && past.rescue.id === lastRid && (rescueFinished(past.rescue) || Date.now() - pastAt < 60_000)) return past;
+    const known = hist.get(lastRid);
+    if (known && histPos === posId && rescueFinished(known.rescue)) return (past = { rescue: known.rescue, claims: known.claims });
+    const rescue = await nearView<RescueView | null>("get_rescue", { rescue_id: lastRid });
+    if (!rescue) return null;
+    const claims = (await Promise.all(rescue.members.filter((m) => m.claim_id).map((m) => nearView<ClaimView>("get_claim", { token_id: m.claim_id }).catch(() => null)))).filter(Boolean) as ClaimView[];
+    pastAt = Date.now();
+    return (past = { rescue, claims });
+  }
+
   /** The fast read between the full ones (every few seconds and on each new block): Ethereum only,
    *  one at a time (a request while one is running is folded into one more afterwards), never while
    *  the tab is hidden; the page redraws only when a figure changed. */
@@ -467,11 +629,20 @@ export function mountDash(root: HTMLElement): () => void {
       hasDebt: (s?.acct?.debtBase ?? 0n) > 0n,
       idleDebtUnits: s?.posBal.debt ?? 0n,
       idleCollUnits: s?.posBal.coll ?? 0n,
-      repayFromWallet: repayFrom === "wallet",
+      repayFromWallet: repaySrc() === "wallet",
       sweepSupported: sweepSupported(cfg?.codeHash ?? null),
       sweepUnits: sweepAmount(s?.posBal.eth ?? 0n, maxFee),
     };
   };
+  /** The shown position is empty (nothing on Aave, no rescue, nothing held or in flight): a new one can be started. */
+  const isEmpty = () => {
+    const pos = s?.pos;
+    if (!pos?.evm_address || !s) return false;
+    const f = facts();
+    return positionEmpty({ acctKnown: !!s.acct, collBase: s.acct?.collBase ?? 0n, debtBase: s.acct?.debtBase ?? 0n, activeAuction: pos.active_auction !== null, openRescues: pos.open_rescues.length, escrowHeld: f.escrowHeld, refundPending: f.refundPending, outflows: f.outflows, pendingTx: f.pendingTx, idleCollUnits: f.idleCollUnits, idleDebtUnits: f.idleDebtUnits });
+  };
+  /** The new-position form shows in place of the empty position it was opened from. */
+  const freshShown = () => freshFrom !== null && s?.pos?.id === freshFrom && (isEmpty() || !!busy); // a Return in flight keeps the form
   const owedUnits = () => (s?.claims ?? []).filter((c) => c.status === "open").reduce((t, c) => t + BigInt(c.owed_units), 0n);
   const capBase = () => BigInt(cfg?.limits?.max_collateral_base ?? "0");
   const ltFallback = () => BigInt(cfg?.market?.lt_bps ?? 8400);
@@ -536,21 +707,35 @@ export function mountDash(root: HTMLElement): () => void {
       const pasted = checkPayout(payoutText, refuseList());
       if (!evm && !pasted.ok) throw new Error(`connect your Ethereum wallet or paste a payout address first (${pasted.why})`);
       const payout = evm ?? (pasted as { address: Address }).address;
-      try {
-        localStorage.removeItem(POSKEY());
-      } catch {
-        /* ignore */
-      }
+      // the position shown before (an empty one when starting fresh): the new one must be another
+      const oldId = s?.pos?.id ?? null;
+      const mark = txs.length;
+      const forget = () => {
+        try {
+          localStorage.removeItem(POSKEY());
+        } catch {
+          /* ignore */
+        }
+      };
+      forget();
       await stead("register_position", { market_id: net.market, payout }, `Protect a new position (payout ${payout.slice(0, 8)}…; its Ethereum address is derived by NEAR's MPC network)`, 100n);
-      noPosUntil = 0;
       let p: Position | null = null;
-      for (let i = 0; i < 20 && !(p = await findPosition())?.evm_address; i++) {
+      for (let i = 0; i < 20; i++) {
+        // a read running meanwhile may have remembered the old position: look for the newest again
+        forget();
         noPosUntil = 0;
+        p = await findPosition();
+        if (p?.evm_address && p.id !== oldId) break;
         await sleep(2000);
       }
-      if (!p?.evm_address) throw new Error("the new position didn't appear yet; it will show on the next read");
-      for (const t of txs) if (t.pos === undefined && /^Protect a new position/.test(t.label)) t.pos = p.id;
+      if (!p?.evm_address || p.id === oldId) throw new Error("the new position didn't appear yet; it will show on the next read");
+      // the register was listed under the position shown at the time: it belongs to the new one
+      txs.forEach((t, i) => {
+        if ((i >= mark || t.pos === undefined) && /^Protect a new position/.test(t.label)) t.pos = p!.id;
+      });
       saveTxs();
+      freshFrom = null;
+      for (const k of Object.keys(amt)) amt[k] = "";
     });
 
   const deposit = () => {
@@ -589,10 +774,10 @@ export function mountDash(root: HTMLElement): () => void {
     return run(repayAll ? "Repaying all the debt" : `Repaying ${fmt(need, D.decimals, 2)} ${D.symbol}`, async () => {
       const addr = posAddr();
       const idle = await readBal(D.address, addr);
-      if (repayFrom === "wallet") {
+      if (repaySrc() === "wallet") {
         const send = repayAll ? (need > idle ? need - idle : 0n) : need;
         if (send > 0n) await evmSend(`Send ${fmt(send, D.decimals, 2)} ${D.symbol} to the position to repay`, () => evmWallet().writeContract({ address: D.address, abi: erc20, functionName: "transfer", args: [addr, send] }));
-      } else if (idle < need) throw new Error(`the position holds ${fmt(idle, D.decimals, 2)} ${D.symbol}, less than the ${fmt(need, D.decimals, 2)} this repay needs: repay from your wallet instead`);
+      } else if (idle < need) throw new Error(`the position holds ${fmt(idle, D.decimals, 2)} ${D.symbol}, less than the ${fmt(need, D.decimals, 2)} this repay needs: ${evm ? "repay from your wallet instead" : `send the rest to the position's address`}`);
       if ((await readAllowance(D.address)) < need) await signAction(pid(), { type: "approve", token: "debt", amount: "max" }, `Let Aave take the position's ${D.symbol}`);
       await signAction(pid(), { type: "repay", amount: repayAll ? "max" : { exact: need.toString() } }, repayAll ? "Repay all the debt" : `Repay ${fmt(need, D.decimals, 2)} ${D.symbol}`);
       amt.repay = "";
@@ -688,13 +873,16 @@ export function mountDash(root: HTMLElement): () => void {
    *  marks at 1.00, 1.10 and 1.15 (a steward chip at the rescue line), and the current reading,
    *  which pulses now and then under 1.50 (in phase across re-renders). */
   const PULSE_MS = 6000;
+  /** The whole bar takes a light sweep this often (phase kept across re-renders; none under reduced motion). */
+  const SWEEP_MS = 9000;
   function hfBarHtml(hf: bigint | null, on: boolean): string {
     const label = hf === null ? "no debt" : hfText(hf);
     const zones = barZones().map((z) => `<span class="st-dash-zone is-${z.band}" style="left:${z.left}%;width:${z.width}%"></span>`).join("");
     const marks = BAR_MARKS.map((m) => `<span class="st-dash-bar-mark${m.rescue ? " is-trigger" : ""}" style="left:${hfBarPct(m.bps)}%"><i>${m.label}</i></span>`).join("");
     const rescue = `<span class="st-dash-bar-rescue" style="left:${hfBarPct(TRIGGER_BPS)}%" title="Stewards rescue it automatically here">${icon("stewards", 14)}<span>rescue</span></span>`;
     const now = on ? `<span class="st-dash-bar-now${hfCls(hf)}${hfPulses(hf) ? " is-pulse" : ""}" style="left:${hfBarPct(hf)}%;animation-delay:-${Date.now() % PULSE_MS}ms"></span>` : "";
-    return `<div class="st-dash-bar" role="img" aria-label="Health factor ${label}. Aave liquidates under 1.00, a claim settles early under 1.10, and stewards rescue it automatically under 1.15."><div class="st-dash-bar-track">${zones}${marks}${rescue}${now}</div></div>`;
+    const sweep = `<span class="st-dash-bar-sweep" style="animation-delay:-${Date.now() % SWEEP_MS}ms"></span>`;
+    return `<div class="st-dash-bar" role="img" aria-label="Health factor ${label}. Aave liquidates under 1.00, a claim settles early under 1.10, and stewards rescue it automatically under 1.15."><div class="st-dash-bar-track"><span class="st-dash-bar-fill" aria-hidden="true">${zones}${sweep}</span>${marks}${rescue}${now}</div></div>`;
   }
 
   function walletsHtml(): string {
@@ -706,7 +894,7 @@ export function mountDash(root: HTMLElement): () => void {
       : allow === "yes"
         ? `<p class="st-dash-ok">${icon("check", 14)}Allow-listed borrower</p>`
         : allow === "no"
-          ? `<p class="st-own-stop" role="alert"><strong>${esc(near)}</strong> is not on the borrower allow-list (${listed}). The sidebar's NEAR button disconnects with a second click.</p>`
+          ? `<p class="st-own-stop" role="alert"><strong>${esc(near)}</strong> is not on the borrower allow-list (${listed}). Disconnect it with the X beside the name.</p>`
           : `<p class="st-dash-wsub">Reading the allow-list…</p>`;
     const w = s?.wallet;
     const payoutOff = s?.pos && evm && s.pos.payout.toLowerCase() !== evm.toLowerCase();
@@ -715,12 +903,12 @@ export function mountDash(root: HTMLElement): () => void {
       <div class="st-dash-wallet">
         <div class="st-label">${icon("near", 14)} NEAR · OWNS THE POSITION</div>
         ${near
-          ? `<p class="st-dash-who">${esc(near)}</p><p class="st-dash-wsub">${s?.nearYocto != null ? `${fmt(s.nearYocto, 24, 3)} NEAR` : "…"}${lowNear ? ` · <strong>needs 0.05 NEAR to sign</strong>` : ""}</p>`
+          ? `<p class="st-dash-who"><span class="st-dash-whoname">${esc(near)}</span><button type="button" class="st-own-x" data-near-off title="Disconnect this NEAR wallet" aria-label="Disconnect this NEAR wallet"${busy ? " disabled" : ""}>${icon("close", 12)}</button></p><p class="st-dash-wsub">${s?.nearYocto != null ? `${fmt(s.nearYocto, 24, 3)} NEAR` : "…"}${lowNear ? ` · <strong>needs 0.05 NEAR to sign</strong>` : ""}</p>`
           : `<div class="st-own-buttons">${btn("Connect NEAR wallet", "data-near", true)}</div><p class="st-dash-wsub">Signs the position's Stead calls (a key for ${esc(net.contract)} only).</p>`}
         ${allowLine}
       </div>
       <div class="st-dash-wallet">
-        <div class="st-label">${icon("ethereum", 14)} ETHEREUM · FUNDS IT, GETS PAYOUTS</div>
+        <div class="st-label">${icon("ethereum", 14)} ${evm ? "ETHEREUM · FUNDS IT, GETS PAYOUTS" : "ETHEREUM WALLET · OPTIONAL"}</div>
         ${evm
           ? `<p class="st-dash-who"><span class="st-mono">${short(evm)}</span><button type="button" class="st-own-x" data-evm-off title="Disconnect this Ethereum wallet" aria-label="Disconnect this Ethereum wallet"${busy ? " disabled" : ""}>${icon("close", 12)}</button></p>
              <dl class="st-dash-wbal">
@@ -728,7 +916,7 @@ export function mountDash(root: HTMLElement): () => void {
                <div><dt>${C.symbol}</dt><dd>${w ? fmt(w.coll, C.decimals, 5) : "…"}</dd></div>
                <div><dt>${D.symbol}</dt><dd>${w ? fmt(w.debt, D.decimals, 2) : "…"}</dd></div>
              </dl>`
-          : `<div class="st-own-buttons">${btn("Connect Ethereum wallet", "data-evm", !!near)}</div><p class="st-dash-wsub">${s?.pos ? `Payout <span class="st-mono">${short(s.pos.payout)}</span> · without a wallet, send funds to the position's address.` : `Sends the ${C.symbol} and ${D.symbol}; receives withdrawals and refunds. No wallet here? Paste a payout address below.`}</p>`}
+          : `<p class="st-dash-wsub">Optional: connect an Ethereum wallet to fund and repay from it. ${s?.pos && !freshShown() ? `Without one, send funds to the position's address; payouts go to <span class="st-mono">${short(s.pos.payout)}</span>.` : `Without one, paste a payout address below: it receives withdrawals and refunds.`}</p><div class="st-own-buttons">${btn("Connect Ethereum wallet", "data-evm", false)}</div>`}
         ${payoutOff ? `<p class="st-own-stop">Position ${s!.pos!.id} pays out to <span class="st-mono">${esc(s!.pos!.payout)}</span>, not this wallet: withdrawals and refunds go there.</p>` : ""}
       </div>
     </section>`;
@@ -752,16 +940,29 @@ export function mountDash(root: HTMLElement): () => void {
   function newPositionHtml(): string {
     const allow = allowed(cfg?.limits ?? null, near);
     const pasted = evm ? null : checkPayout(payoutText, refuseList());
-    const why = !near ? "Connect your NEAR wallet first." : allow === "no" ? "This NEAR account is not on the allow-list." : pasted && !pasted.ok ? "Connect your Ethereum wallet, or paste a payout address: it receives withdrawals and refunds." : mismatch.length ? "The contract's market does not match this page." : !cfg ? "Reading the contract…" : "";
+    const why = !near ? "Connect your NEAR wallet first." : allow === "no" ? "This NEAR account is not on the allow-list." : pasted && !pasted.ok ? "Paste a payout address (or connect an Ethereum wallet): it receives withdrawals and refunds." : mismatch.length ? "The contract's market does not match this page." : !cfg ? "Reading the contract…" : "";
     const payoutShown = evm ? `<span class="st-mono">${short(evm)}</span>` : pasted?.ok ? `<span class="st-mono">${short(pasted.address)}</span>` : "your Ethereum wallet";
+    const from = freshShown() ? s!.pos! : null;
     return `<div class="st-dash-new">
-      <div class="st-label">NO POSITION ON MARKET ${net.market} YET${near ? ` · ${esc(near)}` : ""}</div>
+      ${from
+        ? `<div class="st-dash-new-top"><div class="st-label">NEW POSITION ON MARKET ${net.market}${near ? ` · ${esc(near)}` : ""}</div><button type="button" class="st-dash-linkbtn" data-fresh-back${busy ? " disabled" : ""}>Back to position ${from.id}</button></div>`
+        : `<div class="st-label">NO POSITION ON MARKET ${net.market} YET${near ? ` · ${esc(near)}` : ""}</div>`}
       <h2>Protect a new position</h2>
       <p>${C.symbol} collateral, ${D.symbol} debt, Aave V3 on Ethereum · up to $${capUsd(cfg?.limits ?? null) || 150} · payout ${payoutShown}</p>
+      ${from ? `<p>Position ${from.id} is empty and stays yours on the contract. Once the new one is registered, this page shows the new one.</p>${leftoverHtml(from.id)}` : ""}
       ${evm ? "" : disc("payout", "No Ethereum wallet? Paste a payout address", payoutHtml)}
       <div class="st-dash-go">${btn("Protect a new position", "data-register", true, !!why)}${why ? `<p class="st-dash-why">${esc(why)}</p>` : ""}</div>
       ${disc("how-new", "How it works", () => `<p>One NEAR call registers the position on ${esc(net.contract)}. NEAR's chain signatures derive its Ethereum address, and only the contract can sign for it. Withdrawals and refunds go to the payout. Then supply ${C.symbol} and borrow below.</p>`)}
     </div>`;
+  }
+
+  /** The empty position's leftover gas ETH, with the Return button when the contract would sign it. */
+  function leftoverHtml(id: number): string {
+    const eth = s?.posBal.eth ?? 0n;
+    if (eth === 0n) return "";
+    const f = facts();
+    const v = availability(f).sweep;
+    return `<div class="st-dash-left"><p>Position ${id} still holds <strong>${fmt(eth, 18, 6)} ETH</strong> of gas.${v.on ? "" : ` ${esc(v.why)}`}</p>${v.on ? `<span class="st-dash-ret">${btn(`Return ${fmt(f.sweepUnits, 18, 6)} ETH`, "data-go=sweep", false)}</span>` : ""}</div>`;
   }
 
   function statusHtml(): string {
@@ -774,17 +975,13 @@ export function mountDash(root: HTMLElement): () => void {
     const collUnits = a && s!.prices.coll ? (a.collBase * 10n ** BigInt(C.decimals)) / s!.prices.coll : 0n;
     const debtUnits = a && s!.prices.debt ? (a.debtBase * 10n ** BigInt(D.decimals)) / s!.prices.debt : 0n;
     const waiting = !!a && a.collBase === 0n && s!.posBal.coll > 0n;
-    const ends = (s!.claims ?? []).filter((c) => c.status === "open" && c.expires_at).map((c) => nsMs(c.expires_at));
-    const winEnd = ends.length ? Math.min(...ends) : 0;
-    const params = cfg?.params;
     let now: string;
+    // a running rescue's clock and bids are on the auction card below: here, one line
     if (busy) now = `${esc(busy)} <span class="st-own-elapsed" data-elapsed="${busySince}">${mmss(Date.now() - busySince)}</span>`;
-    else if (r?.state === "auction") now = `Rescue #${r.id}: stewards bidding · <strong data-countdown="${nsMs(r.closes_at)}">${mmss(nsMs(r.closes_at) - Date.now())}</strong> left`;
-    else if (r?.state === "top_up_pending") {
-      const due = nsMs(r.closes_at) + (params ? Number(BigInt(params.topup_deadline_ns) / 1_000_000n) : 0);
-      now = `Rescue #${r.id}: the winner is topping up${params ? ` · due in <strong data-countdown="${due}">${mmss(due - Date.now())}</strong>` : ""}`;
-    } else if (r?.state === "open") now = `Rescue #${r.id}: claim open · <strong data-countdown="${winEnd}">${mmss(winEnd - Date.now())}</strong> to buy back`;
-    else if (r?.state === "settling") now = `Rescue #${r.id}: the claim owner is settling at the oracle price`;
+    else if (r?.state === "auction") now = `Rescue #${r.id}: stewards bidding`;
+    else if (r?.state === "top_up_pending") now = `Rescue #${r.id}: the winner is topping up`;
+    else if (r?.state === "open") now = `Rescue #${r.id}: claim open`;
+    else if (r?.state === "settling") now = `Rescue #${r.id}: settling at the oracle price`;
     else if (waiting) now = `${fmt(s!.posBal.coll, C.decimals, 6)} ${C.symbol} waiting to be supplied`;
     else if (!a || a.collBase === 0n) now = `Registered · supply ${C.symbol} to open it`;
     else if (exposedHf) now = "Under 1.15: the auction opens on the next proven reading";
@@ -803,41 +1000,41 @@ export function mountDash(root: HTMLElement): () => void {
         : `<span class="st-num">${usd8(a.collBase, 2)}</span>`;
     const collSub = !a ? "" : waiting ? `waiting to be supplied · ${usdOf(s!.posBal.coll, s!.prices.coll, C.decimals)}` : a.collBase > 0n ? `${fmt(collUnits, C.decimals, 6)} ${C.symbol} supplied` : "nothing supplied";
     return `<section class="st-own-live st-dash-status" data-own-live aria-label="Your position" role="status">
-      <div class="st-np-head"><span class="${lamp}" aria-hidden="true"></span><span class="st-np-label">POSITION ${pos.id}</span>${chip}<span class="st-np-now">${now}</span></div>
+      <div class="st-np-head"><span class="${lamp}" aria-hidden="true"></span><span class="st-np-label">POSITION ${pos.id}</span>${chip}<span class="st-np-now">${now}</span>${!busy && isEmpty() ? `<button type="button" class="st-secondary st-cut st-dash-freshbtn" data-fresh>Open a new position</button>` : ""}</div>
       <dl class="st-dash-kpis">
         <div class="st-dash-kpi-hf"><dt>HEALTH FACTOR</dt><dd class="st-dash-big st-dash-hfrow">${hf === null ? `<span class="st-dash-nodebt">no debt</span>` : `<span class="st-num st-dash-hf${hfCls(hf)}">${hfLabel}</span>`}${riskBtn}</dd><dd class="st-dash-cons">${hf === null ? "nothing to liquidate" : fallLine(hf, C.symbol)}</dd><dd>${bar}</dd></div>
         <div><dt>COLLATERAL</dt><dd class="st-dash-big">${collNum}</dd><dd class="st-dash-cons">${collSub}</dd></div>
         <div><dt>DEBT</dt><dd class="st-dash-big"><span class="st-num">${a ? usd8(a.debtBase, 2) : "…"}</span></dd><dd class="st-dash-cons">${a ? (a.debtBase > 0n ? `${fmt(debtUnits, D.decimals, 2)} ${D.symbol} borrowed` : "nothing borrowed") : ""}</dd></div>
       </dl>
-      <p class="st-dash-src">${C.symbol} ${s!.prices.coll ? usd8(s!.prices.coll, 2) : "…"} · Aave V3 and ${esc(net.contract)}, Ethereum read every ${FAST_MS / 1000} s and on each block</p>
+      <p class="st-dash-src">${C.symbol} <strong>${s!.prices.coll ? usd8(s!.prices.coll, 2) : "…"}</strong> · Aave V3, read every ${FAST_MS / 1000} s and on each block</p>
     </section>`;
   }
 
-  /** Send to the position's address (no wallet connected, or an action waiting for gas): what to
-   *  send, the address large with a copy button, and its QR code. Ethereum mainnet only. */
+  /** The "Fund position" dialog: what to send, the address large with a copy button, its QR code,
+   *  and the position's balances, live. Ethereum mainnet only. */
   function fundHtml(): string {
+    if (!s?.pos?.evm_address) return `<p class="st-empty">Reading the position…</p>`;
     const f = facts();
-    const fp = fundPrompt({ registered: f.registered, evmConnected: f.evmConnected, locked: f.locked, claimOpen: f.claimOpen, ethWei: s!.posBal.eth, upfrontWei: gas.txUpfrontWei, gasWaitWei: gasWait, dueUnits: buybackDue(owedUnits(), s!.posBal.coll) });
+    const fp = fundAsk({ registered: f.registered, locked: f.locked, claimOpen: f.claimOpen, ethWei: s.posBal.eth, upfrontWei: gas.txUpfrontWei, gasWaitWei: gasWait, dueUnits: buybackDue(owedUnits(), s.posBal.coll) });
     if (fp.kind === "none") return "";
-    const addr = s!.pos!.evm_address!;
+    const addr = s.pos.evm_address;
     const eth = (w: bigint) => `${fmt(w, 18, 4)} ETH`;
     const gasTail = (w: bigint) => (w > 0n ? ` <span class="st-dash-fund-gas">and about ${eth(w)} for its gas</span>` : "");
     const say = fp.kind === "gas"
-      ? `Send about <strong>${eth(fp.gasWei)}</strong> to this address for the position's gas`
+      ? fp.gasWei > 0n ? `Send about <strong>${eth(fp.gasWei)}</strong> for the position's gas` : `Send <strong>ETH</strong> here for the position's gas`
       : fp.kind === "buyback"
-        ? `Send exactly <strong>${trim(fp.wethUnits, C.decimals, C.decimals)} ${C.symbol}</strong> on Ethereum to this address${gasTail(fp.gasWei)}`
-        : `Send <strong>${C.symbol}</strong> on Ethereum to this address${gasTail(fp.gasWei)}`;
-    const only = fp.kind === "gas" ? `<strong>Ethereum mainnet only.</strong> ETH only.` : `<strong>Ethereum mainnet only.</strong> ${C.symbol}${fp.gasWei > 0n ? " and ETH" : ""} only: no other token, no other network.`;
+        ? `Send exactly <strong>${trim(fp.wethUnits, C.decimals, C.decimals)} ${C.symbol}</strong> to buy back${gasTail(fp.gasWei)}`
+        : `Send <strong>${C.symbol}</strong> to supply${gasTail(fp.gasWei)}`;
+    const usdcToo = fp.kind === "fund" && f.hasDebt;
+    const only = fp.kind === "gas" ? `<strong>Ethereum mainnet only.</strong> ETH only.` : `<strong>Ethereum mainnet only.</strong> ${C.symbol}${usdcToo ? `, ${D.symbol}` : ""}${fp.gasWei > 0n ? " and ETH" : ""} only: no other token, no other network.`;
     const sub = fp.kind === "gas"
-      ? "The action goes on by itself once it arrives."
+      ? f.locked && gasWait === 0n ? `While a rescue runs, ${C.symbol} sent here is held for the buy-back: send only ETH.` : "The waiting action goes on once it arrives."
       : fp.kind === "buyback"
         ? "Once the balance is proven, the contract pays the claim owner exactly what it is owed and refunds any extra to your payout."
-        : "Then supply it below: one NEAR call, no Ethereum wallet needed.";
+        : `Then supply it: one NEAR call, no Ethereum wallet needed.${usdcToo ? ` ${D.symbol} sent here repays from the position (Repay, from THE POSITION).` : ""}`;
     const copied = Date.now() - copiedAt < 1600;
-    const head = fp.kind === "gas" ? "GAS NEEDED" : fp.kind === "buyback" ? "BUY BACK BY SENDING" : "FUND THE POSITION";
-    return `<section class="st-dash-fund" aria-label="Send to the position's address">
-      <div class="st-label">${head} · ETHEREUM MAINNET</div>
-      <div class="st-dash-fund-row">
+    const b = s.posBal;
+    return `<div class="st-dash-fund-row">
         <figure class="st-dash-qr">${qrSvg(addr, `QR code of the position's address, ${addr}`)}<figcaption>Position address</figcaption></figure>
         <div class="st-dash-fund-main">
           <p class="st-dash-fund-say">${say}</p>
@@ -846,7 +1043,11 @@ export function mountDash(root: HTMLElement): () => void {
           <p class="st-dash-fund-sub">${sub}</p>
         </div>
       </div>
-    </section>`;
+      <dl class="st-dash-bal" aria-live="polite">
+        <div${flashArrival ? ' class="is-flash"' : ""}><dt>${C.symbol} HERE</dt><dd><strong>${fmt(b.coll, C.decimals, 8)}</strong></dd></div>
+        <div><dt>${D.symbol} HERE</dt><dd><strong>${fmt(b.debt, D.decimals, 6)}</strong></dd></div>
+        <div><dt>ETH · GAS</dt><dd><strong>${fmt(b.eth, 18, 6)}</strong></dd></div>
+      </dl>`;
   }
 
   // ── the live bid ladder: one DOM block per rescue, kept across re-renders so rows glide ──
@@ -878,12 +1079,19 @@ export function mountDash(root: HTMLElement): () => void {
     el.setAttribute("aria-label", "Rescue auction");
     el.innerHTML = `<div class="st-auction-head">
         <div class="st-panel-head"><div class="st-label" data-l-label></div><h2 class="st-panel-title" data-l-title></h2><div class="st-panel-sub" data-l-sub></div></div>
-        <div class="st-dash-lclock" data-l-clock><span class="st-mini-clock" role="timer" data-l-count></span><span class="st-label" data-l-clocklbl></span></div>
+        <div class="st-dash-lright"><div class="st-dash-lclock" data-l-clock><span class="st-mini-clock" role="timer" data-l-count></span><span class="st-label" data-l-clocklbl></span></div><button type="button" class="st-secondary st-cut st-dash-watch" data-l-watch aria-haspopup="dialog" hidden></button></div>
       </div>
       <div class="st-ladder-head" aria-hidden="true"><span>#</span><span>STEWARD</span><span class="st-dash-axis"><span>0</span><span data-l-cap></span></span><span>PREMIUM</span><span>COST</span></div>
       <div class="st-ladder" role="list" aria-label="Bids, lowest premium first" data-l-ladder>${[0, 1, 2].map((i) => `<div class="st-placeholder" style="--rank:${i}" aria-hidden="true">watching</div>`).join("")}</div>
       <div class="st-dash-pipes" data-l-pipes></div>
       <div class="st-dash-tags" data-l-tags></div>`;
+    // the steward's view: the Watch button, or a click on the leading or winning row
+    el.addEventListener("click", (ev) => {
+      const t = ev.target as HTMLElement;
+      if (t.closest("[data-l-watch]")) return openSteward(null, t.closest<HTMLElement>("[data-l-watch]"));
+      const row = t.closest<HTMLElement>(".st-row.is-watch");
+      if (row && !t.closest("a, button")) openSteward(row.dataset.row!, el.querySelector<HTMLElement>("[data-l-watch]"));
+    });
     return el;
   }
   /** Bring the ladder block up to the latest reading: header, clock, rows (CSS glides them), pipes, claim tags. */
@@ -897,13 +1105,11 @@ export function mountDash(root: HTMLElement): () => void {
     const winners = rows.filter((x) => x.won);
     const wName = winners.map((w) => w.name).join(" and ");
     const params = cfg?.params;
-    const ends = (s!.claims ?? []).filter((c) => c.status === "open" && c.expires_at).map((c) => nsMs(c.expires_at));
     const topupDue = nsMs(r.closes_at) + (params ? Number(BigInt(params.topup_deadline_ns) / 1_000_000n) : 0);
     const clock: { at: number; label: string } | null =
       r.state === "auction" ? { at: nsMs(r.closes_at), label: "TO CLOSE" }
       : r.state === "top_up_pending" && params ? { at: topupDue, label: "TOP-UP DUE" }
-      : r.state === "open" && ends.length ? { at: Math.min(...ends), label: "TO BUY BACK" }
-      : null;
+      : null; // a claim's window counts down on its lockout tag
     const topupUsd = s!.prices.coll ? usdOf(BigInt(r.topup_units), s!.prices.coll, C.decimals) : "";
     q("[data-l-label]").textContent = `RESCUE #${r.id} · ${r.state === "auction" ? "LOWEST PREMIUM WINS" : r.state.replace(/_/g, " ").toUpperCase()} · CAP ${r.cap_bps} BPS`;
     q("[data-l-title]").textContent =
@@ -912,7 +1118,12 @@ export function mountDash(root: HTMLElement): () => void {
       : r.state === "open" ? `Rescued by ${wName || "the winner"}: claim open`
       : r.state === "settling" ? "Settling at the oracle price"
       : `Rescue ${r.state.replace(/_/g, " ")}`;
-    q("[data-l-sub]").textContent = `Top-up ${fmtUnits(r.topup_units, C.decimals, 6)} ${C.symbol}${topupUsd ? ` (${topupUsd})` : ""} back to health ${params ? (params.target_hf_bps / 10_000).toFixed(2) : "1.50"} · bids stamped when this page first saw them`;
+    q("[data-l-sub]").textContent = `Top-up ${fmtUnits(r.topup_units, C.decimals, 6)} ${C.symbol}${topupUsd ? ` (${topupUsd})` : ""} to health ${params ? (params.target_hf_bps / 10_000).toFixed(2) : "1.50"}`;
+    const watched = r.state === "auction" ? (lead ? [lead] : []) : winners;
+    const wb = q<HTMLButtonElement>("[data-l-watch]");
+    wb.hidden = !watched.length;
+    const wLabel = watched.length > 1 ? "Watch the stewards" : watched.length ? `Watch ${watched[0].name}` : "";
+    if (wb.textContent !== wLabel) wb.textContent = wLabel;
     const ck = q("[data-l-clock]");
     ck.hidden = !clock;
     if (clock) {
@@ -948,6 +1159,7 @@ export function mountDash(root: HTMLElement): () => void {
       rowEl.style.setProperty("--rank", String(row.rank));
       rowEl.classList.toggle("is-first", row.rank === 0);
       rowEl.classList.toggle("is-won", row.won);
+      rowEl.classList.toggle("is-watch", watched.some((x) => x.steward === row.steward));
       rowEl.querySelector("[data-rank]")!.textContent = String(row.rank + 1);
       const cost = s!.prices.coll ? premiumCostBase(row.amountUnits, row.bps, s!.prices.coll, C.decimals) : null;
       const badge = rowEl.querySelector<HTMLElement>("[data-badge]")!;
@@ -1006,24 +1218,31 @@ export function mountDash(root: HTMLElement): () => void {
     const pos = s!.pos!;
     const b = s!.posBal;
     const addr = pos.evm_address!;
+    const f = facts();
+    const av = availability(f);
     const upfront = gas.txUpfrontWei;
     const txsLeft = upfront > 0n ? b.eth / upfront : 0n;
     const copied = Date.now() - copiedAt < 1600;
+    const low = gasLow({ ethWei: b.eth, hasDebt: f.hasDebt, locked: f.locked, upfrontWei: upfront });
     const gasNote = KEEPER_TOPS_UP_GAS
       ? "Gas is topped up by the keeper when short."
       : evm
         ? `When it can't cover the next one, your Ethereum wallet is asked for a small top-up (${fmt(2n * upfront, 18, 6)} ETH at most) first.`
         : `When it can't cover the next one, the page asks you to send about ${fmt(gasAsk(0n, upfront), 18, 4)} ETH to this address and waits for it.`;
-    return `<section class="st-dash-poswallet" aria-label="The position's address">
-      <div class="st-label">POSITION ADDRESS · ETHEREUM</div>
+    // the leftover ETH: offered back only with no debt and no rescue; while either, it is the position's gas
+    const kept = !av.sweep.on && (f.hasDebt || f.locked || f.escrowHeld) ? av.sweep.why : "";
+    const ret = av.sweep.on ? `<span class="st-dash-ret">${btn(`Return ${fmt(f.sweepUnits, 18, 6)} ETH`, "data-go=sweep", false)}</span>` : kept ? `<span class="st-dash-kept">${esc(kept)}</span>` : "";
+    return `<section class="st-dash-poswallet" aria-label="The position's address and balances">
+      <div class="st-dash-pw-head"><div class="st-label">POSITION ADDRESS · ETHEREUM</div><button type="button" class="st-push st-push--small st-cut" data-fund aria-haspopup="dialog"${busy && !gasWait ? " disabled" : ""}><span class="st-lamp" aria-hidden="true"></span>Fund position</button></div>
       <p class="st-dash-addr"><span class="st-mono">${esc(addr)}</span><button type="button" class="st-dash-copy" data-copy="${addr}" aria-label="Copy the position's address">${copied ? icon("check", 16) : copyGlyph()}</button><span class="st-dash-copied" role="status">${copied ? "Copied" : ""}</span></p>
       <p class="st-dash-links">${ext(net.evmAddress(addr), "Etherscan")}${ext(`https://debank.com/profile/${addr}`, "DeBank")}<span>${ext("https://app.aave.com/?marketName=proto_mainnet_v3", "Aave")}: Watch wallet, then paste the address</span></p>
+      ${low ? `<p class="st-dash-gaslow" role="alert"><span class="st-dash-gaslow-tag">GAS LOW</span>Position gas low: send a little ETH to the position address. <button type="button" class="st-dash-linkbtn" data-fund aria-haspopup="dialog">Fund position</button></p>` : ""}
       <dl class="st-dash-bal">
-        <div${flashArrival ? ' class="is-flash"' : ""}><dt>${C.symbol} HERE</dt><dd>${fmt(b.coll, C.decimals, 8)}</dd></div>
-        <div><dt>${D.symbol} HERE</dt><dd>${fmt(b.debt, D.decimals, 6)}</dd></div>
-        <div><dt>ETH · GAS</dt><dd>${fmt(b.eth, 18, 6)}<span> · ~${txsLeft.toString()} tx</span></dd></div>
+        <div${flashArrival ? ' class="is-flash"' : ""}><dt>${C.symbol} HERE</dt><dd><strong>${fmt(b.coll, C.decimals, 8)}</strong></dd></div>
+        <div><dt>${D.symbol} HERE</dt><dd><strong>${fmt(b.debt, D.decimals, 6)}</strong></dd></div>
+        <div><dt>ETH · GAS</dt><dd><strong>${fmt(b.eth, 18, 6)}</strong><span> · ~${txsLeft.toString()} tx</span></dd>${ret ? `<dd class="st-dash-gasact">${ret}</dd>` : ""}</div>
       </dl>
-      ${disc("how-gas", "About these balances and gas", () => `<p>Tokens here sit at the position's address, not supplied on Aave. Each transaction the contract signs may cost at most ${Number(gas.evmGas.gas_limit).toLocaleString("en-US")} gas at ${fmt(BigInt(gas.evmGas.max_fee_per_gas), 9, 2)} gwei (${fmt(upfront, 18, 6)} ETH, wanted up front; the real cost is lower). ${gasNote}</p>`)}
+      ${disc("how-gas", "About these balances and gas", () => `<p>Tokens here sit at the position's address, not supplied on Aave. The position pays the gas of what it sends (repays, buy-back payouts, settlement legs): each may cost at most ${Number(gas.evmGas.gas_limit).toLocaleString("en-US")} gas at ${fmt(BigInt(gas.evmGas.max_fee_per_gas), 9, 2)} gwei (${fmt(upfront, 18, 6)} ETH, wanted up front; the real cost is lower). ${gasNote}</p>`)}
     </section>`;
   }
 
@@ -1087,7 +1306,7 @@ export function mountDash(root: HTMLElement): () => void {
     const arrivedLine = showArrived ? `<p class="st-dash-arrived${flashArrival ? " is-flash" : ""}" role="status"><strong>+${fmt(arrivedUnits, C.decimals, 6)} ${C.symbol}</strong> arrived at the position: supply it with one NEAR call</p>` : "";
     const wethCard = `<div class="st-dash-act${wv.on ? "" : " is-off"}" data-act="${wm}">
       <div class="st-dash-act-head"><h3>${C.symbol}</h3>${seg(`${C.symbol} action`, "data-mode", [{ v: "weth:deposit", t: "SUPPLY" }, { v: "weth:withdraw", t: "WITHDRAW" }], `weth:${wm}`)}</div>
-      <p class="st-dash-have">${evm ? `wallet ${w ? fmt(w.coll, C.decimals, 5) : "…"} · ` : ""}supplied ${fmt(collUnits, C.decimals, 5)}${idleColl > 0n ? ` · ${fmt(idleColl, C.decimals, 6)} waiting` : ""}</p>
+      <p class="st-dash-have">${evm ? pill("wallet", w ? fmt(w.coll, C.decimals, 5) : "…") : ""}${pill("supplied", fmt(collUnits, C.decimals, 5))}${idleColl > 0n ? pill("waiting", fmt(idleColl, C.decimals, 6)) : ""}</p>
       ${wm === "deposit"
         ? arrivedLine + input("deposit", C.symbol, "MAX", !av.deposit.on) + liveHtml("deposit", av.deposit, opLabel("deposit", "Supply", C.symbol, C.decimals, 6), !!shortV, shortV ?? av.deposit)
           + disc("how-deposit", "How it works", () => evm
@@ -1103,15 +1322,17 @@ export function mountDash(root: HTMLElement): () => void {
     // the repay rules without the source: whether the switch and the amount are usable at all
     const repayAny = availability({ ...f, repayFromWallet: false }).repay;
     const uv = um === "borrow" ? av.borrow : av.repay;
+    const src = repaySrc();
+    const noUsdc: Avail | null = src === "position" && !fromPos && repayAny.on ? { on: false, why: evm ? `The position holds no ${D.symbol}: repay from your wallet.` : `The position holds no ${D.symbol}: send ${D.symbol} to the position's address (Fund position), then repay from it.`, tryAnyway: false } : null;
     const usdcCard = `<div class="st-dash-act${uv.on ? "" : " is-off"}" data-act="${um}">
       <div class="st-dash-act-head"><h3>${D.symbol}</h3>${seg(`${D.symbol} action`, "data-mode", [{ v: "usdc:borrow", t: "BORROW" }, { v: "usdc:repay", t: "REPAY" }], `usdc:${um}`)}</div>
-      <p class="st-dash-have">${evm ? `wallet ${w ? fmt(w.debt, D.decimals, 2) : "…"} · ` : ""}debt ${fmt(debtUnits, D.decimals, 2)}${fromPos ? ` · ${fmt(s!.posBal.debt, D.decimals, 2)} at the position` : ""}</p>
+      <p class="st-dash-have">${evm ? pill("wallet", w ? fmt(w.debt, D.decimals, 2) : "…") : ""}${pill("debt", fmt(debtUnits, D.decimals, 2))}${fromPos ? pill("at the position", fmt(s!.posBal.debt, D.decimals, 2)) : ""}</p>
       ${um === "borrow"
         ? input("borrow", D.symbol, "MAX 1.16", !av.borrow.on) + liveHtml("borrow", av.borrow, opLabel("borrow", "Borrow", D.symbol, D.decimals, 2)) + tryBtn("borrow", av.borrow)
           + disc("how-borrow", "How it works", () => `<p>One NEAR call: the contract signs the Aave borrow and the ${D.symbol} lands at the position (Aave only lends to the position itself). Move it to your wallet below, or keep some there for a later repay. MAX stops at health 1.16, just above the trigger.</p>`)
-        : `<div class="st-dash-from"><span class="st-label">FROM</span>${seg("Repay from", "data-repay-from", [{ v: "wallet", t: "MY WALLET", off: !repayAny.on }, { v: "position", t: "THE POSITION", off: !repayAny.on || !fromPos }], repayFrom)}</div>`
-          + input("repay", D.symbol, "ALL", !repayAny.on) + liveHtml("repay", av.repay, opLabel("repay", "Repay", D.symbol, D.decimals, 2), repayFrom === "wallet" && !evm)
-          + disc("how-repay", "How it works", () => `<p>${repayFrom === "wallet" ? `Your Ethereum wallet sends the ${D.symbol} to the position (one signature), then` : `From the ${fmt(s!.posBal.debt, D.decimals, 2)} ${D.symbol} already at the position:`} the contract repays Aave (one NEAR call, two the first time). ALL repays the debt plus 0.2% for interest; Aave takes only what is owed.</p>`)}
+        : `<div class="st-dash-from"><span class="st-label">FROM</span>${seg("Repay from", "data-repay-from", [{ v: "wallet", t: "MY WALLET", off: !repayAny.on || !evm }, { v: "position", t: "THE POSITION", off: !repayAny.on || !fromPos }], src)}</div>`
+          + input("repay", D.symbol, "ALL", !repayAny.on) + liveHtml("repay", av.repay, opLabel("repay", "Repay", D.symbol, D.decimals, 2), !!noUsdc, noUsdc ?? av.repay)
+          + disc("how-repay", "How it works", () => `<p>${src === "wallet" ? `Your Ethereum wallet sends the ${D.symbol} to the position (one signature), then` : `From the ${fmt(s!.posBal.debt, D.decimals, 2)} ${D.symbol} already at the position:`} the contract repays Aave (one NEAR call, two the first time). ALL repays the debt plus 0.2% for interest; Aave takes only what is owed.</p>`)}
     </div>`;
 
     // buy back (only while a claim is open)
@@ -1119,18 +1340,14 @@ export function mountDash(root: HTMLElement): () => void {
     if (f.claimOpen) {
       const owed = owedUnits();
       const held = s!.posBal.coll;
-      buyCard = `<div class="st-dash-act st-dash-buy${av.buyback.on ? "" : " is-off"}" data-act="buyback">
+      buyCard = `<div class="st-dash-act st-dash-buy${av.buyback.on || !evm ? "" : " is-off"}" data-act="buyback">
         <div class="st-dash-act-head"><h3>Buy back</h3></div>
         <p class="st-dash-owed"><span class="st-label">OWED</span><span class="st-num">${fmt(owed, C.decimals, 8)}</span><span class="st-dash-unit">${C.symbol}</span>${held > 0n ? `<span class="st-dash-have">${fmt(held, C.decimals, 8)} already at the position counts</span>` : ""}</p>
-        <div class="st-dash-go">${btn(`Buy back for ${fmt(owed > held ? owed - held : 0n, C.decimals, 10)} ${C.symbol}`, "data-go=buyback", true, !av.buyback.on)}</div>
-        ${av.buyback.on ? "" : `<p class="st-dash-why">${esc(!evm ? `Send exactly ${trim(buybackDue(owed, held), C.decimals, C.decimals)} ${C.symbol} to the position's address above, or connect your Ethereum wallet.` : av.buyback.why)}</p>`}
-        ${disc("how-buyback", "How it works", () => `<p>Pay exactly what is owed into the position (one Ethereum signature). The contract checks the proven balance and pays the claim owner exactly that; any excess is refunded to your wallet.</p>`)}
+        <div class="st-dash-go">${!evm && f.claimOpen ? btn(`Send ${trim(buybackDue(owed, held), C.decimals, C.decimals)} ${C.symbol} to buy back`, 'data-fund aria-haspopup="dialog"', true) : btn(`Buy back for ${fmt(owed > held ? owed - held : 0n, C.decimals, 10)} ${C.symbol}`, "data-go=buyback", true, !av.buyback.on)}</div>
+        ${av.buyback.on ? "" : !evm ? `<p class="st-dash-why">Send exactly ${trim(buybackDue(owed, held), C.decimals, C.decimals)} ${C.symbol} to the position's address (no Ethereum wallet needed): once the balance is proven, the buy-back commits.</p>` : `<p class="st-dash-why">${esc(av.buyback.why)}</p>`}
+        ${disc("how-buyback", "How it works", () => `<p>Pay exactly what is owed into the position (${evm ? "one Ethereum signature" : "a plain transfer to its address"}). The contract checks the proven balance and pays the claim owner exactly that; any excess is refunded to your wallet.</p>`)}
       </div>`;
     }
-
-    // small, secondary: leftover gas ETH, USDC left at the position
-    const sw = f.sweepUnits;
-    const minor = [`<div class="st-dash-minor-item" data-act="sweep"><span class="st-dash-minor-lbl">Leftover gas ETH</span>${btn(`Return ${fmt(sw, 18, 6)} ETH`, "data-go=sweep", false, !av.sweep.on)}${av.sweep.on ? "" : `<span class="st-dash-minor-why">${esc(av.sweep.why)}</span>`}</div>`];
 
     // USDC at the position → the wallet: separate from the borrow, so some can stay for a repay
     const idleDebt = s!.posBal.debt;
@@ -1151,29 +1368,111 @@ export function mountDash(root: HTMLElement): () => void {
       </div>`;
     }
 
-    return `${buyCard}<div class="st-dash-actions">${wethCard}${usdcCard}</div>${moveCard}<div class="st-dash-minor">${minor.join("")}</div>`;
+    return `${buyCard}<div class="st-dash-actions">${wethCard}${usdcCard}</div>${moveCard}`;
   }
 
+  /** One balance as a pill: a quiet label and a bold figure. */
+  const pill = (label: string, v: string) => `<span class="st-dash-pill"><span>${label}</span><b class="st-num">${v}</b></span>`;
+
   /** Every activity row for the position (its transactions and the rescue's events), newest first. */
-  function activityHtml(): string {
+  /** latestOnly: just the newest row (under the position card); otherwise the full journal with the rest in a drop-down. */
+  function activityHtml(latestOnly = false): string {
     if (!s?.pos) return "";
-    const rows: { at: number; html: string }[] = shown().map((t) => {
+    const own: ActRow[] = shown().map((t) => {
       const reason = t.ok ? "" : t.label.match(/refused by the contract \("(.*)"\)$/)?.[1] ?? "";
       const link = t.hash ? `<a class="st-dash-txlink" href="${t.chain === "near" ? net.nearTx(t.hash) : net.evmTx(t.hash)}" target="_blank" rel="noopener">${t.chain === "near" ? "NearBlocks" : "Etherscan"}${icon("external", 11)}</a>` : "";
-      return { at: t.at, html: `${t.ok ? "" : '<span class="st-own-chip-refused">refused</span> '}${esc(t.label.replace(/: refused by the contract.*$/, ""))}${reason ? ` <span class="st-dash-reason">"${esc(reason)}"</span>` : ""}${link}` };
+      return { at: t.at, ord: -1, exact: true, afterMs: t.at, html: `${t.ok ? "" : '<span class="st-own-chip-refused">refused</span> '}${esc(t.label.replace(/: refused by the contract.*$/, ""))}${reason ? ` <span class="st-dash-reason">"${esc(reason)}"</span>` : ""}${link}` };
     });
-    if (s.rescue) for (const l of directLines(s.rescue, s.claims, C, net.evmName)) {
-      if (!seenAt.has(l.key)) seenAt.set(l.key, l.atMs ?? Date.now());
-      rows.push({ at: l.atMs ?? seenAt.get(l.key)!, html: l.html });
-    }
+    // the visitor's transactions and every rescue step, by real time: the contract's own times, an
+    // untimed step by its place in the rescue (never by when this page saw it)
+    const steps = flowActivity(stories(), C, net.evmName, { ...flowOpts(), linkHtml: (href, label) => `<a class="st-dash-txlink" href="${href}" target="_blank" rel="noopener">${label}${icon("external", 11)}</a>` });
+    const rows = sortActivity([...own, ...steps]);
     if (!rows.length) return "";
-    rows.sort((x, y) => y.at - x.at);
-    const li = (r: { at: number; html: string }) => `<li><span class="st-np-t">${new Date(r.at).toISOString().slice(11, 19)}</span><span>${r.html}</span></li>`;
-    const more = rows.length - 1;
+    const now = Date.now();
+    const li = (r: ActRow) => `<li><span class="st-np-t${r.exact ? "" : " is-after"}"${r.exact ? "" : ' title="No time of its own on chain: it follows the step before it"'}>${r.exact ? clockText(r.at, now) : `after ${clockText(r.afterMs, now)}`}</span><span>${r.html}</span></li>`;
+    const more = latestOnly ? 0 : rows.length - 1;
+    if (latestOnly) return `<div class="st-np-journal st-dash-journal is-latest">
+      <div class="st-dash-jhead"><span class="st-journal-head">LAST ACTION · POSITION ${s.pos.id}</span></div>
+      <ol class="st-np-lines">${li(rows[0])}</ol>
+    </div>`;
     return `<div class="st-np-journal st-dash-journal">
       <div class="st-dash-jhead"><span class="st-journal-head">ACTIVITY · POSITION ${s.pos.id}</span>${more > 0 ? `<button type="button" class="st-dash-jmore" data-more-txs aria-expanded="${showAllTxs}" aria-controls="dash-activity">${showAllTxs ? "Hide" : `${more} earlier`}${chevron()}</button>` : ""}</div>
       <ol class="st-np-lines" id="dash-activity">${li(rows[0])}${showAllTxs ? rows.slice(1, 80).map(li).join("") : ""}</ol>
     </div>`;
+  }
+
+  /** Every rescue run on this position, newest first: one compact row each (outcome, winners and
+   *  premium, top-up, date); a row opens the rescue's full flow. No-bid rescues behind a toggle. */
+  const PROT_ROWS = 4;
+  const protTile = (acct: string) => {
+    const id = stewardIdOf(acct);
+    return id ? `<span class="st-tile st-tile--22" style="--sc: var(--st-steward-${id})" aria-hidden="true">${CODE[id]}</span>` : "";
+  };
+  const dayText = (ms: number) => `${new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })} · ${new Date(ms).toISOString().slice(11, 16)} UTC`;
+  function protRowHtml(x: ProtectionRow): string {
+    const who = x.winners.length
+      ? x.winners.map((w) => `<span class="st-dash-prow-w">${protTile(w.steward)}<span>${esc(w.name)}</span><span class="st-dash-prow-bps"><b class="st-num">${w.bps}</b> bps</span></span>`).join("")
+      : `<span class="st-dash-prow-none">${x.outcome === "running" ? esc(x.stage) : x.bids ? `${x.bids} bid${x.bids === 1 ? "" : "s"}, ${x.covered ? "no top-up proven" : "short of the top-up"}` : "no steward bid"}</span>`;
+    // a running rescue's chip names its stage (the amber already says it is running)
+    const chip = x.outcome === "running" ? x.stage : OUTCOME_WORD[x.outcome];
+    return `<li><button type="button" class="st-dash-prow" data-prot="${x.id}" aria-haspopup="dialog" aria-label="Rescue ${x.id}: ${esc(chip)}. Open its full flow">
+      <span class="st-dash-prow-id"><span>RESCUE</span><b class="st-num">${x.id}</b></span>
+      <span class="st-dash-pchip is-${x.outcome}">${esc(chip)}</span>
+      <span class="st-dash-prow-who">${who}</span>
+      <span class="st-dash-prow-amt">${x.winners.length ? `<b>${fmt(BigInt(x.topupUnits), C.decimals, 6)}</b> ${C.symbol}` : ""}</span>
+      <span class="st-dash-prow-date">${dayText(x.openedMs)}</span>
+      ${glyph("M6 3.5 10.5 8 6 12.5", 14, "st-dash-prow-go")}
+    </button></li>`;
+  }
+  function protHtml(): string {
+    if (!s?.pos) return "";
+    const { rows, noBids } = protectionRows(stories().map((x) => x.rescue), s.pos.id);
+    const head = (extra = "") => `<div class="st-dash-jhead"><span class="st-label">PROTECTIONS · POSITION ${s!.pos!.id}</span>${extra}</div>`;
+    const loading = histState === "loading" || histState === "idle";
+    if (!rows.length && !noBids.length) {
+      if (loading) return `<section class="st-dash-prot" aria-label="Protections">${head()}<p class="st-dash-prot-note">Reading this position's rescues from the contract…</p></section>`;
+      return `<section class="st-dash-prot" aria-label="Protections">${head()}<p class="st-dash-prot-note">No rescue has run on this position. Stewards act if its health factor falls under 1.15.</p></section>`;
+    }
+    const list = showNoBids ? [...rows, ...noBids].sort((a, b) => b.id - a.id) : rows;
+    const shownRows = showAllProt ? list : list.slice(0, PROT_ROWS);
+    const more = list.length - shownRows.length;
+    const count = `${rows.length} rescue${rows.length === 1 ? "" : "s"} with bids${loading ? " · reading the rest…" : ""}`;
+    const toggles = [
+      more > 0 || (showAllProt && list.length > PROT_ROWS) ? `<button type="button" class="st-dash-jmore" data-prot-more aria-expanded="${showAllProt}">${showAllProt ? "Fewer" : `${more} earlier`}${chevron()}</button>` : "",
+      noBids.length ? `<button type="button" class="st-dash-jmore" data-prot-nobids aria-pressed="${showNoBids}">${showNoBids ? `Hide the ${noBids.length} without bids` : `Show ${noBids.length} without bids`}</button>` : "",
+    ].join("");
+    return `<section class="st-dash-prot" aria-label="Protections">
+      ${head(`<span class="st-dash-prot-count">${count}</span>`)}
+      ${shownRows.length ? `<ol class="st-dash-prows">${shownRows.map(protRowHtml).join("")}</ol>` : `<p class="st-dash-prot-note">Every rescue so far ended with no bids.</p>`}
+      ${toggles ? `<div class="st-dash-prot-foot">${toggles}</div>` : ""}
+    </section>`;
+  }
+  const PROT_NOTE = "Read from Stead's contract on NEAR mainnet. Times are the contract's own, or the time of the Ethereum block a proof read; a step with no time of its own reads after the last recorded time before it.";
+  function protBody(id: number): () => string {
+    return () => {
+      const x = stories().filter((h) => h.rescue.id === id).at(-1);
+      if (!x) return `<p class="st-dash-prot-note">Rescue ${id} is not on this position.</p>`;
+      const r = x.rescue;
+      const row = protectionRows([r]).rows[0] ?? protectionRows([r]).noBids[0];
+      const owed = x.claims.reduce((t, c) => t + BigInt(c.owed_units), 0n);
+      const flow = rescueFlow(r, x.claims, { coll: C, evmName: net.evmName, ...flowOpts() });
+      const win = row.winners.map((w) => `<span class="st-dash-prot-w">${protTile(w.steward)}<span>${esc(w.name)}</span></span>`).join("");
+      const bps = row.winners.map((w) => `${w.bps} bps`).join(", ");
+      return `<dl class="st-kpis st-sv-kpis st-dash-prot-kpis">
+          <div><dt>OUTCOME</dt><dd class="st-kpi-word"><span class="st-dash-pchip is-${row.outcome}">${esc(row.outcome === "running" ? `${OUTCOME_WORD.running} · ${row.stage}` : OUTCOME_WORD[row.outcome])}</span></dd><dd class="st-kpi-sub">opened ${dayText(row.openedMs)}</dd></div>
+          <div><dt>${row.winners.length > 1 ? "WINNERS" : "WINNER"}</dt><dd class="st-dash-prot-win">${win || `<span class="st-kpi-word">none</span>`}</dd><dd class="st-kpi-sub">${bps ? `${bps} · ` : ""}cap ${r.cap_bps} bps · ${r.bids.length} bid${r.bids.length === 1 ? "" : "s"}</dd></div>
+          <div><dt>TOPPED UP</dt><dd>${row.winners.length ? `<span class="st-num">${fmt(BigInt(row.topupUnits), C.decimals, 6)}</span> <span class="st-sv-u">${C.symbol}</span>` : `<span class="st-kpi-word">nothing</span>`}</dd><dd class="st-kpi-sub">${fmt(BigInt(r.topup_units), C.decimals, 6)} ${C.symbol} needed</dd></div>
+          ${owed > 0n ? `<div><dt>CLAIM OWED</dt><dd><span class="st-num">${fmt(owed, C.decimals, 6)}</span> <span class="st-sv-u">${C.symbol}</span></dd><dd class="st-kpi-sub">${x.claims.map((c) => esc(c.token_id)).join(", ")}</dd></div>` : ""}
+        </dl>
+        ${flowSeq(flowMoves(flow))}
+        <p class="st-list-note st-sv-note">${esc(PROT_NOTE)}</p>`;
+    };
+  }
+  function openProt(id: number, opener: HTMLElement | null) {
+    if (!s?.pos) return;
+    const r = stories().filter((h) => h.rescue.id === id).at(-1)?.rescue;
+    const word = r ? protectionRows([r]).rows.concat(protectionRows([r]).noBids)[0] : null;
+    modal("prot", `POSITION ${s.pos.id} · PROTECTION`, `Rescue ${id}${word ? `: ${word.outcome === "running" ? word.stage : OUTCOME_WORD[word.outcome].toLowerCase()}` : ""}`, protBody(id), opener);
   }
 
   function bannerHtml(): string {
@@ -1241,44 +1540,156 @@ export function mountDash(root: HTMLElement): () => void {
         <li class="is-rule"><span>You are never worse off than after an Aave liquidation.</span></li>
       </ul>`;
   }
-  let dlg: HTMLDialogElement | null = null;
-  function openRisk() {
-    if (!dlg) {
-      dlg = document.createElement("dialog");
-      dlg.className = "st-dash-risk";
-      dlg.setAttribute("aria-labelledby", "dash-risk-title");
-      dlg.innerHTML = `<div class="st-dash-risk-head"><div><div class="st-label">POSITION ${s?.pos?.id ?? ""} · LIQUIDATION RISK</div><h2 id="dash-risk-title">Risk details</h2></div><button type="button" class="st-dash-risk-x" data-risk-close aria-label="Close risk details">${icon("close", 16)}</button></div><div class="st-dash-risk-body" data-risk-body></div>`;
-      document.body.append(dlg);
-      dlg.querySelector("[data-risk-close]")!.addEventListener("click", () => dlg!.close());
-      // a click on the backdrop closes it; Esc closes it natively
-      dlg.addEventListener("click", (ev) => {
-        if (ev.target === dlg) dlg!.close();
+  // ── dialogs: risk details and funding (one look), and the steward's view (the mainnet runs' dialog) ──
+  type Dlg = { el: HTMLDialogElement; body: () => string; opener: HTMLElement | null; html: string };
+  const dialogs = new Map<string, Dlg>();
+  /** Keep Tab inside an open dialog. */
+  const trapTab = (el: HTMLDialogElement) =>
+    el.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Tab") return;
+      const f = [...el.querySelectorAll<HTMLElement>("button, a[href], [tabindex]:not([tabindex='-1'])")].filter((x) => !(x as HTMLButtonElement).disabled && !x.closest("[hidden]"));
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (ev.shiftKey && document.activeElement === first) {
+        ev.preventDefault();
+        last.focus();
+      } else if (!ev.shiftKey && document.activeElement === last) {
+        ev.preventDefault();
+        first.focus();
+      }
+    });
+  function modal(key: string, label: string, title: string, body: () => string, opener: HTMLElement | null) {
+    let d = dialogs.get(key);
+    if (!d) {
+      const el = document.createElement("dialog");
+      el.className = `st-dash-risk st-dash-dlg--${key}`;
+      el.setAttribute("aria-labelledby", `dash-${key}-title`);
+      el.innerHTML = `<div class="st-dash-risk-head"><div><div class="st-label" data-dlg-label></div><h2 id="dash-${key}-title" data-dlg-title></h2></div><button type="button" class="st-dash-risk-x" data-dlg-close aria-label="Close">${icon("close", 16)}</button></div><div class="st-dash-risk-body" data-dlg-body></div>`;
+      document.body.append(el);
+      const dd: Dlg = { el, body, opener, html: "" };
+      d = dd;
+      dialogs.set(key, dd);
+      // ×, a click on the backdrop and Esc (native) close it; the copy button works inside it
+      el.addEventListener("click", (ev) => {
+        const t = ev.target as HTMLElement;
+        if (t === el || t.closest("[data-dlg-close]")) return el.close();
+        const c = t.closest<HTMLButtonElement>("[data-copy]");
+        if (c) void navigator.clipboard?.writeText(c.dataset.copy!).then(() => {
+          copiedAt = Date.now();
+          render();
+          setTimeout(render, 1700);
+        }, () => undefined);
       });
-      // keep Tab inside the dialog
-      dlg.addEventListener("keydown", (ev) => {
-        if (ev.key !== "Tab") return;
-        const f = [...dlg!.querySelectorAll<HTMLElement>("button, a[href], [tabindex]:not([tabindex='-1'])")].filter((x) => !(x as HTMLButtonElement).disabled);
-        if (!f.length) return;
-        const first = f[0], last = f[f.length - 1];
-        if (ev.shiftKey && document.activeElement === first) {
-          ev.preventDefault();
-          last.focus();
-        } else if (!ev.shiftKey && document.activeElement === last) {
-          ev.preventDefault();
-          first.focus();
+      trapTab(el);
+      el.addEventListener("close", () => (dd.opener?.isConnected ? dd.opener : root.querySelector<HTMLElement>(`[data-${key}]`))?.focus());
+    }
+    d.body = body;
+    d.opener = opener;
+    d.el.querySelector("[data-dlg-label]")!.textContent = label;
+    d.el.querySelector("[data-dlg-title]")!.textContent = title;
+    d.el.querySelector("[data-dlg-close]")!.setAttribute("aria-label", `Close ${title.toLowerCase()}`);
+    d.html = body();
+    d.el.querySelector("[data-dlg-body]")!.innerHTML = d.html;
+    if (!d.el.open) d.el.showModal();
+    d.el.querySelector<HTMLElement>("[data-dlg-close]")!.focus();
+  }
+  const openRisk = (ev?: Event) => modal("risk", `POSITION ${s?.pos?.id ?? ""} · LIQUIDATION RISK`, "Risk details", riskHtml, (ev?.currentTarget as HTMLElement) ?? null);
+  function openFund(opener: HTMLElement | null) {
+    if (!s?.pos?.evm_address) return;
+    if (dialogs.get("fund")?.el.open) return;
+    modal("fund", "POSITION ADDRESS · ETHEREUM MAINNET", "Fund position", fundHtml, opener);
+  }
+  /** Redraw the open dialogs' bodies from the latest reading (keeping focus on the copy button). */
+  function refreshDialogs(full: boolean) {
+    for (const d of dialogs.values()) {
+      if (!d.el.open) continue;
+      if (!full) {
+        d.el.close();
+        continue;
+      }
+      const html = d.body();
+      if (html === d.html) continue;
+      const hadCopy = d.el.contains(document.activeElement) && (document.activeElement as HTMLElement).dataset.copy !== undefined;
+      d.html = html;
+      d.el.querySelector("[data-dlg-body]")!.innerHTML = html;
+      if (hadCopy) d.el.querySelector<HTMLElement>("[data-dlg-body] [data-copy]")?.focus();
+    }
+    refreshSteward(full);
+  }
+
+  // the steward's view of the live rescue: the leading bidder while the auction runs, else the winners
+  let sv: HTMLDialogElement | null = null;
+  let svOpener: HTMLElement | null = null;
+  let svFocus = 0;
+  let svHtml = "";
+  const SV_NOTE = "Read from Stead's contract on NEAR mainnet as the rescue runs. Times are the contract's own where it records them (or the proof's Ethereum block); bids and the other untimed steps show when this page first saw them.";
+  const svView = () => {
+    const r = s?.rescue;
+    if (!r || !s?.pos) return null;
+    const exact = new Map(rescueFlow(r, s.claims, { coll: C, evmName: net.evmName, ...flowOpts() }).map((f) => [f.key, f.exactMs]));
+    const seenMs = (k: string) => {
+      const e = exact.get(k);
+      if (e != null) return e;
+      if (k.startsWith("bid:")) return lad?.seen?.get(k.split(":")[2])?.seenMs ?? null;
+      if (!seenAt.has(k)) seenAt.set(k, Date.now()); // no time on chain: when this page first saw it
+      return seenAt.get(k)!;
+    };
+    return liveStewardView(r, s.claims, { posId: s.pos.id, coll: C, seenMs, evmTxUrl: net.evmTx, evmBlockUrl: net.evmBlock });
+  };
+  function openSteward(account: string | null, opener: HTMLElement | null) {
+    const v = svView();
+    if (!v) return;
+    if (!sv) {
+      const t = document.createElement("template");
+      t.innerHTML = svDialogHtml(SV_NOTE).trim();
+      sv = t.content.firstElementChild as HTMLDialogElement;
+      document.body.append(sv);
+      const el = sv;
+      el.addEventListener("click", (ev) => {
+        const tg = ev.target as HTMLElement;
+        if (tg === el || tg.closest("[data-sv-close]")) return el.close();
+        const tab = tg.closest<HTMLButtonElement>("[data-sv-tab]");
+        const now = svView();
+        if (tab && now) {
+          svFocus = Number(tab.dataset.svTab);
+          showSteward(el, now, svFocus, true);
+          svHtml = stewardPanel(now.stewards[svFocus], now);
         }
       });
-      dlg.addEventListener("close", () => root.querySelector<HTMLElement>("[data-risk]")?.focus());
+      trapTab(el);
+      el.addEventListener("close", () => svOpener?.focus());
     }
-    dlg.querySelector("[data-risk-body]")!.innerHTML = riskHtml();
-    if (!dlg.open) dlg.showModal();
-    dlg.querySelector<HTMLElement>("[data-risk-close]")!.focus();
+    const k = account ? v.stewards.findIndex((x) => x.steward === account.split(".")[0]) : 0;
+    svFocus = Math.max(0, k);
+    svOpener = opener;
+    showSteward(sv, v, svFocus);
+    svHtml = stewardPanel(v.stewards[svFocus], v);
+    if (!sv.open) sv.showModal();
+    sv.querySelector<HTMLElement>(v.pooled ? `[data-sv-tab="${svFocus}"]` : "[data-sv-close]")?.focus();
+  }
+  /** The open steward's view follows the rescue (a new bid, the top-up, the claim) without losing its scroll. */
+  function refreshSteward(full: boolean) {
+    if (!sv?.open) return;
+    const v = full ? svView() : null;
+    if (!v) return sv.close();
+    if (svFocus >= v.stewards.length) svFocus = 0;
+    const html = stewardPanel(v.stewards[svFocus], v);
+    if (html === svHtml) return;
+    svHtml = html;
+    const panel = sv.querySelector<HTMLElement>(".st-sv-panel")!;
+    const top = sv.scrollTop, ptop = panel.scrollTop;
+    const tabFocus = (document.activeElement as HTMLElement | null)?.dataset?.svTab;
+    showSteward(sv, v, svFocus, tabFocus !== undefined);
+    sv.scrollTop = top;
+    panel.scrollTop = ptop;
   }
 
   // keep what the visitor is typing (and which control has focus) across re-renders
-  const FOCUS_KEYS = ["amt", "payout", "disc", "mode", "repayFrom", "copy", "max", "moreTxs", "risk"] as const;
+  const FOCUS_KEYS = ["amt", "payout", "disc", "mode", "repayFrom", "copy", "max", "moreTxs", "risk", "fund", "prot", "protMore", "protNobids"] as const;
   function render() {
     if (gone) return;
+    // a redraw never moves the page: re-focusing a control would scroll it into view on every reading
+    const scrollY = window.scrollY;
     const focused = document.activeElement as HTMLElement | null;
     const inRoot = !!focused && root.contains(focused);
     const fk = inRoot ? FOCUS_KEYS.find((k) => focused!.dataset[k] !== undefined) : undefined;
@@ -1287,11 +1698,15 @@ export function mountDash(root: HTMLElement): () => void {
     const sel = inp ? [inp.selectionStart, inp.selectionEnd] : null;
     const netSwitch = `<nav class="st-own-net" aria-label="Network"><div class="st-own-netseg"><a href="${location.pathname}#/try">TESTNET</a><a href="${location.pathname}?net=mainnet#/try" aria-current="page">MAINNET · REAL FUNDS</a></div></nav>`;
     const pos = s?.pos ?? null;
-    const full = !!s && !!pos?.evm_address;
+    const fresh = freshShown();
+    if (!fresh && !busy) freshFrom = null;
+    const full = !!s && !!pos?.evm_address && !fresh;
     const body = !s
       ? `<p class="st-empty">${near ? "Reading the contract and Ethereum…" : ""}</p>`
-      : full
-        ? `${statusHtml()}${activityHtml()}${fundHtml()}`
+      : fresh
+        ? newPositionHtml()
+        : full
+        ? `${statusHtml()}${activityHtml(true)}${protHtml()}`
         : pos
           ? `<p class="st-own-hint">Position ${pos.id} is registered; its Ethereum address is being derived.</p>`
           : newPositionHtml();
@@ -1309,27 +1724,25 @@ export function mountDash(root: HTMLElement): () => void {
       ${walletsHtml()}
       ${notice ? `<p class="st-own-notice" role="status">${esc(notice)}</p>` : ""}
       ${error ? `<p class="st-own-error" role="alert">${esc(error)}</p>` : ""}
-      ${busy && !pos?.evm_address ? `<p class="st-own-notice" role="status">${esc(busy)} <span class="st-own-elapsed" data-elapsed="${busySince}">${mmss(Date.now() - busySince)}</span></p>` : ""}
+      ${busy && (!pos?.evm_address || fresh) ? `<p class="st-own-notice" role="status">${esc(busy)} <span class="st-own-elapsed" data-elapsed="${busySince}">${mmss(Date.now() - busySince)}</span></p>` : ""}
       ${body}`;
     const ladHost = shell.querySelector<HTMLElement>('[data-part="ladder"]')!;
     if (full && lad && s?.rescue?.id === lad.rid) {
       if (lad.el.parentElement !== ladHost) ladHost.replaceChildren(lad.el);
       updateLadder();
     } else if (ladHost.firstChild) ladHost.replaceChildren();
-    shell.querySelector<HTMLElement>('[data-part="post"]')!.innerHTML = full ? `${actionsHtml()}${positionWalletHtml()}` : "";
-    if (dlg?.open) {
-      if (full) dlg.querySelector("[data-risk-body]")!.innerHTML = riskHtml();
-      else dlg.close();
-    }
+    shell.querySelector<HTMLElement>('[data-part="post"]')!.innerHTML = full ? `${actionsHtml()}${positionWalletHtml()}${activityHtml()}` : "";
+    refreshDialogs(full);
     flashArrival = false; // the arrival highlight plays once
     bind();
     if (focusSel) {
       const el = root.querySelector<HTMLElement>(focusSel);
       if (el && !(el as HTMLButtonElement).disabled) {
-        el.focus();
+        el.focus({ preventScroll: true });
         if (sel && el instanceof HTMLInputElement) el.setSelectionRange(sel[0], sel[1]);
       }
     }
+    if (window.scrollY !== scrollY) window.scrollTo({ top: scrollY, behavior: "instant" as ScrollBehavior });
   }
   /** Update one action's projection and button as the visitor types, without redrawing the page. */
   function updateAction(id: Act | "move") {
@@ -1353,10 +1766,40 @@ export function mountDash(root: HTMLElement): () => void {
     }));
     root.querySelector("[data-evm]")?.addEventListener("click", () => run("Connecting your Ethereum wallet", connectEvm));
     root.querySelector("[data-evm-off]")?.addEventListener("click", () => void disconnectEvm());
+    root.querySelector("[data-near-off]")?.addEventListener("click", () => run("Disconnecting your NEAR wallet", async () => {
+      await disconnectNear();
+      near = null;
+      s = null;
+      freshFrom = null;
+      noPosUntil = 0;
+      loadTxs();
+    }));
+    root.querySelector("[data-fresh]")?.addEventListener("click", () => {
+      if (!s?.pos || !isEmpty()) return;
+      freshFrom = s.pos.id;
+      render();
+      root.querySelector<HTMLElement>("[data-fresh-back]")?.focus({ preventScroll: true });
+    });
+    root.querySelector("[data-fresh-back]")?.addEventListener("click", () => {
+      const id = freshFrom;
+      freshFrom = null;
+      render();
+      if (id !== null) root.querySelector<HTMLElement>("[data-fresh]")?.focus({ preventScroll: true });
+    });
     root.querySelector("[data-register]")?.addEventListener("click", register);
     root.querySelector("[data-risk]")?.addEventListener("click", openRisk);
+    root.querySelectorAll<HTMLElement>("[data-fund]").forEach((b) => b.addEventListener("click", () => openFund(b)));
     root.querySelector("[data-more-txs]")?.addEventListener("click", () => {
       showAllTxs = !showAllTxs;
+      render();
+    });
+    root.querySelectorAll<HTMLButtonElement>("[data-prot]").forEach((b) => b.addEventListener("click", () => openProt(Number(b.dataset.prot), b)));
+    root.querySelector("[data-prot-more]")?.addEventListener("click", () => {
+      showAllProt = !showAllProt;
+      render();
+    });
+    root.querySelector("[data-prot-nobids]")?.addEventListener("click", () => {
+      showNoBids = !showNoBids;
       render();
     });
     root.querySelectorAll<HTMLButtonElement>("[data-disc]").forEach((b) =>
@@ -1453,6 +1896,7 @@ export function mountDash(root: HTMLElement): () => void {
       near = a;
       noPosUntil = 0;
       s = null;
+      freshFrom = null;
       loadTxs();
       void refresh();
     });
@@ -1492,8 +1936,12 @@ export function mountDash(root: HTMLElement): () => void {
     clearInterval(tick);
     unwatch?.();
     document.removeEventListener("visibilitychange", onVisible);
-    dlg?.close();
-    dlg?.remove();
+    for (const d of dialogs.values()) {
+      d.el.close();
+      d.el.remove();
+    }
+    sv?.close();
+    sv?.remove();
     stopNear();
     setNearNetwork("testnet");
   };
