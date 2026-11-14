@@ -73,7 +73,7 @@ describe("mainnet", () => {
     expect(M.nearTx("h")).toBe("https://nearblocks.io/txns/h");
     expect(M.evmTx("0x2")).toBe("https://etherscan.io/tx/0x2");
     expect(M.evmRpcs[0]).toBe("https://ethereum-rpc.publicnode.com");
-    expect(M.nearRpcs).toEqual(["https://rpc.mainnet.fastnear.com", "https://rpc.mainnet.near.org"]);
+    expect(M.nearRpcs).toEqual(["https://rpc.mainnet.fastnear.com", "https://near.drpc.org", "https://free.rpc.fastnear.com", "https://rpc.mainnet.near.org"]);
   });
 });
 

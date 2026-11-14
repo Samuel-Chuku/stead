@@ -106,7 +106,8 @@ export const NETS: Record<NetId, OwnNet> = {
     contract: "app.usestead.near",
     market: 0,
     nearName: "NEAR mainnet",
-    nearRpcs: ["https://rpc.mainnet.fastnear.com", "https://rpc.mainnet.near.org"],
+    // rpc.mainnet.near.org answers 429 to most callers now: last resort only
+    nearRpcs: ["https://rpc.mainnet.fastnear.com", "https://near.drpc.org", "https://free.rpc.fastnear.com", "https://rpc.mainnet.near.org"],
     nearTx: (h) => `https://nearblocks.io/txns/${h}`,
     nearExplorer: "NearBlocks",
     evmChainId: 1,

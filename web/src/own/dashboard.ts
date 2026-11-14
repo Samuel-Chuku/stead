@@ -407,20 +407,26 @@ export function mountDash(root: HTMLElement): () => void {
 
   // ── chain state ──
   let noPosUntil = 0;
+  let ranCache: { at: number; ran: Map<number, number> } | null = null;
   /** Every position this NEAR account owns, with its Aave figures and how many rescues ran on it. */
   async function readOwned(): Promise<Owned[]> {
     const mine: Position[] = [];
-    for (let i = 0; i < 400; i += 8) {
-      const page = await Promise.all(Array.from({ length: 8 }, (_, k) => nearView<Position | null>("get_position", { position_id: i + k })));
+    for (let i = 0; i < 400; i += 4) {
+      const page = await Promise.all(Array.from({ length: 4 }, (_, k) => nearView<Position | null>("get_position", { position_id: i + k })));
       for (const x of page) if (x && x.owner === near) mine.push(x);
       if (page.some((x) => !x)) break;
     }
-    const ran = new Map<number, number>();
-    for (let from = 0; from < 5000; from += 50) {
-      const pg = await nearView<{ position_id: number; bids: unknown[] }[]>("get_rescues", { from, limit: 50 });
-      for (const x of pg) if (x.bids.length) ran.set(x.position_id, (ran.get(x.position_id) ?? 0) + 1);
-      if (pg.length < 50) break;
+    // rescues that ran, per position: read once a minute (a list refresh every 20 s reuses it)
+    if (!ranCache || Date.now() - ranCache.at > 60_000) {
+      const ran = new Map<number, number>();
+      for (let from = 0; from < 5000; from += 50) {
+        const pg = await nearView<{ position_id: number; bids: unknown[] }[]>("get_rescues", { from, limit: 50 });
+        for (const x of pg) if (x.bids.length) ran.set(x.position_id, (ran.get(x.position_id) ?? 0) + 1);
+        if (pg.length < 50) break;
+      }
+      ranCache = { at: Date.now(), ran };
     }
+    const ran = ranCache.ran;
     const rows = await Promise.all(mine.map(async (p) => {
       const a = p.evm_address ? ((await pub.readContract({ address: net.pool, abi: poolAbi, functionName: "getUserAccountData", args: [p.evm_address as Address] }).catch(() => null)) as readonly bigint[] | null) : null;
       return { id: p.id, evm: p.evm_address ?? null, collBase: a?.[0] ?? 0n, debtBase: a?.[1] ?? 0n, hf: a?.[5] ?? 0n, prot: ran.get(p.id) ?? 0 };
