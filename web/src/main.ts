@@ -116,7 +116,7 @@ function navItems(active: Route): string {
 }
 
 /** The status card's network: the mainnet position page (?net=mainnet#/try) runs on Ethereum; every other page shows Sepolia. */
-const networkName = (r: Route) => (r === "try" && new URLSearchParams(location.search).get("net") === "mainnet" ? "Ethereum" : "Sepolia");
+const networkName = (r: Route) => (r === "mainnet" || new URLSearchParams(location.search).get("net") === "mainnet" ? "Ethereum" : "Sepolia");
 
 function sidebarBody(active: Route, inDrawer: boolean): string {
   const t = currentTheme();

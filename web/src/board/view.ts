@@ -51,6 +51,9 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
   const m = log.market;
   const a = log.atOpen;
   const liqCost = a ? (a.debtUsd * 0.5 * m.liqBonusBps) / 10_000 : null;
+  // the stewards that run on the recording's network: mainnet runs three of the five
+  const roster = log.evmChain === "ethereum" ? STEWARD_ORDER.filter((x) => x === "patient" || x === "deep" || x === "swift") : STEWARD_ORDER;
+  for (const el of document.querySelectorAll<HTMLElement>('[data-status="network"]')) el.textContent = log.evmChain === "ethereum" ? "Ethereum" : "Sepolia";
   root.innerHTML = `
   <div class="st-board">
     <header class="st-annunciator" aria-label="Status" data-panel>
@@ -116,8 +119,8 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
           <span>#</span><span>STEWARD</span><span class="st-axis"><span>0</span><span>100</span><span>200</span><span>300 bps</span></span><span>PREMIUM</span><span>COST</span>
         </div>
         <div class="st-ladder" role="list" aria-label="Bids, lowest premium first">
-          ${STEWARD_ORDER.map((s) => `<div class="st-placeholder" style="--rank:${STEWARD_ORDER.indexOf(s)}">watching</div>`).join("")}
-          ${STEWARD_ORDER.map(
+          ${roster.map((s) => `<div class="st-placeholder" style="--rank:${roster.indexOf(s)}">watching</div>`).join("")}
+          ${roster.map(
             (s) => `<div class="st-row" role="listitem" data-row="${s}" style="--sc: var(--st-steward-${s}); --flash-c: var(--st-steward-${s})">
               <span class="st-rank" data-rank></span>
               <span class="st-row-steward">${tile(s, 26)}<span class="st-row-name">${s}</span><span class="st-badge" data-badge></span></span>
@@ -138,7 +141,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
       <section class="st-panel st-board-panel st-rack" aria-label="Stewards" data-panel>
         <div class="st-rack-head st-label"><span>STEWARDS</span><span>RISK APPETITE</span></div>
         <div class="st-rack-cards">
-        ${STEWARD_ORDER.map(
+        ${roster.map(
           (s) => `<div class="st-card" data-card="${s}" style="--sc: var(--st-steward-${s})">
             ${tile(s, 32)}
             <div class="st-card-body">
@@ -151,7 +154,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
           </div>`,
         ).join("")}
         </div>
-        <p class="st-rack-note">Colour runs cool to warm with risk appetite. Anyone can register a steward; these five are example strategies.</p>
+        <p class="st-rack-note">Colour runs cool to warm with risk appetite. Anyone can register a steward; these ${roster.length === 3 ? "three run on mainnet" : "five are example strategies"}.</p>
       </section>
     </div>
 
@@ -242,7 +245,8 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
       const anyBid = b.rows.some((r) => r.bps !== null);
       root.querySelector(".st-ladder")!.classList.toggle("has-bids", anyBid);
       for (const r of b.rows) {
-        const el = q(`[data-row="${r.steward}"]`);
+        const el = root.querySelector<HTMLElement>(`[data-row="${r.steward}"]`);
+        if (!el) continue;
         el.style.setProperty("--rank", String(r.rank ?? 4)); // top = rank × the CSS row pitch
         el.classList.toggle("is-in", r.bps !== null);
         el.classList.toggle("is-first", r.rank === 0);
@@ -285,7 +289,8 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
 
       // steward rack
       for (const c of b.stewards) {
-        const el = q(`[data-card="${c.steward}"]`);
+        const el = root.querySelector<HTMLElement>(`[data-card="${c.steward}"]`);
+        if (!el) continue; // a steward that doesn't run on this recording's network
         el.classList.toggle("is-bidding", c.bidding);
         el.classList.toggle("is-won", c.won);
         const st = el.querySelector<HTMLElement>("[data-status]")!;

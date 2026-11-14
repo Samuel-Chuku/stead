@@ -343,3 +343,15 @@
   .st-net-bar .st-seg button { flex: 1; }
   .st-net-note { font-size: 13px; }
 }
+
+/* recorded mainnet trails: one quiet row each, the full re-checked card on click */
+.st-mn-trails { display: grid; gap: 8px; }
+.st-mn-trail { border: var(--st-border); background: var(--st-panel); }
+.st-mn-trail > summary { display: flex; align-items: center; gap: 14px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.st-mn-trail > summary::-webkit-details-marker { display: none; }
+.st-mn-trail-t { font-family: var(--st-font-head); font-weight: 700; font-size: 16px; flex: 1; min-width: 0; }
+.st-mn-trail-d { font-size: 13px; color: var(--st-quiet); white-space: nowrap; }
+.st-mn-trail[open] > summary { border-bottom: var(--st-hairline); }
+.st-mn-trail > .st-mn-runs { border: 0; margin: 0; }
+@media (max-width: 640px) { .st-mn-trail-d { display: none; } }
+.st-mn-trail[open] > summary .st-item-caret { transform: rotate(225deg); margin-top: 4px; }

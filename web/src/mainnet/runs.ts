@@ -49,7 +49,8 @@ function runSection(r: Run, i: number): string {
   const all = r.confirmed === r.total;
   const state = r.state.checked ? (r.state.matches ? "matches the recording" : "differs from the recording") : "not compared";
   return `
-  <section class="st-panel st-sect st-mn-runs" data-run="${i}">
+  <details class="st-mn-trail" data-run="${i}"><summary><span class="st-mn-trail-t">${esc(r.title.split(":")[0])}</span><span class="st-mn-trail-d">${when(r.started)}</span><span class="st-chip${all ? " st-chip--rescued" : ""}">${r.confirmed}/${r.total} ON CHAIN</span><span class="st-item-caret" aria-hidden="true"></span></summary>
+  <section class="st-panel st-sect st-mn-runs">
     <div class="st-sect-head">
       <div>
         <div class="st-label">${esc(r.label.toUpperCase())}</div>
@@ -80,7 +81,7 @@ function runSection(r: Run, i: number): string {
         )
         .join("")}
     </div>
-  </section>`;
+  </section></details>`;
 }
 
 // ── the steward's view: one winning steward's own moves, in order ──
@@ -221,7 +222,10 @@ export function dialogHtml(note = RUN_NOTE, o: { id?: string; close?: string } =
 export function runsHtml(data: WebRuns | null): string {
   current = data;
   if (!data) return "";
-  return data.runs.map(runSection).join("") + (data.runs.some((r) => r.rescues?.length) ? dialogHtml() : "");
+  // rescues first, then setup and preflights; one line each, the full re-checked trail on click
+  const order = data.runs.map((r, i) => ({ r, i })).sort((x, y) => Number(!/^Rescue/i.test(x.r.title)) - Number(!/^Rescue/i.test(y.r.title)) || y.r.started.localeCompare(x.r.started));
+  const ok = data.runs.reduce((n, r) => n + r.confirmed, 0), tot = data.runs.reduce((n, r) => n + r.total, 0);
+  return `<section class="st-panel st-sect st-mn-trails"><div class="st-sect-head"><div><div class="st-label">EVIDENCE · RE-CHECKED ON CHAIN</div><h2 class="st-panel-title">Every recorded mainnet transaction</h2><p class="st-list-src">${ok} of ${tot} transactions found on NEAR and Ethereum as recorded. Open a row for its full trail.</p></div></div>${order.map(({ r, i }) => runSection(r, i)).join("")}</section>` + (data.runs.some((r) => r.rescues?.length) ? dialogHtml() : "");
 }
 
 export function showSteward(dlg: HTMLDialogElement, x: RescueView, k: number, focusTab = false) {
