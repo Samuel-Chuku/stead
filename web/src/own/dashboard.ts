@@ -811,8 +811,13 @@ export function mountDash(root: HTMLElement): () => void {
           ? `${label} paused: you cancelled the request in your wallet, so nothing was sent from that step on.`
           : `${label} stopped: ${raw.split("\n")[0].slice(0, 200)}`;
     }
-    busy = "";
+    // the reading after an action takes a few seconds: keep the working indicator up until the
+    // result shows, so the page never looks stalled
+    busy = ok ? "Done on chain: reading the result" : "";
+    if (ok) render();
     await refresh();
+    busy = "";
+    render();
     const d = ok && opt.done ? opt.done() : null;
     if (d && s?.pos) showDone(d, txs.slice(mark));
   }
@@ -2221,6 +2226,7 @@ export function mountDash(root: HTMLElement): () => void {
     if (!shell) {
       root.innerHTML = `<section class="st-panel st-sect st-own is-mainnet st-dash"><div class="st-dash-part" data-part="pre"></div><div class="st-dash-part" data-part="ladder"></div><div class="st-dash-part" data-part="post"></div></section>`;
       shell = root.querySelector<HTMLElement>(":scope > section.st-dash")!;
+      shell.insertAdjacentHTML("beforeend", `<div class="st-dash-working" data-working hidden role="status" aria-live="polite"><span class="st-dash-working-bar" aria-hidden="true"></span><span class="st-dash-working-text" data-working-text></span><span class="st-own-elapsed" data-working-t></span></div>`);
     }
     shell.querySelector<HTMLElement>('[data-part="pre"]')!.innerHTML = `
       <header class="st-list-head"><div class="st-label">YOUR AAVE POSITION · NEAR MAINNET AND ETHEREUM</div><h1 class="st-page-title">Protected Aave position</h1>
@@ -2239,6 +2245,17 @@ export function mountDash(root: HTMLElement): () => void {
     } else if (ladHost.firstChild) ladHost.replaceChildren();
     shell.querySelector<HTMLElement>('[data-part="post"]')!.innerHTML = full ? `${actionsHtml()}${positionWalletHtml()}${activityHtml()}` : "";
     refreshDialogs(!!s && !!pos?.evm_address);
+    // a working indicator pinned to the bottom of the window while an action runs
+    const wk = shell.querySelector<HTMLElement>("[data-working]");
+    if (wk) {
+      wk.hidden = !busy;
+      if (busy) {
+        wk.querySelector<HTMLElement>("[data-working-text]")!.textContent = busy;
+        const t = wk.querySelector<HTMLElement>("[data-working-t]")!;
+        t.dataset.elapsed = String(busySince);
+        t.textContent = mmss(Date.now() - busySince);
+      }
+    }
     flashArrival = false; // the arrival highlight plays once
     bind();
     if (focusSel) {

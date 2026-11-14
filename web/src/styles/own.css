@@ -661,3 +661,15 @@
 .st-dash-posfig.is-prot b { color: var(--protn); }
 .st-dash-posrow.is-closed .st-dash-posfig.is-prot b, .st-dash-posrow.is-closed .st-dash-posfig.is-prot b svg { color: var(--protn); opacity: .75; }
 [data-theme="dark"] .st-dash-poslist-shield, [data-theme="dark"] .st-dash-newbig, [data-theme="dark"] .st-dash-poschip.is-open { color: #0B0D0B; }
+
+/* while an action runs: a pill pinned to the bottom of the window, with a moving bar, the step and
+   the time so far, so the page never looks stalled between a signature and its result */
+.st-dash-working { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 12px; max-width: min(640px, calc(100vw - 32px)); padding: 12px 18px 14px; background: var(--st-ink); color: var(--st-ground); border: 2px solid var(--st-steward-patient); box-shadow: 0 8px 28px rgba(0,0,0,.35); font-weight: 600; font-size: 15px; overflow: hidden; }
+.st-dash-working[hidden] { display: none; }
+.st-dash-working::before { content: ""; flex: none; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: st-dash-spin .8s linear infinite; }
+.st-dash-working-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-dash-working .st-own-elapsed { flex: none; font-family: var(--st-font-mono); opacity: .8; }
+.st-dash-working-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: linear-gradient(90deg, transparent 0 30%, var(--st-steward-patient) 30% 70%, transparent 70%); background-size: 50% 100%; background-repeat: no-repeat; animation: st-dash-slide 1.2s ease-in-out infinite; }
+@keyframes st-dash-spin { to { transform: rotate(360deg); } }
+@keyframes st-dash-slide { 0% { background-position: -50% 0; } 100% { background-position: 150% 0; } }
+@media (prefers-reduced-motion: reduce) { .st-dash-working::before, .st-dash-working-bar { animation: none; } }
