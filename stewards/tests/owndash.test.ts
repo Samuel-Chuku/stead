@@ -18,6 +18,8 @@ import {
   KEPT_DEBT, KEPT_RESCUE, LOW_GAS_WEI, gasLow, fundAsk, liveStewardView,
   positionEmpty, type EmptyFacts,
   flowActivity, sortActivity, clockText, flowMoves, type ActRow,
+  nearGate, ACTIVATION_MS, windowRefused, parkedView, repayPlan, defaultRepaySrc, positionRepayOffer, payoutLine, payoutChangeState, durationText,
+  doneView, DONE_KINDS, relayedHash, lastProtection, wethOutAvail, wethOutNext, wethOutArg, commonBlock,
 } from "../../web/src/own/dashlogic.js";
 import { NETS, rescueFlow, type RescueView, type ClaimView } from "../../web/src/own/net.js";
 import { readFileSync } from "node:fs";
@@ -731,8 +733,11 @@ describe("the steward's view of a live rescue", () => {
 
 describe("the dashboard page", () => {
   const src = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
-  it("the Return button is drawn only when the contract would sign the return", () => {
-    expect(src).toContain('const ret = av.sweep.on ? `<span class="st-dash-ret">${btn(`Return ${fmt(f.sweepUnits, 18, 6)} ETH`, "data-go=sweep", false)}</span>`');
+  it("the gas ETH's return is offered only when the contract would sign it, and asks for the destination first", () => {
+    expect(src).toContain('tileBtn("minus", "eth", `Return ETH${av.sweep.on ? ` (${fmt(f.sweepUnits, 18, 6)})` : ""} to your payout`, av.sweep.on, av.sweep.why)');
+    expect(src).toContain('btn(`Return ${fmt(f.sweepUnits, 18, 6)} ETH to ${short(payout)}`, "data-confirm", true, !av.sweep.on)');
+    // the tile's − opens the confirm (where it goes), never the signing itself
+    expect(src).toContain('ask(tok === "coll" ? "wethout" : tok === "debt" ? "move" : "sweep", b)');
   });
   it("the funding block is a dialog, not a section of the page", () => {
     expect(src).not.toContain('<section class="st-dash-fund"');
@@ -862,5 +867,165 @@ describe("starting a new position beside an empty one", () => {
     const src = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
     expect(src.match(/stead\("register_position"/g)?.length).toBe(1);
     expect(src).toContain('stead("register_position", { market_id: net.market, payout }');
+  });
+});
+
+describe("two wallets in one action: each NEAR signature after a wait is its own click", () => {
+  it("signs while the click's activation lasts, waits for a click once it has expired", () => {
+    expect(nearGate(true, 60_000)).toBe("sign"); // the browser's own answer wins
+    expect(nearGate(false, 100)).toBe("click");
+    expect(nearGate(null, 0)).toBe("sign");
+    expect(nearGate(null, ACTIVATION_MS)).toBe("sign");
+    expect(nearGate(null, ACTIVATION_MS + 1)).toBe("click");
+    expect(nearGate(null, 30_000)).toBe("click"); // e.g. after an Ethereum transfer was waited for
+  });
+  it("a blocked or shut wallet window reads as a pause, not a failure", () => {
+    expect(windowRefused("User closed the window")).toBe(true);
+    expect(windowRefused("Popup blocked")).toBe(true);
+    expect(windowRefused("Smart contract panicked: a claim is open")).toBe(false);
+  });
+  it("the paused step says what is at the position and names the step its button goes on with", () => {
+    expect(parkedView({ held: "25.4 USDC", done: ["Send 25.4 USDC to the position to repay"], next: "Repay 25.4 USDC" })).toEqual({ head: "25.4 USDC is at the position.", button: "Repay 25.4 USDC now" });
+    expect(parkedView({ held: null, done: ["Supply the position's 0.01 WETH on Aave (to withdraw it)"], next: "Withdraw 0.01 WETH to your payout" }).head).toBe("Done: Supply the position's 0.01 WETH on Aave (to withdraw it).");
+    expect(parkedView({ held: null, done: [], next: "Borrow 5 USDC" }).head).toBe("The next step is ready.");
+  });
+  const U = (n: number) => BigInt(Math.round(n * 1e6));
+  it("from the wallet, the typed repay sends all of it; ALL sends only what the position lacks", () => {
+    expect(repayPlan({ src: "wallet", all: false, typedUnits: U(10), allUnits: U(30), idleUnits: U(4) })).toEqual({ needUnits: U(10), sendUnits: U(10), shortUnits: 0n, arg: { exact: U(10).toString() } });
+    expect(repayPlan({ src: "wallet", all: true, typedUnits: 0n, allUnits: U(30), idleUnits: U(4) })).toMatchObject({ sendUnits: U(26), arg: "max" });
+    expect(repayPlan({ src: "wallet", all: true, typedUnits: 0n, allUnits: U(30), idleUnits: U(31) }).sendUnits).toBe(0n);
+  });
+  it("from the position nothing is sent; a shortfall is reported", () => {
+    expect(repayPlan({ src: "position", all: false, typedUnits: U(10), allUnits: U(30), idleUnits: U(4) })).toMatchObject({ sendUnits: 0n, shortUnits: U(6) });
+    expect(repayPlan({ src: "position", all: true, typedUnits: 0n, allUnits: U(30), idleUnits: U(30) })).toMatchObject({ sendUnits: 0n, shortUnits: 0n, arg: "max" });
+  });
+  it("going on after the wallet's transfer never sends the USDC twice (the repay continues from the position)", () => {
+    // MY WALLET + ALL: the transfer lands, the NEAR wallet's window was blocked; the visitor clicks on
+    const first = repayPlan({ src: "wallet", all: true, typedUnits: 0n, allUnits: U(30.06), idleUnits: 0n });
+    expect(first.sendUnits).toBe(U(30.06));
+    const src = defaultRepaySrc({ evmConnected: true, picked: "position", idleUnits: U(30.06) });
+    const again = repayPlan({ src, all: true, typedUnits: 0n, allUnits: U(30.06), idleUnits: U(30.06) });
+    expect(again).toMatchObject({ sendUnits: 0n, shortUnits: 0n, arg: "max" });
+    // the page switches the source once the transfer has landed, and before the next signature
+    const page = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
+    const r = page.slice(page.indexOf("const repay = () => {"), page.indexOf("const withdraw = () => {"));
+    expect(r.indexOf('repayPicked = "position"')).toBeGreaterThan(r.indexOf("await evmSend("));
+    expect(r.indexOf('repayPicked = "position"')).toBeLessThan(r.indexOf("await signAction("));
+  });
+  it("the NEAR call is held back for a click before the wallet is asked, and a blocked window pauses too", () => {
+    const page = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
+    const st = page.slice(page.indexOf("async function stead("), page.indexOf("/** Each contract-signed transaction needs"));
+    expect(st.indexOf("nearGate(activation(), Date.now() - clickAt)")).toBeGreaterThan(-1);
+    expect(st.indexOf("nearGate(")).toBeLessThan(st.indexOf("await steadCall("));
+    expect(st).toContain("if (!panic && windowRefused(m)) throw parkErr(label)");
+  });
+  it("repay's source: the position when it holds USDC or there is no wallet, else the wallet, unless picked", () => {
+    expect(defaultRepaySrc({ evmConnected: false, picked: "wallet", idleUnits: 0n })).toBe("position");
+    expect(defaultRepaySrc({ evmConnected: true, picked: null, idleUnits: 0n })).toBe("wallet");
+    expect(defaultRepaySrc({ evmConnected: true, picked: null, idleUnits: 1n })).toBe("position");
+    expect(defaultRepaySrc({ evmConnected: true, picked: "wallet", idleUnits: 1n })).toBe("wallet");
+  });
+  it("USDC at the position with debt is offered as the repay: all of the debt when it covers it", () => {
+    expect(positionRepayOffer({ repayOn: true, debtBase: B(30), allUnits: U(30.06), idleUnits: U(31) })).toEqual({ all: true, units: U(30.06) });
+    expect(positionRepayOffer({ repayOn: true, debtBase: B(30), allUnits: U(30.06), idleUnits: U(10) })).toEqual({ all: false, units: U(10) });
+    expect(positionRepayOffer({ repayOn: true, debtBase: 0n, allUnits: 0n, idleUnits: U(10) })).toBeNull();
+    expect(positionRepayOffer({ repayOn: false, debtBase: B(30), allUnits: U(30.06), idleUnits: U(10) })).toBeNull();
+    expect(positionRepayOffer({ repayOn: true, debtBase: B(30), allUnits: U(30.06), idleUnits: 0n })).toBeNull();
+  });
+});
+
+describe("withdrawals go only to the payout", () => {
+  const PAY = "0x81f5321e62660e4802e306b02447682ef3742c11";
+  it("the confirm names the payout and whether it is the connected wallet", () => {
+    expect(payoutLine(PAY, "0x81F5321e62660E4802e306b02447682Ef3742C11")).toBe("Sends to your payout 0x81F5…2C11 (your connected wallet)");
+    expect(payoutLine(PAY, "0x7a3B1c9E0d2F4a5B6c7D8e9F0a1B2c3D4e5F6a7B")).toBe("Sends to your payout 0x81F5…2C11 (not your connected wallet)");
+    expect(payoutLine(PAY, null)).toBe("Sends to your payout 0x81F5…2C11");
+  });
+  it("a payout change waits out the delay, then is ready to apply", () => {
+    const at = 1_000_000n * 1_000_000n; // 1,000,000 ms in ns
+    expect(payoutChangeState(null, 0, false)).toEqual({ kind: "none", locked: false });
+    expect(payoutChangeState({ to: PAY, effective_at: at.toString() }, 400_000, true)).toEqual({ kind: "waiting", to: PAY, atMs: 1_000_000, leftMs: 600_000, locked: true });
+    expect(payoutChangeState({ to: PAY, effective_at: at.toString() }, 1_000_000, false).kind).toBe("ready");
+    expect(durationText(86_400_000)).toBe("24 h");
+    expect(durationText(83_520_000)).toBe("23 h 12 min");
+    expect(durationText(12 * 60_000 + 59_000)).toBe("12 min");
+    expect(durationText(30_000)).toBe("under a minute");
+  });
+  it("the page asks for the change with the contract's own method and only for the shown position", () => {
+    const page = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
+    expect(page).toContain('stead("request_payout_change", { position_id: pid(), payout: to }');
+    expect(page).toContain('stead("apply_payout_change", { position_id: pid() }');
+    // every withdrawal is confirmed in the dialog before it is signed
+    expect(page).toContain(`'data-ask="withdraw" aria-haspopup="dialog"'`);
+    expect(page).not.toMatch(/data-go=withdraw|data-go=move|data-go=sweep/);
+  });
+});
+
+describe("WETH out of the position's address: supplied, then withdrawn to the payout", () => {
+  const F: PosFacts = { registered: true, evmConnected: false, marketOk: true, paused: false, locked: false, claimOpen: false, escrowHeld: false, refundPending: false, outflows: 0, pendingTx: false, hasColl: false, hasDebt: false, idleDebtUnits: 0n, idleCollUnits: 10n ** 16n, repayFromWallet: false, sweepSupported: true, sweepUnits: 0n };
+  const UP = 375_332n * 10n ** 9n;
+  const ok = { ...F, idleUnits: 10n ** 16n, overCap: false, gasWei: 3n * UP, upfrontWei: UP, needsApprove: false };
+  it("works with no Ethereum wallet and no collateral yet", () => {
+    expect(wethOutAvail(ok)).toMatchObject({ on: true, txs: 2 });
+  });
+  it("is refused while a rescue runs or the contract is paused, like the Aave withdraw", () => {
+    expect(wethOutAvail({ ...ok, locked: true }).why).toMatch(/only repays and supplies/);
+    expect(wethOutAvail({ ...ok, paused: true }).why).toMatch(/paused/);
+    expect(wethOutAvail({ ...ok, pendingTx: true }).why).toBe(commonBlock({ ...F, pendingTx: true }));
+  });
+  it("needs gas at the position for each transaction (three with Aave's first approval) and points to adding ETH", () => {
+    expect(wethOutAvail({ ...ok, gasWei: 2n * UP - 1n }).why).toMatch(/gas for 2 transactions.*add ETH/);
+    expect(wethOutAvail({ ...ok, gasWei: 2n * UP, needsApprove: true })).toMatchObject({ on: false, txs: 3 });
+    expect(wethOutAvail({ ...ok, gasWei: 3n * UP, needsApprove: true }).on).toBe(true);
+  });
+  it("is off with nothing there, or when supplying it would pass the size cap", () => {
+    expect(wethOutAvail({ ...ok, idleUnits: 0n }).on).toBe(false);
+    expect(wethOutAvail({ ...ok, overCap: true }).why).toMatch(/size cap/);
+  });
+  it("steps: approve once, supply, then withdraw; after the supply landed it only withdraws", () => {
+    expect(wethOutNext({ supplied: false, allowanceUnits: 0n, units: 5n })).toBe("approve");
+    expect(wethOutNext({ supplied: false, allowanceUnits: 5n, units: 5n })).toBe("supply");
+    expect(wethOutNext({ supplied: true, allowanceUnits: 0n, units: 5n })).toBe("withdraw");
+  });
+  it("withdraws exactly what it supplied, or all of it when that was the only collateral", () => {
+    expect(wethOutArg(5n, B(100))).toEqual({ exact: "5" });
+    expect(wethOutArg(5n, 0n)).toBe("max");
+  });
+  it("signs only the contract's supply, approve and withdraw for it (no new signing path)", () => {
+    const page = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
+    const w = page.slice(page.indexOf("const wethOut = () => {"), page.indexOf("const delayText = "));
+    const types = [...w.matchAll(/type: "([a-z_]+)"/g)].map((m) => m[1]).sort();
+    expect(types).toEqual(["approve", "supply", "withdraw"]);
+  });
+});
+
+describe("results and the protections line", () => {
+  it("key actions end with a result; approvals, gas, moves and returns don't", () => {
+    expect(DONE_KINDS).toEqual(["register", "deposit", "borrow", "repay", "withdraw", "buyback", "payout"]);
+    const page = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
+    for (const a of ["sweep", "move", "send", "payoutApply"]) expect(page).toContain(`{ act: "${a}" }`);
+  });
+  it("each result has its title, line and key figure", () => {
+    const d = doneView("repay", { what: "30 USDC", hfText: "no debt", posId: 3 });
+    expect(d).toEqual({ title: "Repaid 30 USDC", line: "Aave took 30 USDC from the position.", figure: { label: "HEALTH FACTOR NOW", value: "no debt" } });
+    expect(doneView("withdraw", { what: "0.01 WETH", hfText: "2.10", posId: 3, payout: "0x81f5321e62660e4802e306b02447682ef3742c11" }).line).toBe("Aave sent 0.01 WETH to your payout 0x81F5…2C11.");
+    expect(doneView("register", { what: "", hfText: "", posId: 4 }).figure).toEqual({ label: "POSITION", value: "4" });
+    expect(doneView("payout", { what: "", hfText: "", posId: 4, atText: "Nov 15 · 07:04 UTC" }).figure.value).toBe("Nov 15 · 07:04 UTC");
+  });
+  it("the Ethereum hash of a contract-signed transaction is the hash of its signed bytes", () => {
+    // keccak256 of the empty byte string, with and without 0x
+    expect(relayedHash("0x")).toBe("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470");
+    expect(relayedHash("")).toBe(relayedHash("0x"));
+  });
+  it("the line under the address shows the newest rescue with bids, else the newest without", () => {
+    expect(lastProtection([{ id: 78 }, { id: 60 }], [{ id: 90 }])).toEqual({ id: 78 });
+    expect(lastProtection([], [{ id: 90 }, { id: 80 }])).toEqual({ id: 90 });
+    expect(lastProtection([], [])).toBeNull();
+  });
+  it("the protections live in a dialog off the position section, not under the last action", () => {
+    const page = readFileSync(new URL("../../web/src/own/dashboard.ts", import.meta.url), "utf8");
+    expect(page).toContain("? `${statusHtml()}${activityHtml(true)}`");
+    expect(page).not.toContain("protHtml()");
+    expect(page).toMatch(/modal\("prot", `POSITION \$\{s\.pos\.id\} · PROTECTIONS`, "Protections", protListHtml/);
   });
 });

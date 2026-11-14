@@ -11,7 +11,7 @@ export type EvmGas = { gas_limit: string; max_fee_per_gas: string; max_priority_
 /** The contract's market, as `get_market` returns it. */
 export type MarketView = { chain_id: number; pool: string; collateral: string; debt: string; collateral_decimals: number; debt_decimals: number; lt_bps: number; liq_bonus_bps: number; gas_limit_cap: string; max_fee_cap: string };
 export type LimitsView = { max_collateral_base: string; borrowers: string[] };
-export type ParamsView = { trigger_hf_bps: number; target_hf_bps: number; auction_window_ns: string; topup_deadline_ns: string; buyback_window_ns: string };
+export type ParamsView = { trigger_hf_bps: number; target_hf_bps: number; auction_window_ns: string; topup_deadline_ns: string; buyback_window_ns: string; payout_change_delay_ns?: string };
 
 export interface OwnNet {
   id: NetId;

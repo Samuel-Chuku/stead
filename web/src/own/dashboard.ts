@@ -9,7 +9,7 @@
 // One NEAR account may own several positions: the page shows one (remembered per account, else the
 // newest), and an empty one offers to open a new position beside it.
 import { connectNear, disconnectNear, nearAccount, onNearAccount, setNearNetwork, steadCall } from "../wallet/near";
-import { createPublicClient, createWalletClient, custom, fallback, http, parseAbi, parseUnits, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, custom, fallback, getAddress as getAddr, http, parseAbi, parseUnits, type Address, type Hex } from "viem";
 import { mainnet } from "viem/chains";
 import { icon } from "../icons";
 import { crown, bindCrowns } from "../crown";
@@ -23,6 +23,8 @@ import {
   hfBand, hfPulses, riskLines, pctText, ltvView, premiumCapBase, barZones, BAR_MARKS, EARLY_SETTLE_BPS, linePrice,
   ladderStep, bidBarPct, premiumCostBase, stewardIdOf, fundAsk, gasLow, liveStewardView, positionEmpty,
   flowActivity, sortActivity, clockText, flowMoves, type ActRow,
+  nearGate, windowRefused, parkedView, repayPlan, defaultRepaySrc, positionRepayOffer, payoutLine, payoutChangeState, durationText,
+  doneView, relayedHash, lastProtection, wethOutAvail, wethOutNext, wethOutArg, type DoneKind,
   type Account, type Avail, type Op, type Phase, type Projection, type SeenBid, type LadderRow,
 } from "./dashlogic";
 
@@ -78,9 +80,10 @@ async function nearAccountView(id: string): Promise<{ amount: string; code_hash:
   return j.result ?? null;
 }
 
-type Position = { id: number; owner: string; evm_address: string | null; payout: string; next_nonce: number; pending: unknown; active_auction: number | null; open_rescues: number[]; health?: unknown; premium_cap_base?: string; premium_used_base?: string };
+type Position = { id: number; owner: string; evm_address: string | null; payout: string; payout_change?: { to: string; effective_at: string } | null; next_nonce: number; pending: { signed_raw?: string | null } | null; active_auction: number | null; open_rescues: number[]; health?: unknown; premium_cap_base?: string; premium_used_base?: string };
 type Books = { escrow: { collateral_units: string; debt_units: string; collateral_committed: string; debt_committed: string }; outflows: unknown[] };
-type TxRow = { at: number; label: string; chain: "near" | "ethereum"; hash: string; ok: boolean; pos?: number };
+// evmHash: the Ethereum transaction a contract-signed call became, once it was broadcast
+type TxRow = { at: number; label: string; chain: "near" | "ethereum"; hash: string; ok: boolean; pos?: number; evmHash?: string };
 type Bal = { eth: bigint; coll: bigint; debt: bigint };
 type State = {
   nearYocto: bigint | null;
@@ -161,9 +164,9 @@ export function mountDash(root: HTMLElement): () => void {
   // what the visitor typed in each action, kept across the re-renders
   const amt: Record<string, string> = {};
   const all: Record<string, boolean> = {};
-  let repayFrom: "position" | "wallet" = "wallet";
-  // without an Ethereum wallet there is nothing to repay from but the position's own USDC
-  const repaySrc = () => (evm ? repayFrom : "position");
+  // the repay's source when the visitor picked one; else the position when it holds USDC
+  let repayPicked: "position" | "wallet" | null = null;
+  const repaySrc = () => defaultRepaySrc({ evmConnected: !!evm, picked: repayPicked, idleUnits: s?.posBal.debt ?? 0n });
   // which side of each token card is showing, which disclosures are open, when the address was copied
   let wethMode: "deposit" | "withdraw" = "deposit";
   let usdcMode: "borrow" | "repay" = "borrow";
@@ -180,6 +183,27 @@ export function mountDash(root: HTMLElement): () => void {
   let prefillKey = "";
   // opening a new position beside an empty one: the empty position's id while its form shows
   let freshFrom: number | null = null;
+  // the click that started or continued the running action: a NEAR wallet that signs in a window
+  // of its own can open it only right after one
+  let clickAt = 0;
+  // the steps the running action finished (for its pause and its result)
+  let runDone: string[] = [];
+  // an action stopped before a NEAR signature: what it finished, and the step a click goes on with
+  type Park = { act: string; done: string[]; next: string };
+  let parked: Park | null = null;
+  // the protections dialog: the list (null) or one rescue's flow
+  let protView: number | null = null;
+  // the action dialog: a withdrawal's confirm (and the payout change from it), a send from the
+  // wallet to the position, or an action's result
+  type Done = { kind: DoneKind; title: string; line: string; figure: { label: string; value: string }; links: { label: string; near?: string; evm?: string }[] };
+  type ActView = { v: "confirm"; kind: "withdraw" | "move" | "sweep" | "wethout" } | { v: "payout"; back: ActView | null } | { v: "send"; token: "coll" | "debt" | "eth" } | { v: "done"; done: Done };
+  let actView: ActView | null = null;
+  let payoutNew = "";
+  // a disabled tile button's reason, shown after a tap (touch has no tooltip)
+  let tileWhy = "";
+  let tileWhyAt = 0;
+  // the token a tile's + opened the Fund dialog for
+  let fundFor: "coll" | "debt" | "eth" | null = null;
 
   // ── saved per NEAR account: its transactions and its position id (the keys the earlier mainnet page used) ──
   const TXKEY = () => `stead-own-txs-mainnet-${near}`;
@@ -250,11 +274,23 @@ export function mountDash(root: HTMLElement): () => void {
     addTx({ label, chain: "ethereum", hash, ok: true });
     busy = `${label}: waiting for Ethereum`;
     render();
-    await pub.waitForTransactionReceipt({ hash });
+    const rc = await pub.waitForTransactionReceipt({ hash });
+    if (rc.status !== "success") throw new Error(`${label}: the Ethereum transaction failed (reverted)`);
+    runDone.push(label);
   }
 
   // ── Stead calls (the visitor's NEAR wallet) ──
+  /** The browser's own answer to "may this page open a window now", where it has one. */
+  const activation = (): boolean | null => {
+    const u = (navigator as any).userActivation;
+    return u && typeof u.isActive === "boolean" ? u.isActive : null;
+  };
+  /** A pause before a NEAR signature: the action goes on from a click (see run). */
+  const parkErr = (label: string) => Object.assign(new Error(`${label}: waiting for a click`), { park: label });
   async function stead(method: string, args: object, label: string, gasTgas = 150n): Promise<string> {
+    // after a wait (an Ethereum transaction, a step landing) the click has expired: a wallet window
+    // opened now would be blocked, so stop here and go on from a fresh click
+    if (nearGate(activation(), Date.now() - clickAt) === "click") throw parkErr(label);
     try {
       const out: any = await steadCall(method, args, gasTgas);
       const hash = out?.transaction?.hash ?? out?.transaction_outcome?.id ?? "";
@@ -271,6 +307,7 @@ export function mountDash(root: HTMLElement): () => void {
       const panic = m.match(/Smart contract panicked: ([^"\\]+)/)?.[1];
       const hash = (e as any)?.transaction?.hash ?? (e as any)?.txHash;
       if (panic && !(e as any).refused) addTx({ label: `${label}: refused by the contract ("${panic}")`, chain: "near", hash: hash ?? "", ok: false });
+      if (!panic && windowRefused(m)) throw parkErr(label); // the window was blocked or shut: nothing was signed
       throw panic ? Object.assign(new Error(panic), { refused: true }) : e;
     }
   }
@@ -315,12 +352,29 @@ export function mountDash(root: HTMLElement): () => void {
   async function signAction(pid: number, action: object, label: string, g = gas.evmGas) {
     await ensureGas(pid, BigInt(g.gas_limit) * BigInt(g.max_fee_per_gas));
     const before = (await nearView<Position>("get_position", { position_id: pid })).next_nonce;
-    await stead("sign_action", { position_id: pid, action, gas: g }, label);
+    const nearHash = await stead("sign_action", { position_id: pid, action, gas: g }, label);
     busy = `${label}: signed by the contract, waiting for Ethereum`;
     render();
+    await landed(pid, before, label, nearHash);
+  }
+  /** Wait until the contract's signed transaction has landed on Ethereum (the position's nonce moved
+   *  on and nothing is pending), keeping its Ethereum hash with the NEAR call; a revert stops the action. */
+  async function landed(pid: number, before: number, label: string, nearHash: string) {
+    let evmHash = "";
     for (let i = 0; i < 90; i++) {
       const p = await nearView<Position>("get_position", { position_id: pid });
-      if (p.next_nonce > before && p.pending === null) return;
+      if (p.pending?.signed_raw) evmHash = relayedHash(p.pending.signed_raw);
+      if (p.next_nonce > before && p.pending === null) {
+        const row = nearHash ? txs.find((t) => t.hash === nearHash) : undefined;
+        if (row && evmHash) {
+          row.evmHash = evmHash;
+          saveTxs();
+        }
+        const rc = evmHash ? await pub.getTransactionReceipt({ hash: evmHash as Hex }).catch(() => null) : null;
+        if (rc && rc.status !== "success") throw new Error(`${label} landed on Ethereum but failed (reverted)`);
+        runDone.push(label);
+        return;
+      }
       await sleep(4000);
     }
     throw new Error(`${label} did not land within 6 minutes`);
@@ -668,16 +722,31 @@ export function mountDash(root: HTMLElement): () => void {
   };
 
   // ── actions ──
-  async function run(label: string, fn: () => Promise<void>) {
+  /** Run one action from a click. It stops before any NEAR signature the click can no longer open a
+   *  window for (see stead) and offers that step as a button; a key action ends with its result. */
+  type DoneOf = () => { kind: DoneKind; what: string; payout?: string; atText?: string } | null;
+  async function run(label: string, fn: () => Promise<void>, opt: { act?: string; done?: DoneOf } = {}) {
     if (busy) return;
     busy = label;
     busySince = Date.now();
+    clickAt = Date.now();
     error = "";
     notice = "";
+    parked = null;
+    runDone = [];
+    const mark = txs.length;
+    let ok = false;
     render();
     try {
       await fn();
+      ok = true;
     } catch (e) {
+      if ((e as any).park) {
+        parked = { act: opt.act ?? "", done: [...runDone], next: (e as any).park };
+        busy = "";
+        await refresh();
+        return;
+      }
       const raw = String((e as any).shortMessage ?? (e as Error).message ?? e);
       const cancelled = /user (rejected|denied|cancel)|rejected the request|request rejected/i.test(raw);
       error = (e as any).refused
@@ -688,6 +757,15 @@ export function mountDash(root: HTMLElement): () => void {
     }
     busy = "";
     await refresh();
+    const d = ok && opt.done ? opt.done() : null;
+    if (d && s?.pos) showDone(d, txs.slice(mark));
+  }
+  /** The result dialog: one line, the key figure from the reading after it, and the transactions. */
+  function showDone(d: NonNullable<ReturnType<DoneOf>>, rows: TxRow[]) {
+    const v = doneView(d.kind, { what: d.what, hfText: hfText(s?.hf ?? null), posId: s!.pos!.id, payout: d.payout, atText: d.atText });
+    const links = rows.filter((t) => t.ok).map((t) => ({ label: t.label, ...(t.chain === "near" ? { near: t.hash } : { evm: t.hash }), ...(t.evmHash ? { evm: t.evmHash } : {}) }));
+    actView = { v: "done", done: { kind: d.kind, ...v, links } };
+    openAct(null);
   }
   const pid = () => s!.pos!.id;
   const posAddr = () => s!.pos!.evm_address as Address;
@@ -736,7 +814,74 @@ export function mountDash(root: HTMLElement): () => void {
       saveTxs();
       freshFrom = null;
       for (const k of Object.keys(amt)) amt[k] = "";
-    });
+    }, { act: "register", done: () => ({ kind: "register", what: "" }) });
+
+  /** The size cap is checked against a proven price reading of the position: wait for the first one. */
+  async function firstReading() {
+    if (capBase() > 0n && !(await nearView<Position>("get_position", { position_id: pid() })).health) {
+      busy = "Waiting for the first proven reading of the position (the size cap needs a price before a supply)";
+      render();
+      for (let i = 0; i < 60 && !(await nearView<Position>("get_position", { position_id: pid() })).health; i++) await sleep(5000);
+    }
+  }
+  /** WETH out of the position's address: the contract never sends idle WETH, so it is supplied to
+   *  Aave and the same amount withdrawn to the payout (health unchanged). Each NEAR signature is its
+   *  own click; going on after a pause never supplies twice. */
+  let wout: { units: bigint; collBefore: bigint; supplied: boolean; pos: number } | null = null;
+  const wethOut = () => {
+    if (!s?.pos || !s.acct) return;
+    const keep = wout && wout.pos === s.pos.id ? wout : null;
+    const what = (u: bigint) => `${fmt(u, C.decimals, 8)} ${C.symbol}`;
+    return run(`Withdrawing the position's ${C.symbol}`, async () => {
+      let w = keep;
+      if (!w) {
+        const idle = await readBal(C.address, posAddr());
+        if (idle === 0n) throw new Error(`the position holds no ${C.symbol}`);
+        w = wout = { units: idle, collBefore: s!.acct!.collBase, supplied: false, pos: pid() };
+      }
+      if (!w.supplied) await firstReading();
+      for (;;) {
+        const step = wethOutNext({ supplied: w.supplied, allowanceUnits: w.supplied ? 0n : await readAllowance(C.address), units: w.units });
+        if (step === "approve") await signAction(pid(), { type: "approve", token: "collateral", amount: "max" }, `Let Aave take the position's ${C.symbol}`);
+        else if (step === "supply") {
+          await signAction(pid(), { type: "supply", amount: w.units.toString() }, `Supply the position's ${what(w.units)} on Aave (to withdraw it)`);
+          w.supplied = true;
+        } else {
+          await signAction(pid(), { type: "withdraw", amount: wethOutArg(w.units, w.collBefore) }, `Withdraw ${what(w.units)} to your payout`);
+          break;
+        }
+      }
+      wout = null;
+    }, { act: "wethout", done: () => ({ kind: "withdraw", what: what(keep?.units ?? wout?.units ?? 0n), payout: s?.pos?.payout }) });
+  };
+  const delayText = () => durationText(Number(BigInt(cfg?.params?.payout_change_delay_ns ?? "86400000000000") / 1_000_000n));
+  /** Ask for a new payout: it takes effect after the contract's delay, then one more call applies it. */
+  const requestPayout = () => {
+    const c = checkPayout(payoutNew, refuseList());
+    if (!c.ok || !s?.pos) return;
+    const to = c.address;
+    return run("Requesting a payout change", async () => {
+      await stead("request_payout_change", { position_id: pid(), payout: to }, `Request a payout change to ${short(to)} (takes effect after ${delayText()})`);
+      payoutNew = "";
+    }, { act: "payoutReq", done: () => ({ kind: "payout", what: "", payout: to, atText: s?.pos?.payout_change ? dayText(nsMs(s.pos.payout_change.effective_at)) : `in ${delayText()}` }) });
+  };
+  const applyPayout = () =>
+    run("Applying the payout change", async () => {
+      await stead("apply_payout_change", { position_id: pid() }, "Apply the payout change");
+    }, { act: "payoutApply" });
+  /** A tile's +: send WETH, USDC or gas ETH from the connected wallet to the position's address. */
+  const sendIn = (token: "coll" | "debt" | "eth") => {
+    const dec = token === "coll" ? C.decimals : token === "debt" ? D.decimals : 18;
+    const sym = token === "coll" ? C.symbol : token === "debt" ? D.symbol : "ETH";
+    const units = parse(`send-${token}`, dec);
+    if (!units) return;
+    const label = token === "eth" ? `Send ${fmt(units, 18, 6)} ETH to the position for its gas` : `Send ${fmt(units, dec, 6)} ${sym} to the position`;
+    return run(label, async () => {
+      const addr = posAddr();
+      await evmSend(label, () => (token === "eth" ? evmWallet().sendTransaction({ to: addr, value: units }) : evmWallet().writeContract({ address: token === "coll" ? C.address : D.address, abi: erc20, functionName: "transfer", args: [addr, units] })));
+      amt[`send-${token}`] = "";
+    }, { act: "send" });
+  };
 
   const deposit = () => {
     const units = parse("deposit", C.decimals);
@@ -746,16 +891,11 @@ export function mountDash(root: HTMLElement): () => void {
       const idle = await readBal(C.address, addr);
       if (!evm && idle < units) throw new Error(`the position holds ${fmt(idle, C.decimals, 6)} ${C.symbol}: send the rest (${fmt(units - idle, C.decimals, 6)} ${C.symbol}) to the position's address`);
       if (idle < units) await evmSend(`Send ${fmt(units - idle, C.decimals, 6)} ${C.symbol} to the position`, () => evmWallet().writeContract({ address: C.address, abi: erc20, functionName: "transfer", args: [addr, units - idle] }));
-      if (capBase() > 0n && !(await nearView<Position>("get_position", { position_id: pid() })).health) {
-        // the size cap is checked against a price reading of the position, which the keeper proves once it sees it
-        busy = "Waiting for the first proven reading of the position (the size cap needs a price before a supply)";
-        render();
-        for (let i = 0; i < 60 && !(await nearView<Position>("get_position", { position_id: pid() })).health; i++) await sleep(5000);
-      }
+      await firstReading();
       if ((await readAllowance(C.address)) < units) await signAction(pid(), { type: "approve", token: "collateral", amount: "max" }, `Let Aave take the position's ${C.symbol}`);
       await signAction(pid(), { type: "supply", amount: units.toString() }, `Supply ${fmt(units, C.decimals, 6)} ${C.symbol} on Aave`);
       amt.deposit = "";
-    });
+    }, { act: "deposit", done: () => ({ kind: "deposit", what: `${fmt(units, C.decimals, 6)} ${C.symbol}` }) });
   };
   const borrow = () => {
     const units = parse("borrow", D.decimals);
@@ -764,35 +904,39 @@ export function mountDash(root: HTMLElement): () => void {
       // the borrowed USDC stays at the position: moving it to the wallet is its own action
       await signAction(pid(), { type: "borrow", amount: units.toString() }, `Borrow ${fmt(units, D.decimals, 2)} ${D.symbol}`);
       amt.borrow = "";
-    });
+    }, { act: "borrow", done: () => ({ kind: "borrow", what: `${fmt(units, D.decimals, 2)} ${D.symbol}` }) });
   };
   const repay = () => {
     const op = opOf("repay");
     if (!op || !s?.acct) return;
     const repayAll = !!(op as any).all;
-    const need = repayAll ? repayAllUnits(s.acct.debtBase, s.prices.debt, D.decimals) : op.units;
+    const allUnits = repayAllUnits(s.acct.debtBase, s.prices.debt, D.decimals);
+    const need = repayAll ? allUnits : op.units;
     return run(repayAll ? "Repaying all the debt" : `Repaying ${fmt(need, D.decimals, 2)} ${D.symbol}`, async () => {
       const addr = posAddr();
       const idle = await readBal(D.address, addr);
-      if (repaySrc() === "wallet") {
-        const send = repayAll ? (need > idle ? need - idle : 0n) : need;
-        if (send > 0n) await evmSend(`Send ${fmt(send, D.decimals, 2)} ${D.symbol} to the position to repay`, () => evmWallet().writeContract({ address: D.address, abi: erc20, functionName: "transfer", args: [addr, send] }));
-      } else if (idle < need) throw new Error(`the position holds ${fmt(idle, D.decimals, 2)} ${D.symbol}, less than the ${fmt(need, D.decimals, 2)} this repay needs: ${evm ? "repay from your wallet instead" : `send the rest to the position's address`}`);
+      const plan = repayPlan({ src: repaySrc(), all: repayAll, typedUnits: need, allUnits, idleUnits: idle });
+      if (plan.sendUnits > 0n) {
+        await evmSend(`Send ${fmt(plan.sendUnits, D.decimals, 2)} ${D.symbol} to the position to repay`, () => evmWallet().writeContract({ address: D.address, abi: erc20, functionName: "transfer", args: [addr, plan.sendUnits] }));
+        // the USDC is at the position now: the repay goes on from there (a pause never sends it twice)
+        repayPicked = "position";
+      } else if (plan.shortUnits > 0n) throw new Error(`the position holds ${fmt(idle, D.decimals, 2)} ${D.symbol}, less than the ${fmt(need, D.decimals, 2)} this repay needs: ${evm ? "repay from your wallet instead" : `send the rest to the position's address`}`);
       if ((await readAllowance(D.address)) < need) await signAction(pid(), { type: "approve", token: "debt", amount: "max" }, `Let Aave take the position's ${D.symbol}`);
-      await signAction(pid(), { type: "repay", amount: repayAll ? "max" : { exact: need.toString() } }, repayAll ? "Repay all the debt" : `Repay ${fmt(need, D.decimals, 2)} ${D.symbol}`);
+      await signAction(pid(), { type: "repay", amount: plan.arg }, repayAll ? "Repay all the debt" : `Repay ${fmt(need, D.decimals, 2)} ${D.symbol}`);
       amt.repay = "";
       all.repay = false;
-    });
+      repayPicked = null;
+    }, { act: "repay", done: () => ({ kind: "repay", what: repayAll ? "all the debt" : `${fmt(need, D.decimals, 2)} ${D.symbol}` }) });
   };
   const withdraw = () => {
     const op = opOf("withdraw");
     if (!op) return;
     const wAll = !!(op as any).all;
     return run(wAll ? `Withdrawing all the ${C.symbol}` : `Withdrawing ${fmt(op.units, C.decimals, 6)} ${C.symbol}`, async () => {
-      await signAction(pid(), { type: "withdraw", amount: wAll ? "max" : { exact: op.units.toString() } }, wAll ? `Withdraw all the ${C.symbol} to your wallet` : `Withdraw ${fmt(op.units, C.decimals, 6)} ${C.symbol} to your wallet`);
+      await signAction(pid(), { type: "withdraw", amount: wAll ? "max" : { exact: op.units.toString() } }, wAll ? `Withdraw all the ${C.symbol} to your payout` : `Withdraw ${fmt(op.units, C.decimals, 6)} ${C.symbol} to your payout`);
       amt.withdraw = "";
       all.withdraw = false;
-    });
+    }, { act: "withdraw", done: () => ({ kind: "withdraw", what: wAll ? `all the ${C.symbol}` : `${fmt(op.units, C.decimals, 6)} ${C.symbol}`, payout: s?.pos?.payout }) });
   };
   const tryAnyway = (what: "withdraw" | "borrow") => {
     const small = what === "withdraw" ? net.breakWithdrawUnits : net.breakBorrowUnits;
@@ -814,8 +958,8 @@ export function mountDash(root: HTMLElement): () => void {
       const addr = posAddr();
       const held = await readBal(C.address, addr);
       if (owed > held) await evmSend(`Pay exactly the ${fmt(owed - held, C.decimals, 8)} ${C.symbol} owed into your position`, () => evmWallet().writeContract({ address: C.address, abi: erc20, functionName: "transfer", args: [addr, owed - held] }));
-      notice = "Paid into your position. The keeper proves the balance, the contract commits the buy-back and pays the claim owner exactly what it is owed; anything extra is refunded to your wallet.";
-    });
+      notice = "Paid into your position. The keeper proves the balance, the contract commits the buy-back and pays the claim owner exactly what it is owed; anything extra is refunded to your payout.";
+    }, { act: "buyback", done: () => ({ kind: "buyback", what: `${fmt(owedUnits() || 0n, C.decimals, 8)} ${C.symbol}` }) });
   const sweep = () =>
     run("Returning the position's leftover ETH", async () => {
       const bal = await pub.getBalance({ address: posAddr() });
@@ -825,24 +969,21 @@ export function mountDash(root: HTMLElement): () => void {
       const g = { gas_limit: TRANSFER_GAS.toString(), max_fee_per_gas: gas.evmGas.max_fee_per_gas, max_priority_fee_per_gas: gas.evmGas.max_priority_fee_per_gas };
       // a native transfer pays its own fee from the balance it leaves: no gas top-up first
       const before = (await nearView<Position>("get_position", { position_id: pid() })).next_nonce;
-      await stead("sign_action", { position_id: pid(), action: { type: "sweep_eth", amount: amount.toString() }, gas: g }, `Return ${fmt(amount, 18, 6)} ETH to your wallet`);
-      for (let i = 0; i < 90; i++) {
-        const p = await nearView<Position>("get_position", { position_id: pid() });
-        if (p.next_nonce > before && p.pending === null) return;
-        await sleep(4000);
-      }
-    });
+      const label = `Return ${fmt(amount, 18, 6)} ETH to your payout`;
+      const h = await stead("sign_action", { position_id: pid(), action: { type: "sweep_eth", amount: amount.toString() }, gas: g }, label);
+      await landed(pid(), before, label, h);
+    }, { act: "sweep" });
   /** USDC at the position → the payout: the typed amount, or all of it when nothing is typed. */
   const move = () => {
     const typed = parse("move", D.decimals);
-    return run(`Moving the position's ${D.symbol} to your wallet`, async () => {
+    return run(`Withdrawing the position's ${D.symbol} to your payout`, async () => {
       const idle = await readBal(D.address, posAddr());
       if (idle === 0n) throw new Error(`the position holds no ${D.symbol}`);
       const units = typed && typed > 0n ? typed : idle;
       if (units > idle) throw new Error(`the position holds ${fmt(idle, D.decimals, 6)} ${D.symbol}, less than the ${fmt(units, D.decimals, 6)} typed`);
-      await signAction(pid(), { type: "transfer_debt", amount: units.toString() }, `Move ${fmt(units, D.decimals, 2)} ${D.symbol} to your wallet`);
+      await signAction(pid(), { type: "transfer_debt", amount: units.toString() }, `Withdraw ${fmt(units, D.decimals, 2)} ${D.symbol} from the position to your payout`);
       amt.move = "";
-    });
+    }, { act: "move" });
   };
 
   // ── the page ──
@@ -951,6 +1092,7 @@ export function mountDash(root: HTMLElement): () => void {
       <p>${C.symbol} collateral, ${D.symbol} debt, Aave V3 on Ethereum · up to $${capUsd(cfg?.limits ?? null) || 150} · payout ${payoutShown}</p>
       ${from ? `<p>Position ${from.id} is empty and stays yours on the contract. Once the new one is registered, this page shows the new one.</p>${leftoverHtml(from.id)}` : ""}
       ${evm ? "" : disc("payout", "No Ethereum wallet? Paste a payout address", payoutHtml)}
+      ${parkedHtml(["register"])}
       <div class="st-dash-go">${btn("Protect a new position", "data-register", true, !!why)}${why ? `<p class="st-dash-why">${esc(why)}</p>` : ""}</div>
       ${disc("how-new", "How it works", () => `<p>One NEAR call registers the position on ${esc(net.contract)}. NEAR's chain signatures derive its Ethereum address, and only the contract can sign for it. Withdrawals and refunds go to the payout. Then supply ${C.symbol} and borrow below.</p>`)}
     </div>`;
@@ -962,7 +1104,7 @@ export function mountDash(root: HTMLElement): () => void {
     if (eth === 0n) return "";
     const f = facts();
     const v = availability(f).sweep;
-    return `<div class="st-dash-left"><p>Position ${id} still holds <strong>${fmt(eth, 18, 6)} ETH</strong> of gas.${v.on ? "" : ` ${esc(v.why)}`}</p>${v.on ? `<span class="st-dash-ret">${btn(`Return ${fmt(f.sweepUnits, 18, 6)} ETH`, "data-go=sweep", false)}</span>` : ""}</div>`;
+    return `<div class="st-dash-left"><p>Position ${id} still holds <strong>${fmt(eth, 18, 6)} ETH</strong> of gas.${v.on ? "" : ` ${esc(v.why)}`}</p>${v.on ? `<span class="st-dash-ret">${btn(`Return ${fmt(f.sweepUnits, 18, 6)} ETH`, 'data-ask="sweep" aria-haspopup="dialog"', false)}</span>` : ""}</div>`;
   }
 
   function statusHtml(): string {
@@ -1020,7 +1162,9 @@ export function mountDash(root: HTMLElement): () => void {
     const addr = s.pos.evm_address;
     const eth = (w: bigint) => `${fmt(w, 18, 4)} ETH`;
     const gasTail = (w: bigint) => (w > 0n ? ` <span class="st-dash-fund-gas">and about ${eth(w)} for its gas</span>` : "");
-    const say = fp.kind === "gas"
+    const say = fp.kind === "fund" && fundFor === "eth" ? `Send <strong>ETH</strong> here for the position's gas`
+      : fp.kind === "fund" && fundFor ? `Send <strong>${fundFor === "coll" ? C.symbol : D.symbol}</strong> to the position's address`
+      : fp.kind === "gas"
       ? fp.gasWei > 0n ? `Send about <strong>${eth(fp.gasWei)}</strong> for the position's gas` : `Send <strong>ETH</strong> here for the position's gas`
       : fp.kind === "buyback"
         ? `Send exactly <strong>${trim(fp.wethUnits, C.decimals, C.decimals)} ${C.symbol}</strong> to buy back${gasTail(fp.gasWei)}`
@@ -1214,6 +1358,27 @@ export function mountDash(root: HTMLElement): () => void {
     }
   }
 
+  /** The Aave mark on the two Aave cards: a small ghost drawn in the page's stroke style, and the market's name. */
+  const aaveTag = () => `<span class="st-dash-aave" title="Supplied and borrowed on Aave V3 (Ethereum)">${glyph("M3.5 14V7.5a4.5 4.5 0 0 1 9 0V14l-1.5-1.2L9.5 14 8 12.8 6.5 14 5 12.8zM6.4 7.4v.4M9.6 7.4v.4", 14)}AAVE V3</span>`;
+  /** An action that stopped before a NEAR signature: what is done, and the button that goes on (a click of its own). */
+  function parkedHtml(acts: string[]): string {
+    if (!parked || !acts.includes(parked.act) || busy || !s) return "";
+    const b = s.posBal;
+    const held = parked.act === "repay" && b.debt > 0n ? `${fmt(b.debt, D.decimals, 2)} ${D.symbol}`
+      : (parked.act === "deposit" || (parked.act === "wethout" && !wout?.supplied)) && b.coll > 0n ? `${fmt(b.coll, C.decimals, 6)} ${C.symbol}`
+      : null;
+    const v = parkedView({ held, done: parked.done, next: parked.next });
+    return `<div class="st-dash-next" role="status">
+      <div class="st-dash-next-top"><span class="st-label">NEXT STEP · NEAR WALLET</span><button type="button" class="st-dash-linkbtn" data-park-x>Not now</button></div>
+      <p class="st-dash-next-head">${esc(v.head)}</p>
+      <div class="st-dash-go">${btn(v.button, "data-resume", true)}</div>
+      <p class="st-dash-next-why">Your NEAR wallet opens its window only from a click, so a signature after a wait gets its own button.</p>
+    </div>`;
+  }
+  /** One small square + or − on a balance tile; off ones stay focusable and say why when pressed. */
+  const tileBtn = (sign: "plus" | "minus", token: "coll" | "debt" | "eth", label: string, on: boolean, why: string) =>
+    `<button type="button" class="st-dash-tb" data-tile="${sign}:${token}" aria-label="${esc(on ? label : `${label}: ${why}`)}" title="${esc(on ? label : why)}"${on && !busy ? "" : ' aria-disabled="true"'}${on && !busy ? "" : ` data-why="${esc(busy ? "Wait for the running action to finish." : why)}"`}>${glyph(sign === "plus" ? "M8 3.5v9M3.5 8h9" : "M3.5 8h9", 14)}</button>`;
+
   function positionWalletHtml(): string {
     const pos = s!.pos!;
     const b = s!.posBal;
@@ -1229,22 +1394,46 @@ export function mountDash(root: HTMLElement): () => void {
       : evm
         ? `When it can't cover the next one, your Ethereum wallet is asked for a small top-up (${fmt(2n * upfront, 18, 6)} ETH at most) first.`
         : `When it can't cover the next one, the page asks you to send about ${fmt(gasAsk(0n, upfront), 18, 4)} ETH to this address and waits for it.`;
-    // the leftover ETH: offered back only with no debt and no rescue; while either, it is the position's gas
-    const kept = !av.sweep.on && (f.hasDebt || f.locked || f.escrowHeld) ? av.sweep.why : "";
-    const ret = av.sweep.on ? `<span class="st-dash-ret">${btn(`Return ${fmt(f.sweepUnits, 18, 6)} ETH`, "data-go=sweep", false)}</span>` : kept ? `<span class="st-dash-kept">${esc(kept)}</span>` : "";
+    // the + on WETH and USDC: while a rescue runs, tokens sent here are held for the buy-back
+    const inWhy = f.locked ? "While a rescue runs, tokens sent to the position are held for the buy-back." : "";
+    const wo = wethOutState();
+    const repayAny = availability({ ...f, repayFromWallet: false }).repay;
+    const supplyIt = b.coll > 0n && av.deposit.on ? `<button type="button" class="st-dash-linkbtn st-dash-tlink" data-tile-go="supply">Supply it</button>` : "";
+    const repayIt = b.debt > 0n && f.hasDebt && repayAny.on ? `<button type="button" class="st-dash-linkbtn st-dash-tlink" data-tile-go="repay">Repay with it</button>` : "";
+    const why = tileWhy && Date.now() - tileWhyAt < 8000 ? `<p class="st-dash-why st-dash-tilewhy" role="status">${esc(tileWhy)}</p>` : "";
+    // the newest rescue, in one line; the button opens every one
+    const { rows, noBids } = s ? protectionRows(stories().map((x) => x.rescue), pos.id) : { rows: [], noBids: [] };
+    const last = lastProtection(rows, noBids);
+    const loading = histState === "loading" || histState === "idle";
+    const lastLine = last
+      ? `<p class="st-dash-lastprot"><span class="st-dash-lastprot-l">Last protection:</span> <button type="button" class="st-dash-linkbtn" data-prot="${last.id}" aria-haspopup="dialog">Rescue ${last.id}</button> <span class="st-dash-pchip is-${last.outcome}">${esc(last.outcome === "running" ? last.stage : OUTCOME_WORD[last.outcome])}</span>${last.winners.map((w) => ` <span class="st-dash-lastprot-w">${protTile(w.steward)}${esc(w.name)} <b class="st-num">${w.bps}</b> bps</span>`).join("")} <span class="st-dash-lastprot-d">${dayText(last.openedMs)}</span></p>`
+      : `<p class="st-dash-lastprot is-none">${loading ? "Reading this position's protections…" : "No protections yet. Stewards act if its health factor falls under 1.15."}</p>`;
     return `<section class="st-dash-poswallet" aria-label="The position's address and balances">
-      <div class="st-dash-pw-head"><div class="st-label">POSITION ADDRESS · ETHEREUM</div><button type="button" class="st-push st-push--small st-cut" data-fund aria-haspopup="dialog"${busy && !gasWait ? " disabled" : ""}><span class="st-lamp" aria-hidden="true"></span>Fund position</button></div>
+      <div class="st-dash-pw-head"><div class="st-label">POSITION ADDRESS · ETHEREUM</div><div class="st-dash-pw-btns"><button type="button" class="st-secondary st-cut st-dash-protbtn" data-prots aria-haspopup="dialog">${icon("rescues", 14)}Protections${rows.length ? ` <b class="st-num">${rows.length}</b>` : ""}</button><button type="button" class="st-push st-push--small st-cut" data-fund aria-haspopup="dialog"${busy && !gasWait ? " disabled" : ""}><span class="st-lamp" aria-hidden="true"></span>Fund position</button></div></div>
+      ${lastLine}
       <p class="st-dash-addr"><span class="st-mono">${esc(addr)}</span><button type="button" class="st-dash-copy" data-copy="${addr}" aria-label="Copy the position's address">${copied ? icon("check", 16) : copyGlyph()}</button><span class="st-dash-copied" role="status">${copied ? "Copied" : ""}</span></p>
       <p class="st-dash-links">${ext(net.evmAddress(addr), "Etherscan")}${ext(`https://debank.com/profile/${addr}`, "DeBank")}<span>${ext("https://app.aave.com/?marketName=proto_mainnet_v3", "Aave")}: Watch wallet, then paste the address</span></p>
-      ${low ? `<p class="st-dash-gaslow" role="alert"><span class="st-dash-gaslow-tag">GAS LOW</span>Position gas low: send a little ETH to the position address. <button type="button" class="st-dash-linkbtn" data-fund aria-haspopup="dialog">Fund position</button></p>` : ""}
+      ${low ? `<p class="st-dash-gaslow" role="alert"><span class="st-dash-gaslow-tag">GAS LOW</span>Position gas low: add a little ETH (the + on ETH · GAS).</p>` : ""}
+      ${parkedHtml(["wethout", "move", "sweep", "send", "payoutReq", "payoutApply"])}
       <dl class="st-dash-bal">
-        <div${flashArrival ? ' class="is-flash"' : ""}><dt>${C.symbol} HERE</dt><dd><strong>${fmt(b.coll, C.decimals, 8)}</strong></dd></div>
-        <div><dt>${D.symbol} HERE</dt><dd><strong>${fmt(b.debt, D.decimals, 6)}</strong></dd></div>
-        <div><dt>ETH · GAS</dt><dd><strong>${fmt(b.eth, 18, 6)}</strong><span> · ~${txsLeft.toString()} tx</span></dd>${ret ? `<dd class="st-dash-gasact">${ret}</dd>` : ""}</div>
+        <div${flashArrival ? ' class="is-flash"' : ""}><dt>${C.symbol} HERE</dt><dd><strong>${fmt(b.coll, C.decimals, 8)}</strong></dd><dd class="st-dash-tbs">${tileBtn("plus", "coll", `Deposit ${C.symbol} to the position`, !inWhy, inWhy)}${tileBtn("minus", "coll", `Withdraw ${C.symbol} from the position (supplies it, then withdraws to your payout)`, wo.on, wo.why)}${supplyIt}</dd></div>
+        <div><dt>${D.symbol} HERE</dt><dd><strong>${fmt(b.debt, D.decimals, 6)}</strong></dd><dd class="st-dash-tbs">${tileBtn("plus", "debt", `Deposit ${D.symbol} to the position`, !inWhy, inWhy)}${tileBtn("minus", "debt", `Withdraw ${D.symbol} from the position`, av.move.on, av.move.why)}${repayIt}</dd></div>
+        <div><dt>ETH · GAS</dt><dd><strong>${fmt(b.eth, 18, 6)}</strong><span> · ~${txsLeft.toString()} tx</span></dd><dd class="st-dash-tbs">${tileBtn("plus", "eth", "Add ETH for gas", true, "")}${tileBtn("minus", "eth", `Return ETH${av.sweep.on ? ` (${fmt(f.sweepUnits, 18, 6)})` : ""} to your payout`, av.sweep.on, av.sweep.why)}</dd></div>
       </dl>
-      ${disc("how-gas", "About these balances and gas", () => `<p>Tokens here sit at the position's address, not supplied on Aave. The position pays the gas of what it sends (repays, buy-back payouts, settlement legs): each may cost at most ${Number(gas.evmGas.gas_limit).toLocaleString("en-US")} gas at ${fmt(BigInt(gas.evmGas.max_fee_per_gas), 9, 2)} gwei (${fmt(upfront, 18, 6)} ETH, wanted up front; the real cost is lower). ${gasNote}</p>`)}
+      ${why}
+      ${disc("how-gas", "About these balances and gas", () => `<p>These sit at the position's own address on Ethereum, not on Aave. + sends to it (from your Ethereum wallet, or from any wallet to the address); − sends to your payout, the only place the contract pays out. ${C.symbol} here can't be sent on its own: − supplies it to Aave and withdraws the same amount, two transactions. The position pays the gas of what it sends: each may cost at most ${Number(gas.evmGas.gas_limit).toLocaleString("en-US")} gas at ${fmt(BigInt(gas.evmGas.max_fee_per_gas), 9, 2)} gwei (${fmt(upfront, 18, 6)} ETH, wanted up front; the real cost is lower). ${gasNote} The ETH returns only with no debt and no rescue.</p>`)}
     </section>`;
   }
+  /** Whether the WETH at the position's address can be taken out now (supplied, then withdrawn). */
+  const wethOutState = () => {
+    const f = facts();
+    const b = s!.posBal;
+    const a = s!.acct;
+    const resuming = !!wout && wout.pos === s!.pos!.id && wout.supplied;
+    const overCap = !!a && capBase() > 0n && !!s!.prices.coll && depositMax(b.coll, 0n, a.collBase, capBase(), s!.prices.coll, C.decimals) < b.coll;
+    const v = wethOutAvail({ ...f, idleUnits: resuming ? 1n : b.coll, overCap: resuming ? false : overCap, gasWei: b.eth, upfrontWei: gas.txUpfrontWei, needsApprove: !resuming && s!.allow.coll < b.coll });
+    return v;
+  };
 
   type Act = "deposit" | "borrow" | "repay" | "withdraw";
   /** The live part of an action card (redrawn as the visitor types): the projection, its warning or
@@ -1263,7 +1452,7 @@ export function mountDash(root: HTMLElement): () => void {
     const off = !v.on || !p || !!p.block || extraOff;
     const why = !whyV.on ? whyV.why : "";
     return `<div class="st-dash-live">
-      <div class="st-dash-go">${btn(label, `data-go=${id}`, true, off)}${proj}</div>
+      <div class="st-dash-go">${btn(label, id === "withdraw" ? 'data-ask="withdraw" aria-haspopup="dialog"' : `data-go=${id}`, true, off)}${proj}</div>
       ${why ? `<p class="st-dash-why">${esc(why)}</p>` : ""}
       ${p?.block ? `<p class="st-own-stop" role="alert">${esc(p.block)}</p>` : p?.underTrigger ? `<p class="st-dash-warn" role="alert"><span class="st-dash-warn-tag">UNDER 1.15</span>${esc(UNDER_TRIGGER_WARNING)}</p>` : ""}
     </div>`;
@@ -1304,16 +1493,21 @@ export function mountDash(root: HTMLElement): () => void {
     const shortV: Avail | null = plan?.kind === "short" ? { on: false, why: `Send the rest to the position's address: ${fmt(plan.shortUnits, C.decimals, 6)} ${C.symbol} more.`, tryAnyway: false } : null;
     const showArrived = arrivedUnits > 0n && Date.now() - arrivedAt < 120_000 && wm === "deposit";
     const arrivedLine = showArrived ? `<p class="st-dash-arrived${flashArrival ? " is-flash" : ""}" role="status"><strong>+${fmt(arrivedUnits, C.decimals, 6)} ${C.symbol}</strong> arrived at the position: supply it with one NEAR call</p>` : "";
-    const wethCard = `<div class="st-dash-act${wv.on ? "" : " is-off"}" data-act="${wm}">
-      <div class="st-dash-act-head"><h3>${C.symbol}</h3>${seg(`${C.symbol} action`, "data-mode", [{ v: "weth:deposit", t: "SUPPLY" }, { v: "weth:withdraw", t: "WITHDRAW" }], `weth:${wm}`)}</div>
-      <p class="st-dash-have">${evm ? pill("wallet", w ? fmt(w.coll, C.decimals, 5) : "…") : ""}${pill("supplied", fmt(collUnits, C.decimals, 5))}${idleColl > 0n ? pill("waiting", fmt(idleColl, C.decimals, 6)) : ""}</p>
-      ${wm === "deposit"
-        ? arrivedLine + input("deposit", C.symbol, "MAX", !av.deposit.on) + liveHtml("deposit", av.deposit, opLabel("deposit", "Supply", C.symbol, C.decimals, 6), !!shortV, shortV ?? av.deposit)
+    // WETH already at the position's address counts toward a supply (its balance is on the tile below)
+    const idleLine = !showArrived && wm === "deposit" && idleColl > 0n && av.deposit.on ? `<p class="st-dash-idle">${fmt(idleColl, C.decimals, 6)} ${C.symbol} at the position's address counts toward this supply.</p>` : "";
+    // a paused action shows only its next step in its card (the form comes back with "Not now" or once it is done)
+    const wPark = parkedHtml(["deposit", "withdraw"]);
+    const uPark = parkedHtml(["borrow", "repay"]);
+    const wethCard = `<div class="st-dash-act${wv.on ? "" : " is-off"}" data-act="${wm}" id="dash-aave-weth">
+      <div class="st-dash-act-head"><h3>${C.symbol}${aaveTag()}</h3>${seg(`${C.symbol} action`, "data-mode", [{ v: "weth:deposit", t: "SUPPLY" }, { v: "weth:withdraw", t: "WITHDRAW" }], `weth:${wm}`)}</div>
+      ${wPark || `<p class="st-dash-have">${evm ? pill("wallet", w ? fmt(w.coll, C.decimals, 5) : "…") : ""}${pill("supplied", fmt(collUnits, C.decimals, 5))}</p>`}
+      ${wPark ? "" : wm === "deposit"
+        ? arrivedLine + idleLine + input("deposit", C.symbol, "MAX", !av.deposit.on) + liveHtml("deposit", av.deposit, opLabel("deposit", "Supply", C.symbol, C.decimals, 6), !!shortV, shortV ?? av.deposit)
           + disc("how-deposit", "How it works", () => evm
             ? `<p>Your Ethereum wallet sends the ${C.symbol} to the position (one signature; ${C.symbol} already waiting there counts), then the contract supplies it on Aave (one NEAR call, two the first time for Aave's approval). MAX: what you hold, within the $${capUsd(cfg?.limits ?? null) || 150} cap (${usd8(dMax && P.coll ? (dMax * P.coll) / 10n ** 18n : 0n)}).</p>`
             : `<p>Send ${C.symbol} to the position's address; once it is there the contract supplies it on Aave (one NEAR call, two the first time for Aave's approval). Nothing is sent from a wallet here. Up to the $${capUsd(cfg?.limits ?? null) || 150} cap.</p>`)
         : input("withdraw", C.symbol, "MAX", !av.withdraw.on) + liveHtml("withdraw", av.withdraw, opLabel("withdraw", "Withdraw", C.symbol, C.decimals, 6)) + tryBtn("withdraw", av.withdraw)
-          + disc("how-withdraw", "How it works", () => `<p>One NEAR call: the contract signs Aave's withdraw, which sends the ${C.symbol} straight to your payout <span class="st-mono">${short(pos.payout)}</span>. MAX: down to health 1.16, or all of it with no debt.</p>`)}
+          + disc("how-withdraw", "How it works", () => `<p>One NEAR call: the contract signs Aave's withdraw, which sends the ${C.symbol} straight to your payout <span class="st-mono">${short(pos.payout)}</span> (you confirm the destination first). MAX: down to health 1.16, or all of it with no debt.</p>`)}
     </div>`;
 
     // USDC: borrow | repay
@@ -1324,15 +1518,18 @@ export function mountDash(root: HTMLElement): () => void {
     const uv = um === "borrow" ? av.borrow : av.repay;
     const src = repaySrc();
     const noUsdc: Avail | null = src === "position" && !fromPos && repayAny.on ? { on: false, why: evm ? `The position holds no ${D.symbol}: repay from your wallet.` : `The position holds no ${D.symbol}: send ${D.symbol} to the position's address (Fund position), then repay from it.`, tryAnyway: false } : null;
-    const usdcCard = `<div class="st-dash-act${uv.on ? "" : " is-off"}" data-act="${um}">
-      <div class="st-dash-act-head"><h3>${D.symbol}</h3>${seg(`${D.symbol} action`, "data-mode", [{ v: "usdc:borrow", t: "BORROW" }, { v: "usdc:repay", t: "REPAY" }], `usdc:${um}`)}</div>
-      <p class="st-dash-have">${evm ? pill("wallet", w ? fmt(w.debt, D.decimals, 2) : "…") : ""}${pill("debt", fmt(debtUnits, D.decimals, 2))}${fromPos ? pill("at the position", fmt(s!.posBal.debt, D.decimals, 2)) : ""}</p>
-      ${um === "borrow"
+    // USDC at the position's address while there is debt: one click repays from it
+    const offer = um === "repay" && !(parked?.act === "repay") ? positionRepayOffer({ repayOn: repayAny.on, debtBase: a?.debtBase ?? 0n, allUnits: a ? repayAllUnits(a.debtBase, P.debt, D.decimals) : 0n, idleUnits: s!.posBal.debt }) : null;
+    const offerHtml = offer ? `<div class="st-dash-offer"><p><strong>${fmt(s!.posBal.debt, D.decimals, 2)} ${D.symbol}</strong> is at the position's address.</p>${btn(offer.all ? "Repay all the debt from it" : `Repay ${fmt(offer.units, D.decimals, 2)} ${D.symbol} from it`, "data-offer", false)}</div>` : "";
+    const usdcCard = `<div class="st-dash-act${uv.on ? "" : " is-off"}" data-act="${um}" id="dash-aave-usdc">
+      <div class="st-dash-act-head"><h3>${D.symbol}${aaveTag()}</h3>${seg(`${D.symbol} action`, "data-mode", [{ v: "usdc:borrow", t: "BORROW" }, { v: "usdc:repay", t: "REPAY" }], `usdc:${um}`)}</div>
+      ${uPark || `<p class="st-dash-have">${evm ? pill("wallet", w ? fmt(w.debt, D.decimals, 2) : "…") : ""}${pill("debt", fmt(debtUnits, D.decimals, 2))}</p>`}
+      ${uPark ? "" : um === "borrow"
         ? input("borrow", D.symbol, "MAX 1.16", !av.borrow.on) + liveHtml("borrow", av.borrow, opLabel("borrow", "Borrow", D.symbol, D.decimals, 2)) + tryBtn("borrow", av.borrow)
-          + disc("how-borrow", "How it works", () => `<p>One NEAR call: the contract signs the Aave borrow and the ${D.symbol} lands at the position (Aave only lends to the position itself). Move it to your wallet below, or keep some there for a later repay. MAX stops at health 1.16, just above the trigger.</p>`)
-        : `<div class="st-dash-from"><span class="st-label">FROM</span>${seg("Repay from", "data-repay-from", [{ v: "wallet", t: "MY WALLET", off: !repayAny.on || !evm }, { v: "position", t: "THE POSITION", off: !repayAny.on || !fromPos }], src)}</div>`
+          + disc("how-borrow", "How it works", () => `<p>One NEAR call: the contract signs the Aave borrow and the ${D.symbol} lands at the position's address (Aave only lends to the position itself). Withdraw it to your payout from the position's balances below, or keep some there for a later repay. MAX stops at health 1.16, just above the trigger.</p>`)
+        : offerHtml + `<div class="st-dash-from"><span class="st-label">FROM</span>${seg("Repay from", "data-repay-from", [{ v: "wallet", t: "MY WALLET", off: !repayAny.on || !evm }, { v: "position", t: "THE POSITION", off: !repayAny.on || !fromPos }], src)}</div>`
           + input("repay", D.symbol, "ALL", !repayAny.on) + liveHtml("repay", av.repay, opLabel("repay", "Repay", D.symbol, D.decimals, 2), !!noUsdc, noUsdc ?? av.repay)
-          + disc("how-repay", "How it works", () => `<p>${src === "wallet" ? `Your Ethereum wallet sends the ${D.symbol} to the position (one signature), then` : `From the ${fmt(s!.posBal.debt, D.decimals, 2)} ${D.symbol} already at the position:`} the contract repays Aave (one NEAR call, two the first time). ALL repays the debt plus 0.2% for interest; Aave takes only what is owed.</p>`)}
+          + disc("how-repay", "How it works", () => `<p>${src === "wallet" ? `Your Ethereum wallet sends the ${D.symbol} to the position (one signature), then` : `From the ${fmt(s!.posBal.debt, D.decimals, 2)} ${D.symbol} already at the position:`} the contract repays Aave (one NEAR call, two the first time). Each NEAR signature after a wait is its own click: once the ${D.symbol} is at the position, the card offers the repay. ALL repays the debt plus 0.2% for interest; Aave takes only what is owed.</p>`)}
     </div>`;
 
     // buy back (only while a claim is open)
@@ -1345,32 +1542,12 @@ export function mountDash(root: HTMLElement): () => void {
         <p class="st-dash-owed"><span class="st-label">OWED</span><span class="st-num">${fmt(owed, C.decimals, 8)}</span><span class="st-dash-unit">${C.symbol}</span>${held > 0n ? `<span class="st-dash-have">${fmt(held, C.decimals, 8)} already at the position counts</span>` : ""}</p>
         <div class="st-dash-go">${!evm && f.claimOpen ? btn(`Send ${trim(buybackDue(owed, held), C.decimals, C.decimals)} ${C.symbol} to buy back`, 'data-fund aria-haspopup="dialog"', true) : btn(`Buy back for ${fmt(owed > held ? owed - held : 0n, C.decimals, 10)} ${C.symbol}`, "data-go=buyback", true, !av.buyback.on)}</div>
         ${av.buyback.on ? "" : !evm ? `<p class="st-dash-why">Send exactly ${trim(buybackDue(owed, held), C.decimals, C.decimals)} ${C.symbol} to the position's address (no Ethereum wallet needed): once the balance is proven, the buy-back commits.</p>` : `<p class="st-dash-why">${esc(av.buyback.why)}</p>`}
-        ${disc("how-buyback", "How it works", () => `<p>Pay exactly what is owed into the position (${evm ? "one Ethereum signature" : "a plain transfer to its address"}). The contract checks the proven balance and pays the claim owner exactly that; any excess is refunded to your wallet.</p>`)}
+        ${disc("how-buyback", "How it works", () => `<p>Pay exactly what is owed into the position (${evm ? "one Ethereum signature" : "a plain transfer to its address"}). The contract checks the proven balance and pays the claim owner exactly that; any excess is refunded to your payout.</p>`)}
       </div>`;
     }
 
-    // USDC at the position → the wallet: separate from the borrow, so some can stay for a repay
-    const idleDebt = s!.posBal.debt;
-    let moveCard = "";
-    if (idleDebt > 0n) {
-      const typed = parse("move", D.decimals);
-      const units = typed && typed > 0n ? typed : idleDebt;
-      const tooMuch = units > idleDebt;
-      const typedBad = (amt.move ?? "").trim() !== "" && typed === null;
-      moveCard = `<div class="st-dash-act st-dash-move${av.move.on ? "" : " is-off"}" data-act="move">
-        <div class="st-dash-act-head"><h3>${D.symbol} at the position</h3><p class="st-dash-move-have"><span class="st-num">${fmt(idleDebt, D.decimals, 2)}</span><span class="st-dash-unit">${D.symbol}</span></p></div>
-        <div class="st-dash-amt"><label class="st-visually-hidden" for="dash-amt-move">Amount in ${D.symbol} to move to your wallet</label><input id="dash-amt-move" data-amt="move" inputmode="decimal" autocomplete="off" placeholder="${trim(idleDebt, D.decimals, 6)}" value="${esc(amt.move ?? "")}"${av.move.on ? "" : " disabled"}><span class="st-dash-sym">${D.symbol}</span><button type="button" class="st-dash-max" data-max="move"${!av.move.on || busy ? " disabled" : ""}>ALL</button></div>
-        <div class="st-dash-live">
-          <div class="st-dash-go">${btn(`Move ${fmt(units, D.decimals, 2)} ${D.symbol} to my wallet`, "data-go=move", true, !av.move.on || tooMuch || typedBad)}</div>
-          ${!av.move.on ? `<p class="st-dash-why">${esc(av.move.why)}</p>` : tooMuch ? `<p class="st-own-stop" role="alert">The position holds ${fmt(idleDebt, D.decimals, 6)} ${D.symbol}: move that much or less.</p>` : ""}
-        </div>
-        ${disc("how-move", "How it works", () => `<p>One NEAR call: the contract signs a transfer of the ${D.symbol} from the position to your payout <span class="st-mono">${short(pos.payout)}</span>. Empty moves all of it. ${D.symbol} left here can repay later (Repay, from THE POSITION).</p>`)}
-      </div>`;
-    }
-
-    return `${buyCard}<div class="st-dash-actions">${wethCard}${usdcCard}</div>${moveCard}`;
+    return `${buyCard}<div class="st-dash-actions">${wethCard}${usdcCard}</div>`;
   }
-
   /** One balance as a pill: a quiet label and a bold figure. */
   const pill = (label: string, v: string) => `<span class="st-dash-pill"><span>${label}</span><b class="st-num">${v}</b></span>`;
 
@@ -1380,7 +1557,8 @@ export function mountDash(root: HTMLElement): () => void {
     if (!s?.pos) return "";
     const own: ActRow[] = shown().map((t) => {
       const reason = t.ok ? "" : t.label.match(/refused by the contract \("(.*)"\)$/)?.[1] ?? "";
-      const link = t.hash ? `<a class="st-dash-txlink" href="${t.chain === "near" ? net.nearTx(t.hash) : net.evmTx(t.hash)}" target="_blank" rel="noopener">${t.chain === "near" ? "NearBlocks" : "Etherscan"}${icon("external", 11)}</a>` : "";
+      const link = (t.hash ? `<a class="st-dash-txlink" href="${t.chain === "near" ? net.nearTx(t.hash) : net.evmTx(t.hash)}" target="_blank" rel="noopener">${t.chain === "near" ? "NearBlocks" : "Etherscan"}${icon("external", 11)}</a>` : "")
+        + (t.evmHash ? `<a class="st-dash-txlink" href="${net.evmTx(t.evmHash)}" target="_blank" rel="noopener">Etherscan${icon("external", 11)}</a>` : "");
       return { at: t.at, ord: -1, exact: true, afterMs: t.at, html: `${t.ok ? "" : '<span class="st-own-chip-refused">refused</span> '}${esc(t.label.replace(/: refused by the contract.*$/, ""))}${reason ? ` <span class="st-dash-reason">"${esc(reason)}"</span>` : ""}${link}` };
     });
     // the visitor's transactions and every rescue step, by real time: the contract's own times, an
@@ -1424,10 +1602,10 @@ export function mountDash(root: HTMLElement): () => void {
       ${glyph("M6 3.5 10.5 8 6 12.5", 14, "st-dash-prow-go")}
     </button></li>`;
   }
-  function protHtml(): string {
-    if (!s?.pos) return "";
+  function protListHtml(): string {
+    if (!s?.pos) return `<p class="st-empty">Reading the position…</p>`;
     const { rows, noBids } = protectionRows(stories().map((x) => x.rescue), s.pos.id);
-    const head = (extra = "") => `<div class="st-dash-jhead"><span class="st-label">PROTECTIONS · POSITION ${s!.pos!.id}</span>${extra}</div>`;
+    const head = (extra = "") => `<div class="st-dash-jhead"><span class="st-label">EVERY RESCUE · NEWEST FIRST</span>${extra}</div>`;
     const loading = histState === "loading" || histState === "idle";
     if (!rows.length && !noBids.length) {
       if (loading) return `<section class="st-dash-prot" aria-label="Protections">${head()}<p class="st-dash-prot-note">Reading this position's rescues from the contract…</p></section>`;
@@ -1458,7 +1636,8 @@ export function mountDash(root: HTMLElement): () => void {
       const flow = rescueFlow(r, x.claims, { coll: C, evmName: net.evmName, ...flowOpts() });
       const win = row.winners.map((w) => `<span class="st-dash-prot-w">${protTile(w.steward)}<span>${esc(w.name)}</span></span>`).join("");
       const bps = row.winners.map((w) => `${w.bps} bps`).join(", ");
-      return `<dl class="st-kpis st-sv-kpis st-dash-prot-kpis">
+      return `<p class="st-dash-protback"><button type="button" class="st-dash-linkbtn" data-prot-back>${glyph("M10 3.5 5.5 8l4.5 4.5", 14)}All protections</button></p>
+        <dl class="st-kpis st-sv-kpis st-dash-prot-kpis">
           <div><dt>OUTCOME</dt><dd class="st-kpi-word"><span class="st-dash-pchip is-${row.outcome}">${esc(row.outcome === "running" ? `${OUTCOME_WORD.running} · ${row.stage}` : OUTCOME_WORD[row.outcome])}</span></dd><dd class="st-kpi-sub">opened ${dayText(row.openedMs)}</dd></div>
           <div><dt>${row.winners.length > 1 ? "WINNERS" : "WINNER"}</dt><dd class="st-dash-prot-win">${win || `<span class="st-kpi-word">none</span>`}</dd><dd class="st-kpi-sub">${bps ? `${bps} · ` : ""}cap ${r.cap_bps} bps · ${r.bids.length} bid${r.bids.length === 1 ? "" : "s"}</dd></div>
           <div><dt>TOPPED UP</dt><dd>${row.winners.length ? `<span class="st-num">${fmt(BigInt(row.topupUnits), C.decimals, 6)}</span> <span class="st-sv-u">${C.symbol}</span>` : `<span class="st-kpi-word">nothing</span>`}</dd><dd class="st-kpi-sub">${fmt(BigInt(r.topup_units), C.decimals, 6)} ${C.symbol} needed</dd></div>
@@ -1468,11 +1647,32 @@ export function mountDash(root: HTMLElement): () => void {
         <p class="st-list-note st-sv-note">${esc(PROT_NOTE)}</p>`;
     };
   }
-  function openProt(id: number, opener: HTMLElement | null) {
+  /** The protections dialog: the list, or (id) one rescue's flow in the same dialog with a way back. */
+  function openProt(id: number | null, opener: HTMLElement | null, focusSel?: string) {
     if (!s?.pos) return;
+    protView = id;
+    const keepOpener = dialogs.get("prot")?.el.open ? dialogs.get("prot")!.opener : opener;
+    if (id === null) return modal("prot", `POSITION ${s.pos.id} · PROTECTIONS`, "Protections", protListHtml, keepOpener, focusSel ?? "[data-dlg-close]", protClick);
     const r = stories().filter((h) => h.rescue.id === id).at(-1)?.rescue;
     const word = r ? protectionRows([r]).rows.concat(protectionRows([r]).noBids)[0] : null;
-    modal("prot", `POSITION ${s.pos.id} · PROTECTION`, `Rescue ${id}${word ? `: ${word.outcome === "running" ? word.stage : OUTCOME_WORD[word.outcome].toLowerCase()}` : ""}`, protBody(id), opener);
+    modal("prot", `POSITION ${s.pos.id} · PROTECTION`, `Rescue ${id}${word ? `: ${word.outcome === "running" ? word.stage : OUTCOME_WORD[word.outcome].toLowerCase()}` : ""}`, protBody(id), keepOpener, "[data-prot-back]", protClick);
+  }
+  /** Clicks inside the protections dialog: a row opens its flow, the back link the list, the toggles redraw it. */
+  function protClick(t: HTMLElement) {
+    const row = t.closest<HTMLElement>("[data-prot]");
+    if (row) return openProt(Number(row.dataset.prot), null);
+    if (t.closest("[data-prot-back]")) {
+      const from = protView;
+      return openProt(null, null, from !== null ? `[data-prot="${from}"]` : undefined);
+    }
+    if (t.closest("[data-prot-more]")) {
+      showAllProt = !showAllProt;
+      return openProt(null, null, "[data-prot-more]");
+    }
+    if (t.closest("[data-prot-nobids]")) {
+      showNoBids = !showNoBids;
+      return openProt(null, null, "[data-prot-nobids]");
+    }
   }
 
   function bannerHtml(): string {
@@ -1541,7 +1741,7 @@ export function mountDash(root: HTMLElement): () => void {
       </ul>`;
   }
   // ── dialogs: risk details and funding (one look), and the steward's view (the mainnet runs' dialog) ──
-  type Dlg = { el: HTMLDialogElement; body: () => string; opener: HTMLElement | null; html: string };
+  type Dlg = { el: HTMLDialogElement; body: () => string; opener: HTMLElement | null; html: string; onClick?: (t: HTMLElement, ev: Event) => void };
   const dialogs = new Map<string, Dlg>();
   /** Keep Tab inside an open dialog. */
   const trapTab = (el: HTMLDialogElement) =>
@@ -1558,7 +1758,7 @@ export function mountDash(root: HTMLElement): () => void {
         first.focus();
       }
     });
-  function modal(key: string, label: string, title: string, body: () => string, opener: HTMLElement | null) {
+  function modal(key: string, label: string, title: string, body: () => string, opener: HTMLElement | null, focusSel = "[data-dlg-close]", onClick?: (t: HTMLElement, ev: Event) => void) {
     let d = dialogs.get(key);
     if (!d) {
       const el = document.createElement("dialog");
@@ -1566,13 +1766,14 @@ export function mountDash(root: HTMLElement): () => void {
       el.setAttribute("aria-labelledby", `dash-${key}-title`);
       el.innerHTML = `<div class="st-dash-risk-head"><div><div class="st-label" data-dlg-label></div><h2 id="dash-${key}-title" data-dlg-title></h2></div><button type="button" class="st-dash-risk-x" data-dlg-close aria-label="Close">${icon("close", 16)}</button></div><div class="st-dash-risk-body" data-dlg-body></div>`;
       document.body.append(el);
-      const dd: Dlg = { el, body, opener, html: "" };
+      const dd: Dlg = { el, body, opener, html: "", onClick };
       d = dd;
       dialogs.set(key, dd);
       // ×, a click on the backdrop and Esc (native) close it; the copy button works inside it
       el.addEventListener("click", (ev) => {
         const t = ev.target as HTMLElement;
         if (t === el || t.closest("[data-dlg-close]")) return el.close();
+        if (dd.onClick) dd.onClick(t, ev);
         const c = t.closest<HTMLButtonElement>("[data-copy]");
         if (c) void navigator.clipboard?.writeText(c.dataset.copy!).then(() => {
           copiedAt = Date.now();
@@ -1581,25 +1782,227 @@ export function mountDash(root: HTMLElement): () => void {
         }, () => undefined);
       });
       trapTab(el);
-      el.addEventListener("close", () => (dd.opener?.isConnected ? dd.opener : root.querySelector<HTMLElement>(`[data-${key}]`))?.focus());
+      el.addEventListener("close", () => {
+        if (key === "act") actView = null;
+        if (key === "fund") fundFor = null;
+        (dd.opener?.isConnected ? dd.opener : root.querySelector<HTMLElement>(`[data-${key}]`))?.focus({ preventScroll: true });
+      });
     }
     d.body = body;
     d.opener = opener;
+    if (onClick) d.onClick = onClick;
     d.el.querySelector("[data-dlg-label]")!.textContent = label;
     d.el.querySelector("[data-dlg-title]")!.textContent = title;
     d.el.querySelector("[data-dlg-close]")!.setAttribute("aria-label", `Close ${title.toLowerCase()}`);
     d.html = body();
     d.el.querySelector("[data-dlg-body]")!.innerHTML = d.html;
     if (!d.el.open) d.el.showModal();
-    d.el.querySelector<HTMLElement>("[data-dlg-close]")!.focus();
+    d.el.scrollTop = 0;
+    (d.el.querySelector<HTMLElement>(focusSel) ?? d.el.querySelector<HTMLElement>("[data-dlg-close]")!).focus();
   }
   const openRisk = (ev?: Event) => modal("risk", `POSITION ${s?.pos?.id ?? ""} · LIQUIDATION RISK`, "Risk details", riskHtml, (ev?.currentTarget as HTMLElement) ?? null);
-  function openFund(opener: HTMLElement | null) {
+  function openFund(opener: HTMLElement | null, token: "coll" | "debt" | "eth" | null = null) {
     if (!s?.pos?.evm_address) return;
     if (dialogs.get("fund")?.el.open) return;
-    modal("fund", "POSITION ADDRESS · ETHEREUM MAINNET", "Fund position", fundHtml, opener);
+    fundFor = token;
+    modal("fund", "POSITION ADDRESS · ETHEREUM MAINNET", token === "eth" ? "Add ETH for gas" : token ? `Deposit ${token === "coll" ? C.symbol : D.symbol} to the position` : "Fund position", fundHtml, opener);
   }
-  /** Redraw the open dialogs' bodies from the latest reading (keeping focus on the copy button). */
+
+  // ── the action dialog: a withdrawal's destination, the payout change, a send from the wallet, a result ──
+  const sym3 = (t: "coll" | "debt" | "eth") => (t === "coll" ? C.symbol : t === "debt" ? D.symbol : "ETH");
+  const dec3 = (t: "coll" | "debt" | "eth") => (t === "coll" ? C.decimals : t === "debt" ? D.decimals : 18);
+  const CONFIRM_TITLE = { withdraw: `Withdraw ${C.symbol} from Aave`, move: `Withdraw ${D.symbol} from the position`, sweep: "Return the gas ETH", wethout: `Withdraw ${C.symbol} from the position` };
+  function openAct(opener: HTMLElement | null, focusSel?: string) {
+    const v = actView;
+    if (!v || !s?.pos) return;
+    const id = s.pos.id;
+    const [label, title] = v.v === "confirm" ? [`WITHDRAWAL · POSITION ${id}`, CONFIRM_TITLE[v.kind]]
+      : v.v === "payout" ? [`PAYOUT · POSITION ${id}`, "Change payout"]
+      : v.v === "send" ? ["POSITION ADDRESS · ETHEREUM MAINNET", v.token === "eth" ? "Add ETH for gas" : `Deposit ${sym3(v.token)} to the position`]
+      : [`DONE · POSITION ${id}`, v.done.title];
+    const keep = dialogs.get("act")?.el.open ? dialogs.get("act")!.opener : opener;
+    modal("act", label, title, actBody, keep, focusSel ?? (v.v === "confirm" ? "[data-confirm]:not([disabled]), [data-dlg-close]:not(.st-dash-risk-x)" : v.v === "send" ? "#dlg-send" : v.v === "payout" ? "#dlg-payout" : "[data-done-ok]"), actClick);
+    const d = dialogs.get("act")!;
+    if (!d.el.dataset.wired) {
+      d.el.dataset.wired = "1";
+      // typing in the dialog redraws its body (the button's amount, the checks), keeping the caret
+      d.el.addEventListener("input", (ev) => {
+        const i = ev.target as HTMLInputElement;
+        if (i.dataset.dlgAmt) amt[i.dataset.dlgAmt] = i.value;
+        else if (i.dataset.dlgPayout !== undefined) payoutNew = i.value;
+        else return;
+        redrawDlg(d, actBody());
+      });
+    }
+  }
+  /** A withdrawal asks first: where it goes (the payout, and whether that is the connected wallet). */
+  function ask(kind: "withdraw" | "move" | "sweep" | "wethout", opener: HTMLElement | null) {
+    if (busy) return;
+    actView = { v: "confirm", kind };
+    if (kind === "move" && !amt.move) amt.move = "";
+    openAct(opener);
+  }
+  function actBody(): string {
+    const v = actView;
+    if (!v || !s?.pos) return "";
+    const pos = s.pos;
+    const payout = getAddr(pos.payout);
+    const dest = `<div class="st-dash-dest"><p class="st-dash-dest-line">${esc(payoutLine(pos.payout, evm))}</p><p class="st-dash-dest-full st-mono">${esc(payout)}</p><p class="st-dash-dest-act"><button type="button" class="st-dash-linkbtn" data-to-payout>Change payout</button><span> · takes effect ${esc(delayText())} after the request</span></p></div>`;
+    if (v.v === "confirm") {
+      const f = facts();
+      const av = availability(f);
+      const cancel = `<button type="button" class="st-secondary st-cut" data-dlg-close>Cancel</button>`;
+      if (v.kind === "withdraw") {
+        const op = opOf("withdraw");
+        const p = projOf("withdraw");
+        const what = !op ? "" : (op as any).all ? `all the ${C.symbol}` : `${fmt(op.units, C.decimals, 6)} ${C.symbol}`;
+        const ok = av.withdraw.on && !!p && !p.block;
+        return `<p class="st-dash-cf-what">Aave sends <strong>${esc(what)}</strong> of the position's collateral straight to your payout.</p>
+          ${p ? `<p class="st-dash-proj"><span class="st-dash-projlbl">HF</span><span class="st-dash-projnow${hfCls(s.hf)}">${hfText(s.hf)}</span>${toGlyph()}<strong class="st-dash-projnum${hfCls(p.hfBps)}">${hfText(p.hfBps)}</strong></p>` : ""}
+          ${dest}
+          <div class="st-dash-cf-go">${btn(`Withdraw ${what} to ${short(payout)}`, "data-confirm", true, !ok)}${cancel}</div>
+          ${ok ? "" : `<p class="st-dash-why">${esc(!av.withdraw.on ? av.withdraw.why : p?.block ?? "Type an amount in the WETH card first.")}</p>`}`;
+      }
+      if (v.kind === "move") {
+        const idle = s.posBal.debt;
+        const typed = parse("move", D.decimals);
+        const units = typed && typed > 0n ? typed : idle;
+        const bad = units > idle || ((amt.move ?? "").trim() !== "" && typed === null);
+        return `<p class="st-dash-cf-what">The contract sends ${D.symbol} from the position's address to your payout. <strong>${fmt(idle, D.decimals, 6)} ${D.symbol}</strong> is there.</p>
+          <div class="st-dash-amt"><label class="st-visually-hidden" for="dlg-move">Amount in ${D.symbol}</label><input id="dlg-move" data-dlg-amt="move" inputmode="decimal" autocomplete="off" placeholder="${trim(idle, D.decimals, 6)}" value="${esc(amt.move ?? "")}"><span class="st-dash-sym">${D.symbol}</span><button type="button" class="st-dash-max" data-dlg-max="move">ALL</button></div>
+          ${dest}
+          <div class="st-dash-cf-go">${btn(`Withdraw ${fmt(units, D.decimals, 2)} ${D.symbol} to ${short(payout)}`, "data-confirm", true, !av.move.on || bad)}${cancel}</div>
+          ${!av.move.on ? `<p class="st-dash-why">${esc(av.move.why)}</p>` : units > idle ? `<p class="st-own-stop" role="alert">The position holds ${fmt(idle, D.decimals, 6)} ${D.symbol}: withdraw that much or less.</p>` : ""}
+          ${f.hasDebt ? `<p class="st-dash-cf-note">Or keep it there to repay: ${D.symbol} card, Repay, from THE POSITION.</p>` : ""}`;
+      }
+      if (v.kind === "sweep") {
+        return `<p class="st-dash-cf-what">The position's leftover gas ETH, less the transfer's own fee: <strong>${fmt(f.sweepUnits, 18, 6)} ETH</strong>.</p>
+          ${dest}
+          <div class="st-dash-cf-go">${btn(`Return ${fmt(f.sweepUnits, 18, 6)} ETH to ${short(payout)}`, "data-confirm", true, !av.sweep.on)}${cancel}</div>
+          ${av.sweep.on ? "" : `<p class="st-dash-why">${esc(av.sweep.why)}</p>`}`;
+      }
+      const wo = wethOutState();
+      const units = wout && wout.pos === pos.id ? wout.units : s.posBal.coll;
+      return `<p class="st-dash-cf-what">The contract can't send ${C.symbol} from the position's address on its own, so this takes two steps: it supplies the <strong>${fmt(units, C.decimals, 8)} ${C.symbol}</strong> to Aave, then withdraws the same amount, which Aave sends to your payout. The health factor ends where it is now.</p>
+        <ol class="st-dash-cf-steps"><li>Supply ${fmt(units, C.decimals, 8)} ${C.symbol} on Aave${s.allow.coll < units ? " (after Aave's approval, once)" : ""}</li><li>Withdraw ${fmt(units, C.decimals, 8)} ${C.symbol} to your payout</li></ol>
+        <p class="st-dash-cf-note">Each NEAR signature is its own click: once the supply lands, the second step's button appears. Gas for ${wo.txs} transactions comes from the position's ETH.</p>
+        ${dest}
+        <div class="st-dash-cf-go">${btn(`Supply, then withdraw ${fmt(units, C.decimals, 8)} ${C.symbol}`, "data-confirm", true, !wo.on)}${cancel}</div>
+        ${wo.on ? "" : `<p class="st-dash-why">${esc(wo.why)}</p>`}`;
+    }
+    if (v.v === "payout") {
+      const st = payoutChangeState(pos.payout_change, Date.now(), facts().locked);
+      const c = checkPayout(payoutNew, refuseList());
+      const typed = payoutNew.trim() !== "";
+      const same = c.ok && c.address.toLowerCase() === pos.payout.toLowerCase();
+      const back = v.back ? `<p class="st-dash-protback"><button type="button" class="st-dash-linkbtn" data-payout-back>${glyph("M10 3.5 5.5 8l4.5 4.5", 14)}Back to the withdrawal</button></p>` : "";
+      const pending = st.kind === "waiting"
+        ? `<div class="st-dash-dest"><p class="st-dash-dest-line">Requested: ${esc(short(getAddr(st.to)))}</p><p>Takes effect ${esc(dayText(st.atMs))} (in ${esc(durationText(st.leftMs))}); then apply it here with one more call. A new request replaces it.</p></div>`
+        : st.kind === "ready"
+          ? `<div class="st-dash-dest"><p class="st-dash-dest-line">Ready: ${esc(short(getAddr(st.to)))}</p><p>The delay is over. Apply it to make it the payout.</p><div class="st-dash-cf-go">${btn(`Apply the payout change to ${short(getAddr(st.to))}`, "data-payout-apply", true, st.locked)}</div></div>`
+          : "";
+      return `${back}
+        <p class="st-dash-cf-what">Withdrawals, refunds and returned ETH go only to the payout, today <span class="st-mono">${esc(short(getAddr(pos.payout)))}</span>${evm ? (pos.payout.toLowerCase() === evm.toLowerCase() ? " (your connected wallet)" : " (not your connected wallet)") : ""}.</p>
+        <p class="st-dash-cf-note">A new payout takes effect <strong>${esc(delayText())} after you request it</strong>, then one more call applies it. Until then everything keeps going to the current one. The contract refuses a change while a rescue runs.</p>
+        ${pending}
+        <label class="st-label" for="dlg-payout">NEW PAYOUT · ETHEREUM ADDRESS</label>
+        <div class="st-dash-amt st-dash-payin"><input id="dlg-payout" data-dlg-payout autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="0x…" value="${esc(payoutNew)}"></div>
+        ${evm && evm.toLowerCase() !== pos.payout.toLowerCase() && !typed ? `<p><button type="button" class="st-dash-linkbtn" data-payout-mine>Use my connected wallet ${esc(short(evm))}</button></p>` : ""}
+        ${typed && !c.ok ? `<p class="st-own-stop" role="alert">${esc(c.why)}</p>` : same ? `<p class="st-dash-why">That is already the payout.</p>` : ""}
+        <div class="st-dash-cf-go">${btn(c.ok && !same ? `Request payout change to ${short(c.address)}` : "Request payout change", "data-payout-req", true, !c.ok || same || st.locked)}</div>
+        ${st.locked ? `<p class="st-dash-why">A rescue is running: the contract refuses a payout change until it ends.</p>` : ""}`;
+    }
+    if (v.v === "send") {
+      const t = v.token;
+      const w = s.wallet;
+      const have = !w ? null : t === "coll" ? w.coll : t === "debt" ? w.debt : w.eth;
+      const units = parse(`send-${t}`, dec3(t));
+      const tooMuch = have !== null && units !== null && units > have;
+      const after = t === "coll" ? `Then supply it from the ${C.symbol} card (one NEAR call).` : t === "debt" ? `${D.symbol} here can repay the debt (Repay, from THE POSITION) or be withdrawn to your payout.` : "The position pays its own transactions' gas from this ETH.";
+      return `<p class="st-dash-cf-what">From your Ethereum wallet <span class="st-mono">${esc(short(evm ?? ""))}</span>${have !== null ? `, which holds <strong>${fmt(have, dec3(t), t === "debt" ? 2 : 6)} ${sym3(t)}</strong>` : ""}, to the position's address. ${after}</p>
+        <div class="st-dash-amt"><label class="st-visually-hidden" for="dlg-send">Amount in ${sym3(t)}</label><input id="dlg-send" data-dlg-amt="send-${t}" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${esc(amt[`send-${t}`] ?? "")}"><span class="st-dash-sym">${sym3(t)}</span>${t !== "eth" ? `<button type="button" class="st-dash-max" data-dlg-max="send-${t}">MAX</button>` : ""}</div>
+        <div class="st-dash-cf-go">${btn(units ? `Send ${fmt(units, dec3(t), 6)} ${sym3(t)} to the position` : `Send ${sym3(t)} to the position`, "data-send", true, !units || tooMuch)}</div>
+        ${tooMuch ? `<p class="st-own-stop" role="alert">Your wallet holds ${fmt(have!, dec3(t), 6)} ${sym3(t)}.</p>` : ""}
+        <p class="st-dash-cf-note">Or from any wallet: <button type="button" class="st-dash-linkbtn" data-dlg-fund>the address and its QR code</button>. Ethereum mainnet only.</p>`;
+    }
+    const d = v.done;
+    const link = (href: string, txt: string) => `<a class="st-textlink st-extlink" href="${href}" target="_blank" rel="noopener">${txt}${icon("external", 12)}</a>`;
+    return `<p class="st-dash-done-line">${esc(d.line)}</p>
+      <div class="st-dash-done-fig"><span class="st-label">${esc(d.figure.label)}</span><span class="st-num${d.figure.label.startsWith("HEALTH") ? ` st-dash-hf${hfCls(s.hf)}` : ""}">${esc(d.figure.value)}</span>${d.figure.label.startsWith("HEALTH") && s.hf !== null ? `<span class="st-dash-cons">${esc(fallLine(s.hf, C.symbol))}</span>` : ""}</div>
+      ${d.links.length ? `<ul class="st-dash-done-txs">${d.links.map((l) => `<li><span>${esc(l.label)}</span><span class="st-dash-done-links">${l.near ? link(net.nearTx(l.near), "NearBlocks") : ""}${l.evm ? link(net.evmTx(l.evm), "Etherscan") : ""}</span></li>`).join("")}</ul>` : ""}
+      <div class="st-dash-cf-go"><button type="button" class="st-push st-push--small st-cut" data-done-ok data-dlg-close><span class="st-lamp" aria-hidden="true"></span>Done</button></div>`;
+  }
+  /** Clicks inside the action dialog. A confirm closes it and starts the action from that click. */
+  function actClick(t: HTMLElement) {
+    const v = actView;
+    if (!v) return;
+    const dlg = dialogs.get("act")!;
+    if (t.closest("[data-confirm]") && v.v === "confirm" && !(t.closest("[data-confirm]") as HTMLButtonElement).disabled) {
+      const kind = v.kind;
+      dlg.el.close();
+      return go(kind);
+    }
+    if (t.closest("[data-to-payout]")) {
+      actView = { v: "payout", back: v.v === "confirm" ? v : null };
+      return openAct(null);
+    }
+    if (t.closest("[data-payout-back]") && v.v === "payout" && v.back) {
+      actView = v.back;
+      return openAct(null, "[data-to-payout]");
+    }
+    if (t.closest("[data-payout-mine]") && evm) {
+      payoutNew = evm;
+      return redrawDlg(dlg, actBody());
+    }
+    if (t.closest("[data-payout-req]") && !(t.closest("[data-payout-req]") as HTMLButtonElement).disabled) {
+      dlg.el.close();
+      return go("payoutReq");
+    }
+    if (t.closest("[data-payout-apply]") && !(t.closest("[data-payout-apply]") as HTMLButtonElement).disabled) {
+      dlg.el.close();
+      return go("payoutApply");
+    }
+    const mx = t.closest<HTMLElement>("[data-dlg-max]");
+    if (mx) {
+      const k = mx.dataset.dlgMax!;
+      if (k === "move") amt.move = trim(s!.posBal.debt, D.decimals, D.decimals);
+      else if (k === "send-coll") amt[k] = trim(s!.wallet?.coll ?? 0n, C.decimals, 8);
+      else if (k === "send-debt") amt[k] = trim(s!.wallet?.debt ?? 0n, D.decimals, D.decimals);
+      return redrawDlg(dlg, actBody());
+    }
+    if (t.closest("[data-send]") && v.v === "send" && !(t.closest("[data-send]") as HTMLButtonElement).disabled) {
+      const tok = v.token;
+      dlg.el.close();
+      return void sendIn(tok);
+    }
+    if (t.closest("[data-dlg-fund]") && v.v === "send") {
+      const tok = v.token;
+      dlg.el.close();
+      return openFund(null, tok);
+    }
+  }
+  /** Put new HTML in a dialog's body, keeping the focused control (by id or its data key), the caret and the scroll. */
+  function redrawDlg(d: Dlg, html: string) {
+    const a = document.activeElement as HTMLElement | null;
+    const inside = !!a && d.el.contains(a) && a !== d.el.querySelector("[data-dlg-close]");
+    const key = inside ? (a!.id ? `#${a!.id}` : (() => {
+      const k = Object.keys(a!.dataset)[0];
+      return k ? `[data-${k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase())}${a!.dataset[k] ? `="${a!.dataset[k]}"` : ""}]` : null;
+    })()) : null;
+    const sel = a instanceof HTMLInputElement ? [a.selectionStart, a.selectionEnd] : null;
+    const top = d.el.scrollTop;
+    d.html = html;
+    d.el.querySelector("[data-dlg-body]")!.innerHTML = html;
+    d.el.scrollTop = top;
+    if (key) {
+      const el = d.el.querySelector<HTMLElement>(`[data-dlg-body] ${key}`);
+      if (el) {
+        el.focus({ preventScroll: true });
+        if (sel && el instanceof HTMLInputElement) el.setSelectionRange(sel[0], sel[1]);
+      }
+    }
+  }
+  /** Redraw the open dialogs' bodies from the latest reading (keeping focus where it was). */
   function refreshDialogs(full: boolean) {
     for (const d of dialogs.values()) {
       if (!d.el.open) continue;
@@ -1609,10 +2012,7 @@ export function mountDash(root: HTMLElement): () => void {
       }
       const html = d.body();
       if (html === d.html) continue;
-      const hadCopy = d.el.contains(document.activeElement) && (document.activeElement as HTMLElement).dataset.copy !== undefined;
-      d.html = html;
-      d.el.querySelector("[data-dlg-body]")!.innerHTML = html;
-      if (hadCopy) d.el.querySelector<HTMLElement>("[data-dlg-body] [data-copy]")?.focus();
+      redrawDlg(d, html);
     }
     refreshSteward(full);
   }
@@ -1685,7 +2085,7 @@ export function mountDash(root: HTMLElement): () => void {
   }
 
   // keep what the visitor is typing (and which control has focus) across re-renders
-  const FOCUS_KEYS = ["amt", "payout", "disc", "mode", "repayFrom", "copy", "max", "moreTxs", "risk", "fund", "prot", "protMore", "protNobids"] as const;
+  const FOCUS_KEYS = ["amt", "payout", "disc", "mode", "repayFrom", "copy", "max", "moreTxs", "risk", "fund", "prot", "prots", "tile", "tileGo", "resume", "parkX", "offer", "ask", "go"] as const;
   function render() {
     if (gone) return;
     // a redraw never moves the page: re-focusing a control would scroll it into view on every reading
@@ -1706,7 +2106,7 @@ export function mountDash(root: HTMLElement): () => void {
       : fresh
         ? newPositionHtml()
         : full
-        ? `${statusHtml()}${activityHtml(true)}${protHtml()}`
+        ? `${statusHtml()}${activityHtml(true)}`
         : pos
           ? `<p class="st-own-hint">Position ${pos.id} is registered; its Ethereum address is being derived.</p>`
           : newPositionHtml();
@@ -1732,7 +2132,7 @@ export function mountDash(root: HTMLElement): () => void {
       updateLadder();
     } else if (ladHost.firstChild) ladHost.replaceChildren();
     shell.querySelector<HTMLElement>('[data-part="post"]')!.innerHTML = full ? `${actionsHtml()}${positionWalletHtml()}${activityHtml()}` : "";
-    refreshDialogs(full);
+    refreshDialogs(!!s && !!pos?.evm_address);
     flashArrival = false; // the arrival highlight plays once
     bind();
     if (focusSel) {
@@ -1754,9 +2154,10 @@ export function mountDash(root: HTMLElement): () => void {
     if (!fresh) return;
     el.replaceWith(fresh);
     fresh.querySelector(`[data-go="${id}"]`)?.addEventListener("click", () => go(id));
+    fresh.querySelector<HTMLElement>(`[data-ask="${id}"]`)?.addEventListener("click", (ev) => ask(id as "withdraw", ev.currentTarget as HTMLElement));
   }
   function go(id: string) {
-    const f: Record<string, (() => unknown) | undefined> = { deposit, borrow, repay, withdraw, buyback: buyBack, sweep, move };
+    const f: Record<string, (() => unknown) | undefined> = { deposit, borrow, repay, withdraw, buyback: buyBack, sweep, move, wethout: wethOut, payoutReq: requestPayout, payoutApply: applyPayout, register };
     void f[id]?.();
   }
   function bind() {
@@ -1794,13 +2195,62 @@ export function mountDash(root: HTMLElement): () => void {
       render();
     });
     root.querySelectorAll<HTMLButtonElement>("[data-prot]").forEach((b) => b.addEventListener("click", () => openProt(Number(b.dataset.prot), b)));
-    root.querySelector("[data-prot-more]")?.addEventListener("click", () => {
-      showAllProt = !showAllProt;
-      render();
-    });
-    root.querySelector("[data-prot-nobids]")?.addEventListener("click", () => {
-      showNoBids = !showNoBids;
-      render();
+    root.querySelector<HTMLElement>("[data-prots]")?.addEventListener("click", (ev) => openProt(null, ev.currentTarget as HTMLElement));
+    root.querySelectorAll<HTMLElement>("[data-ask]").forEach((b) => b.addEventListener("click", () => ask(b.dataset.ask as "withdraw" | "sweep", b)));
+    // a balance tile's + and −; an off one says why (touch has no tooltip)
+    root.querySelectorAll<HTMLElement>("[data-tile]").forEach((b) =>
+      b.addEventListener("click", () => {
+        if (b.getAttribute("aria-disabled") === "true") {
+          tileWhy = b.dataset.why ?? "";
+          tileWhyAt = Date.now();
+          render();
+          setTimeout(render, 8100);
+          return;
+        }
+        const [sign, tok] = b.dataset.tile!.split(":") as ["plus" | "minus", "coll" | "debt" | "eth"];
+        if (sign === "plus") {
+          if (evm) {
+            actView = { v: "send", token: tok };
+            openAct(b);
+          } else openFund(b, tok);
+          return;
+        }
+        ask(tok === "coll" ? "wethout" : tok === "debt" ? "move" : "sweep", b);
+      }),
+    );
+    // "Supply it" / "Repay with it": the Aave card, set up to use what is at the address
+    root.querySelectorAll<HTMLElement>("[data-tile-go]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const supply = b.dataset.tileGo === "supply";
+        if (supply) {
+          wethMode = "deposit";
+          amt.deposit = autoDeposit = trim(readyUnits(s?.posBal.coll ?? 0n), C.decimals, 6);
+        } else {
+          usdcMode = "repay";
+          repayPicked = "position";
+        }
+        render();
+        const card = root.querySelector<HTMLElement>(supply ? "#dash-aave-weth" : "#dash-aave-usdc");
+        card?.scrollIntoView({ block: "center", behavior: "smooth" });
+        root.querySelector<HTMLElement>(supply ? "#dash-amt-deposit" : "[data-offer], #dash-amt-repay")?.focus({ preventScroll: true });
+      }),
+    );
+    root.querySelectorAll<HTMLElement>("[data-resume]").forEach((b) => b.addEventListener("click", () => parked && go(parked.act)));
+    root.querySelectorAll<HTMLElement>("[data-park-x]").forEach((b) =>
+      b.addEventListener("click", () => {
+        parked = null;
+        render();
+      }),
+    );
+    root.querySelector("[data-offer]")?.addEventListener("click", () => {
+      const a = s?.acct;
+      if (!a || !s) return;
+      const o = positionRepayOffer({ repayOn: true, debtBase: a.debtBase, allUnits: repayAllUnits(a.debtBase, s.prices.debt, D.decimals), idleUnits: s.posBal.debt });
+      if (!o) return;
+      repayPicked = "position";
+      all.repay = o.all;
+      amt.repay = o.all ? "" : trim(o.units, D.decimals, D.decimals);
+      go("repay");
     });
     root.querySelectorAll<HTMLButtonElement>("[data-disc]").forEach((b) =>
       b.addEventListener("click", () => {
@@ -1855,7 +2305,7 @@ export function mountDash(root: HTMLElement): () => void {
     );
     root.querySelectorAll<HTMLButtonElement>("[data-repay-from]").forEach((r) =>
       r.addEventListener("click", () => {
-        repayFrom = r.dataset.repayFrom as "position" | "wallet";
+        repayPicked = r.dataset.repayFrom as "position" | "wallet";
         render();
       }),
     );

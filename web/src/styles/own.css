@@ -346,12 +346,21 @@
 .st-dash-buy .st-dash-owed { margin: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 10px; }
 .st-dash-buy .st-dash-owed .st-num { font-size: 40px; line-height: 1; }
 
-/* secondary: leftover gas, USDC left at the position */
-/* USDC at the position, moved to the wallet on its own */
-.st-dash-move { max-width: calc(50% - 6px); }
-.st-dash-move-have { margin: 0; display: inline-flex; align-items: baseline; gap: 6px; }
-.st-dash-move-have .st-num { font-size: 30px; line-height: 1; }
-@media (max-width: 900px) { .st-dash-move { max-width: none; } }
+/* the Aave mark on the Aave cards: a stroke ghost and the market's name, in ink */
+.st-dash-act h3 { display: inline-flex; align-items: center; gap: 10px; }
+.st-dash-aave { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: var(--st-border); font-family: var(--st-font-head); font-weight: 700; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-ink); background: var(--st-inset); }
+.st-dash-idle { margin: 0; font-size: 13px; color: var(--st-quiet); line-height: 1.45; }
+/* USDC at the position while there is debt: one click repays from it */
+.st-dash-offer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; border: var(--st-border); background: var(--st-inset); padding: 6px 10px; }
+.st-dash-offer p { margin: 0; font-size: 14px; }
+.st-dash-offer .st-secondary { font-size: 13px; min-height: 40px; padding: 0 12px; }
+/* an action waiting for a click before its next NEAR signature */
+.st-dash-next { border: var(--st-border-heavy); background: var(--st-inset); padding: 8px 10px; display: grid; gap: 6px; }
+.st-dash-next-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.st-dash-next-top .st-label { margin: 0; }
+.st-dash-next-top .st-dash-linkbtn { font-size: 13px; font-weight: 600; min-height: 32px; }
+.st-dash-next-head { margin: 0; font-family: var(--st-font-head); font-weight: 700; font-size: 18px; line-height: 1.3; }
+.st-dash-next-why { margin: 0; font-size: 12px; line-height: 1.45; color: var(--st-quiet); }
 
 /* the position's own address */
 .st-dash-poswallet { border: var(--st-border); padding: 10px 12px; display: grid; gap: 6px; }
@@ -380,6 +389,25 @@
 .st-dash-bal dd { margin: 1px 0 0; font-variant-numeric: tabular-nums; font-size: 13px; overflow-wrap: anywhere; }
 .st-dash-bal dd strong { font-size: 15px; font-weight: 700; }
 .st-dash-bal dd span { color: var(--st-quiet); }
+/* each balance tile's + and − (square, ink outline); an off one stays focusable and says why */
+.st-dash-bal dd.st-dash-tbs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.st-dash-tb { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border: var(--st-border); background: var(--st-panel); color: var(--st-ink); cursor: pointer; }
+.st-dash-tb:hover { background: var(--st-inset); }
+.st-dash-tb:focus-visible { outline: 2px solid var(--st-ink); outline-offset: 2px; }
+.st-dash-tb[aria-disabled="true"] { border: var(--st-hairline); color: var(--st-quiet); cursor: not-allowed; background: var(--st-panel); }
+.st-dash-tlink { font-size: 13px; min-height: 36px; }
+.st-dash-tilewhy { font-weight: 500; }
+/* the position section's buttons and the newest rescue in one line */
+.st-dash-pw-btns { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.st-dash-protbtn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; min-height: 40px; padding: 0 12px; }
+.st-dash-protbtn .st-num { font-size: 16px; line-height: 1; }
+.st-dash-lastprot { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-family: var(--st-font-head); font-size: 13px; }
+.st-dash-lastprot-l { font-weight: 600; color: var(--st-quiet); }
+.st-dash-lastprot .st-dash-linkbtn { min-height: 28px; }
+.st-dash-lastprot-w { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+.st-dash-lastprot-w .st-num { font-size: 17px; line-height: 1; }
+.st-dash-lastprot-d { font-weight: 600; color: var(--st-quiet); font-variant-numeric: tabular-nums; }
+.st-dash-lastprot.is-none { font-family: var(--st-font-body, inherit); color: var(--st-quiet); }
 
 @media (max-width: 1100px) {
   .st-dash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -444,6 +472,38 @@
   .st-dash-payout-addr { font-size: 14px; }
 }
 
+/* the protections dialog's way back from a rescue's flow */
+.st-dash-protback { margin: 0; }
+.st-dash-protback .st-dash-linkbtn { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; font-size: 14px; }
+.st-dash-dlg--prot .st-dash-prot { border: 0; padding: 0; background: none; }
+/* in the dialog the rows take two lines: id, outcome and date above; the winner and the top-up below */
+.st-dash-dlg--prot .st-dash-prow { grid-template-columns: auto auto minmax(0, 1fr) 14px; padding: 6px 10px; }
+.st-dash-dlg--prot .st-dash-prow-who { grid-column: 1 / 3; grid-row: 2; }
+.st-dash-dlg--prot .st-dash-prow-amt { grid-column: 3; grid-row: 2; justify-self: end; }
+.st-dash-dlg--prot .st-dash-prow-date { grid-column: 3; grid-row: 1; justify-self: end; }
+.st-dash-dlg--prot .st-dash-prow-go { grid-column: 4; grid-row: 1 / 3; }
+.st-dash-dlg--prot .st-dash-prow-amt:empty { display: none; }
+/* the action dialog: a withdrawal's destination, the payout change, a send, a result */
+.st-dash-dlg--act { width: min(600px, calc(100% - 32px)); }
+.st-dash-cf-what { margin: 0; font-size: 15px; line-height: 1.5; }
+.st-dash-cf-note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--st-quiet); }
+.st-dash-cf-steps { margin: 0; padding: 0 0 0 22px; font-family: var(--st-font-head); font-weight: 600; font-size: 14px; line-height: 1.6; }
+.st-dash-cf-go { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+.st-dash-dest { border: var(--st-border-heavy); padding: 8px 12px; display: grid; gap: 4px; }
+.st-dash-dest p { margin: 0; font-size: 13px; line-height: 1.45; }
+.st-dash-dest .st-dash-dest-line { font-family: var(--st-font-head); font-weight: 700; font-size: 16px; }
+.st-dash-dest-full { font-size: 12px !important; overflow-wrap: anywhere; word-break: break-all; color: var(--st-quiet); }
+.st-dash-dest-act span { color: var(--st-quiet); }
+.st-dash-done-line { margin: 0; font-size: 15px; line-height: 1.5; }
+.st-dash-done-fig { border: var(--st-border); background: var(--st-inset); padding: 10px 14px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; }
+.st-dash-done-fig .st-label { margin: 0; flex: 1 0 100%; color: var(--st-quiet); }
+.st-dash-done-fig .st-num { font-size: 48px; line-height: 1; }
+.st-dash-done-txs { list-style: none; margin: 0; padding: 0; border: var(--st-border); }
+.st-dash-done-txs li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 6px 10px; font-size: 13px; line-height: 1.4; }
+.st-dash-done-txs li + li { border-top: var(--st-hairline); }
+.st-dash-done-links { display: inline-flex; gap: 12px; font-size: 13px; }
+.st-dash-done-links a { display: inline-flex; align-items: center; gap: 3px; min-height: 28px; }
+
 /* risk details: a native dialog, a sheet on phones */
 .st-dash-risk { width: min(680px, calc(100% - 32px)); max-height: calc(100% - 48px); padding: 0; border: var(--st-border-heavy); background: var(--st-panel); color: var(--st-ink); overflow: auto; }
 .st-dash-risk::backdrop { background: rgb(0 0 0 / .55); }
@@ -486,6 +546,11 @@
 @media (max-width: 620px) {
   .st-dash-risk { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; border: 0; }
   .st-dash-risk.st-dash-dlg--fund { width: 100%; }
+  .st-dash-risk.st-dash-dlg--act { width: 100%; }
+  .st-dash-cf-go .st-push--small, .st-dash-cf-go .st-secondary { width: 100%; }
+  .st-dash-done-fig .st-num { font-size: 40px; }
+  .st-dash-pw-btns { width: 100%; }
+  .st-dash-pw-btns > * { flex: 1 1 0; justify-content: center; }
   .st-dash-dlg--fund .st-dash-fund-addr .st-mono { font-size: 15px; }
   .st-dash-risk-now .st-num { font-size: 46px; }
   .st-dash-rl { grid-template-columns: minmax(0, 1fr) auto; }

@@ -5,7 +5,7 @@
 // payout's checks, what to send to the position's address, and the address as a QR code.
 
 import qrcode from "qrcode-generator";
-import { getAddress, isAddress, type Address } from "viem";
+import { getAddress, isAddress, keccak256, type Address } from "viem";
 import { CODE, STEWARD_ORDER } from "../board/model";
 import type { StewardId } from "../../../stewards/src/rescuelog";
 import type { Move, RescueView as SvRescue, StewardView } from "../../../stewards/src/stewardview";
@@ -214,6 +214,15 @@ export type PosFacts = {
 };
 export type ActionId = "deposit" | "borrow" | "repay" | "withdraw" | "buyback" | "sweep" | "move";
 export type Avail = { on: boolean; why: string; tryAnyway: boolean };
+/** What stops every request the borrower makes, or "". */
+export function commonBlock(f: PosFacts): string {
+  return !f.registered ? "Protect a position first."
+    : !f.marketOk ? "The contract's market does not match this page."
+    : f.pendingTx ? "A transaction is on its way to Ethereum: wait for it to land."
+    : f.outflows > 0 ? "The contract is paying out queued transfers from this position: wait for them."
+    : f.refundPending ? "The position's held balance is being refunded to your wallet: wait for the next reading."
+    : "";
+}
 
 /** Which actions the contract would sign now, each with the reason when not. Mirrors the
  *  contract's signing rules: while a rescue runs it signs only repay and supply, and not even those
@@ -221,14 +230,10 @@ export type Avail = { on: boolean; why: string; tryAnyway: boolean };
 export function availability(f: PosFacts): Record<ActionId, Avail> {
   const on: Avail = { on: true, why: "", tryAnyway: false };
   const off = (why: string, tryAnyway = false): Avail => ({ on: false, why, tryAnyway });
-  // what stops every request the borrower makes
-  const common = (): Avail | null =>
-    !f.registered ? off("Protect a position first.")
-    : !f.marketOk ? off("The contract's market does not match this page.")
-    : f.pendingTx ? off("A transaction is on its way to Ethereum: wait for it to land.")
-    : f.outflows > 0 ? off("The contract is paying out queued transfers from this position: wait for them.")
-    : f.refundPending ? off("The position's held balance is being refunded to your wallet: wait for the next reading.")
-    : null;
+  const common = (): Avail | null => {
+    const why = commonBlock(f);
+    return why ? off(why) : null;
+  };
   const LOCKED = "While a rescue runs, the contract signs only repays and supplies.";
   const HELD = "The position's balance is held for the buy-back: the contract signs nothing else until the claim ends.";
   const lowering = (kind: "borrow" | "withdraw"): Avail => {
@@ -751,3 +756,133 @@ export function flowMoves(flow: FlowStep[], chain: NonNullable<Move["chain"]> = 
     };
   });
 }
+
+// ── two wallets in one action: the NEAR wallet's window needs a click of its own ──
+/** How long a click lets a page open a window, where the browser can't say (Chrome's is 5 s). */
+export const ACTIVATION_MS = 4_000;
+/** Whether the NEAR wallet may be asked to sign now ("sign") or the page must wait for a click
+ *  ("click"): a wallet that signs in a window of its own is blocked (it reads as "User closed the
+ *  window") once the click that started the action has expired, e.g. after waiting for an Ethereum
+ *  transaction. `activationActive` is the browser's own answer (navigator.userActivation.isActive);
+ *  null where the browser has none, then the time since the click decides. */
+export function nearGate(activationActive: boolean | null, msSinceClick: number): "sign" | "click" {
+  if (activationActive !== null) return activationActive ? "sign" : "click";
+  return msSinceClick >= 0 && msSinceClick <= ACTIVATION_MS ? "sign" : "click";
+}
+/** A NEAR wallet's answer that means its window never opened or was shut: the step can be retried from a click. */
+export const windowRefused = (message: string) => /closed the window|popup|window (was )?blocked|failed to open/i.test(message);
+/** The step an action stopped at, waiting for a click: what is already done and the button that goes on. */
+export function parkedView(p: { held: string | null; done: string[]; next: string }): { head: string; button: string } {
+  const head = p.held ? `${p.held} is at the position.` : p.done.length ? `Done: ${p.done[p.done.length - 1]}.` : "The next step is ready.";
+  return { head, button: `${p.next} now` };
+}
+
+/** A repay, step by step. From the wallet: send the USDC to the position first (all of the typed
+ *  amount; for ALL, only what the position doesn't already hold). From the position: nothing is
+ *  sent, and a shortfall stops it. Once the wallet's transfer has landed the repay goes on from the
+ *  position, so going on after a pause never sends the USDC twice. */
+export type RepayPlan = { needUnits: bigint; sendUnits: bigint; shortUnits: bigint; arg: "max" | { exact: string } };
+export function repayPlan(i: { src: "wallet" | "position"; all: boolean; typedUnits: bigint; allUnits: bigint; idleUnits: bigint }): RepayPlan {
+  const need = i.all ? i.allUnits : i.typedUnits;
+  const gap = need > i.idleUnits ? need - i.idleUnits : 0n;
+  const arg = i.all ? ("max" as const) : { exact: need.toString() };
+  if (i.src === "wallet") return { needUnits: need, sendUnits: i.all ? gap : need, shortUnits: 0n, arg };
+  return { needUnits: need, sendUnits: 0n, shortUnits: gap, arg };
+}
+/** Where a repay comes from unless the visitor picked: the position when it holds USDC (or there is
+ *  no wallet to send from), else the wallet. */
+export function defaultRepaySrc(i: { evmConnected: boolean; picked: "wallet" | "position" | null; idleUnits: bigint }): "wallet" | "position" {
+  if (!i.evmConnected) return "position";
+  if (i.picked) return i.picked;
+  return i.idleUnits > 0n ? "position" : "wallet";
+}
+/** USDC at the position while there is debt: repaid from there in one NEAR call. All of the debt
+ *  when it covers ALL (the debt plus the interest margin), else what it holds. */
+export function positionRepayOffer(i: { repayOn: boolean; debtBase: bigint; allUnits: bigint; idleUnits: bigint }): { all: boolean; units: bigint } | null {
+  if (!i.repayOn || i.debtBase <= 0n || i.idleUnits <= 0n) return null;
+  return i.idleUnits >= i.allUnits ? { all: true, units: i.allUnits } : { all: false, units: i.idleUnits };
+}
+
+// ── where withdrawals go ──
+const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+/** The one destination of every withdrawal, refund and return: the registered payout. */
+export function payoutLine(payout: string, evm: string | null): string {
+  const who = !evm ? "" : payout.toLowerCase() === evm.toLowerCase() ? " (your connected wallet)" : " (not your connected wallet)";
+  return `Sends to your payout ${shortAddr(getAddress(payout))}${who}`;
+}
+/** A payout change: none asked, asked and waiting out the delay, or ready to apply; never while a rescue runs. */
+export type PayoutChangeState =
+  | { kind: "none"; locked: boolean }
+  | { kind: "waiting"; to: string; atMs: number; leftMs: number; locked: boolean }
+  | { kind: "ready"; to: string; atMs: number; locked: boolean };
+export function payoutChangeState(change: { to: string; effective_at: string } | null | undefined, nowMs: number, locked: boolean): PayoutChangeState {
+  if (!change) return { kind: "none", locked };
+  const atMs = Number(BigInt(change.effective_at) / 1_000_000n);
+  return atMs > nowMs ? { kind: "waiting", to: change.to, atMs, leftMs: atMs - nowMs, locked } : { kind: "ready", to: change.to, atMs, locked };
+}
+/** "24 h" / "23 h 12 min" / "12 min" / "under a minute" */
+export function durationText(ms: number): string {
+  const min = Math.floor(ms / 60_000);
+  if (min < 1) return "under a minute";
+  const h = Math.floor(min / 60);
+  return h ? (min % 60 ? `${h} h ${min % 60} min` : `${h} h`) : `${min} min`;
+}
+
+// ── the result of a key action ──
+export type DoneKind = "register" | "deposit" | "borrow" | "repay" | "withdraw" | "buyback" | "payout";
+/** Which actions end with a result dialog; the rest (approvals, gas, moves, returns) stay in the activity. */
+export const DONE_KINDS: DoneKind[] = ["register", "deposit", "borrow", "repay", "withdraw", "buyback", "payout"];
+/** The result dialog's title, its one line and its key figure, from the reading after the action. */
+export function doneView(kind: DoneKind, i: { what: string; hfText: string; posId: number; payout?: string; atText?: string }): { title: string; line: string; figure: { label: string; value: string } } {
+  const hf = { label: "HEALTH FACTOR NOW", value: i.hfText };
+  switch (kind) {
+    case "register":
+      return { title: `Position ${i.posId} is protected`, line: "Registered on the contract; its Ethereum address is derived. Supply WETH next.", figure: { label: "POSITION", value: String(i.posId) } };
+    case "deposit":
+      return { title: `Supplied ${i.what}`, line: `${i.what} is on Aave as the position's collateral.`, figure: hf };
+    case "borrow":
+      return { title: `Borrowed ${i.what}`, line: `${i.what} is at the position's address. Withdraw it to your payout from the position's balances.`, figure: hf };
+    case "repay":
+      return { title: `Repaid ${i.what}`, line: `Aave took ${i.what} from the position.`, figure: hf };
+    case "withdraw":
+      return { title: `Withdrew ${i.what}`, line: `Aave sent ${i.what} to your payout${i.payout ? ` ${shortAddr(getAddress(i.payout))}` : ""}.`, figure: hf };
+    case "buyback":
+      return { title: `Paid ${i.what} into the position`, line: "Once the keeper proves the balance, the contract commits the buy-back and pays the claim owner exactly what it is owed; any extra is refunded to your payout.", figure: hf };
+    case "payout":
+      return { title: "Payout change requested", line: `The new payout${i.payout ? ` ${shortAddr(getAddress(i.payout))}` : ""} takes effect ${i.atText ?? "after the delay"}; then apply it with one more call.`, figure: { label: "TAKES EFFECT", value: i.atText ?? "after 24 h" } };
+  }
+}
+/** The Ethereum transaction a contract-signed one became (the hash of its signed bytes). */
+export const relayedHash = (signedRaw: string) => keccak256((signedRaw.startsWith("0x") ? signedRaw : `0x${signedRaw}`) as `0x${string}`);
+
+/** The one line under the position's address about its protections: the newest rescue with bids,
+ *  else the newest without. */
+export function lastProtection<T extends { id: number }>(rows: T[], noBids: T[]): T | null {
+  return rows[0] ?? noBids[0] ?? null;
+}
+
+// ── WETH out of the position's address: the contract never sends idle WETH, so it is supplied to
+// Aave and then withdrawn (Aave pays the payout): two contract-signed transactions, health unchanged ──
+/** Whether the WETH at the position can be taken out this way now: the withdraw's own rules
+ *  (nothing while a rescue runs or the contract is paused), within the size cap, and gas for each
+ *  transaction at the position. */
+export function wethOutAvail(f: PosFacts & { idleUnits: bigint; overCap: boolean; gasWei: bigint; upfrontWei: bigint; needsApprove: boolean }): Avail & { txs: number } {
+  const txs = f.needsApprove ? 3 : 2;
+  const off = (why: string) => ({ on: false, why, tryAnyway: false, txs });
+  const common = commonBlock(f);
+  if (common) return off(common);
+  if (f.locked) return off("While a rescue runs, the contract signs only repays and supplies.");
+  if (f.paused) return off("The contract is paused: it signs only repays and supplies.");
+  if (f.idleUnits <= 0n) return off("The position holds no WETH.");
+  if (f.overCap) return off("Supplying it would pass the position's size cap, so it can't be routed through Aave: withdraw some from Aave first.");
+  if (f.gasWei < BigInt(txs) * f.upfrontWei) return off(`Needs gas for ${txs} transactions at the position (${Number((BigInt(txs) * f.upfrontWei) / 10n ** 12n) / 1e6} ETH): add ETH for gas first.`);
+  return { on: true, why: "", tryAnyway: false, txs };
+}
+/** The next step of taking WETH out: approve (once), supply, then withdraw the same amount. */
+export function wethOutNext(i: { supplied: boolean; allowanceUnits: bigint; units: bigint }): "approve" | "supply" | "withdraw" {
+  if (i.supplied) return "withdraw";
+  return i.allowanceUnits < i.units ? "approve" : "supply";
+}
+/** The withdraw's amount: exactly what was supplied, or all of it when that was the only collateral
+ *  (so Aave's rounding can't leave a speck or refuse a wei too many). */
+export const wethOutArg = (units: bigint, collBaseBefore: bigint): "max" | { exact: string } => (collBaseBefore === 0n ? "max" : { exact: units.toString() });
