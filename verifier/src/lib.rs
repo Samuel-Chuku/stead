@@ -311,6 +311,7 @@ impl<'a> Prover<'a> {
         };
         let path = keccak(&addr_bytes(account)?);
         let acct = mpt::verify(self.header.state_root, path, &nodes(&res["accountProof"])?).map_err(|e| format!("account proof: {e:?}"))?;
+        let absent = acct.is_none();
         let (nonce, storage_root) = match acct {
             Some(rlp_bytes) => {
                 let r = rlp::Rlp::new(&rlp_bytes);
@@ -321,7 +322,10 @@ impl<'a> Prover<'a> {
             None => (0, keccak(&[0x80])), // absent account: empty trie
         };
         let claimed = hex32(res["storageHash"].as_str().ok_or("no storageHash")?)?;
-        if claimed != storage_root {
+        // An account the proof shows absent (a new position address with no ETH yet) has no
+        // storage; nodes report its storageHash as zero. Every slot is still checked against the
+        // empty trie, never against the claim.
+        if claimed != storage_root && !(absent && claimed == [0u8; 32]) {
             return Err("storageHash doesn't match the proven account".into());
         }
         let sp = res["storageProof"].as_array().ok_or("no storageProof")?;
@@ -458,67 +462,34 @@ fn verify_inner(rpc: &dyn Rpc, cfg: &Config, input: &Input) -> Result<Output, St
     let (mut tot_coll, mut tot_debt, mut lt_acc) = (U256::ZERO, U256::ZERO, U256::ZERO);
     let mut res = vec![];
     for rid in &ids {
-        let mut rid_w = [0u8; 32];
-        rid_w[28..].copy_from_slice(&rid.to_be_bytes());
-        let asset = as_addr(pv.read(&cfg.pool, &[map_slot(rid_w, U256::from(RESERVES_LIST))])?.values[0]);
-        let b = map_slot(word_addr(&asset)?, U256::from(RESERVES));
-        let one = U256::from(1u128);
-        let r = pv.read(&cfg.pool, &[b, b + one, b + U256::from(2u128), b + U256::from(3u128), b + U256::from(4u128), b + U256::from(5u128), b + U256::from(6u128)])?.values;
-        let (rcfg, s1, s2, s3) = (r[0], r[1], r[2], r[3]);
-        let id_check = s3.shr(128 + 40).mask(16).low_u128() as u32;
-        if id_check != *rid {
-            return Err(format!("reserve id mismatch {id_check} != {rid}"));
+        let r = read_reserve(&mut pv, rpc, cfg, *rid, None, ucfg, user, now, block)?.ok_or("reserve read")?;
+        tot_coll = tot_coll + r.coll_base;
+        lt_acc = lt_acc + r.lt_part;
+        tot_debt = tot_debt + r.debt_base;
+        if wanted(&r.out.a) {
+            res.push(r.out);
         }
-        let last = s3.shr(128).mask(40).low_u128() as u64;
-        let lt = rcfg.shr(16).mask(16);
-        let dec = rcfg.shr(48).mask(8).low_u128() as u32;
-        let unit = U256::pow10(dec);
-        let price = if cfg.price_by_call {
-            agreed_price(rpc, cfg, &asset, block)?
-        } else {
-            let src = as_addr(pv.read(&cfg.oracle, &[map_slot(word_addr(&asset)?, U256::ZERO)])?.values[0]);
-            pv.read(&src, &[U256::ZERO])?.values[0]
-        };
-        let (mut cs, mut ds) = (U256::ZERO, U256::ZERO);
-        let (liq_rate, liq_index) = (s1.shr(128), s1.mask(128));
-        let income = if now != last { ray_mul(linear_interest(liq_rate, last, now), liq_index) } else { liq_index };
-        let (var_rate, var_index) = (s2.shr(128), s2.mask(128));
-        let debt_index = if now != last { ray_mul(compounded_interest(var_rate, last, now), var_index) } else { var_index };
-        let collateral = ucfg.bit(2 * rid + 1) && !lt.is_zero();
-        if collateral {
-            let a_tok = as_addr(r[4]);
-            cs = pv.read(&a_tok, &[map_slot(user, U256::from(ATOKEN_USER_STATE))])?.values[0].mask(128);
-            let bal = ray_mul(cs, income);
-            let base = bal * price / unit;
-            tot_coll = tot_coll + base;
-            lt_acc = lt_acc + base * lt;
+    }
+    // A requested reserve the position doesn't use (a new position's first supply needs the
+    // collateral's price): its id comes from its own proven ReserveData, and it is read exactly
+    // as above. Its bits are unset, so it adds nothing to the totals. An asset that isn't an
+    // Aave reserve is left out, as before.
+    for a in input.reserves.iter().flatten() {
+        if res.iter().any(|r| r.a.eq_ignore_ascii_case(a)) {
+            continue;
         }
-        if ucfg.bit(2 * rid) {
-            let (v_tok, s_tok) = (as_addr(r[6]), as_addr(r[5]));
-            ds = pv.read(&v_tok, &[map_slot(user, U256::from(DEBT_USER_STATE))])?.values[0].mask(128);
-            // Aave 3.2+ (Ethereum mainnet, revision 11) removed stable-rate debt: its token address is zero
-            let stable = if s_tok.trim_start_matches("0x").chars().all(|c| c == '0') {
-                U256::ZERO
-            } else {
-                pv.read(&s_tok, &[map_slot(user, U256::from(DEBT_USER_STATE))])?.values[0].mask(128)
-            };
-            if !stable.is_zero() {
-                return Err("stable debt isn't supported".into());
-            }
-            let debt = if ds.is_zero() {
-                U256::ZERO
-            } else if cfg.debt_round_up {
-                ray_mul_up(ds, debt_index)
-            } else {
-                ray_mul(ds, debt_index)
-            };
-            // in dollars too, Aave 3.4+ rounds the debt up
-            let in_base = price * debt;
-            let q = in_base / unit;
-            tot_debt = tot_debt + if cfg.debt_round_up && q * unit != in_base { q + U256::from(1u128) } else { q };
+        let b = map_slot(word_addr(a)?, U256::from(RESERVES));
+        let s3 = pv.read(&cfg.pool, &[b + U256::from(3u128)])?.values[0];
+        let rid = s3.shr(128 + 40).mask(16).low_u128() as u32;
+        if ids.contains(&rid) {
+            continue; // that id's reserve is another asset (this one isn't listed)
         }
-        if wanted(&asset) {
-            res.push(ReserveOut { a: asset, p: price.to_string(), cs: cs.to_string(), ds: ds.to_string(), ci: income.to_string(), di: debt_index.to_string() });
+        if let Some(r) = read_reserve(&mut pv, rpc, cfg, rid, Some(a), ucfg, user, now, block)? {
+            debug_assert!(r.coll_base.is_zero() && r.debt_base.is_zero() && r.lt_part.is_zero());
+            tot_coll = tot_coll + r.coll_base;
+            lt_acc = lt_acc + r.lt_part;
+            tot_debt = tot_debt + r.debt_base;
+            res.push(r.out);
         }
     }
     let avg_lt = if tot_coll.is_zero() { U256::ZERO } else { lt_acc / tot_coll };
@@ -548,6 +519,86 @@ fn verify_inner(rpc: &dyn Rpc, cfg: &Config, input: &Input) -> Result<Output, St
         bal,
         agree,
     })
+}
+
+/// One reserve, proven: its line in the output and what it adds to the totals (zero unless the
+/// user's config marks it as collateral or as borrowed).
+struct ReserveRead {
+    out: ReserveOut,
+    coll_base: U256,
+    lt_part: U256,
+    debt_base: U256,
+}
+
+/// Reads reserve `rid` (its asset from the proven reserves list, then its ReserveData, price and
+/// the user's balances). `expect`: the asset the caller looked the id up for; `None` is returned
+/// when the list names another asset (the requested one isn't an Aave reserve).
+#[allow(clippy::too_many_arguments)]
+fn read_reserve(pv: &mut Prover, rpc: &dyn Rpc, cfg: &Config, rid: u32, expect: Option<&str>, ucfg: U256, user: [u8; 32], now: u64, block: u64) -> Result<Option<ReserveRead>, String> {
+    let mut rid_w = [0u8; 32];
+    rid_w[28..].copy_from_slice(&rid.to_be_bytes());
+    let asset = as_addr(pv.read(&cfg.pool, &[map_slot(rid_w, U256::from(RESERVES_LIST))])?.values[0]);
+    if expect.is_some_and(|e| !e.eq_ignore_ascii_case(&asset)) {
+        return Ok(None);
+    }
+    let b = map_slot(word_addr(&asset)?, U256::from(RESERVES));
+    let one = U256::from(1u128);
+    let r = pv.read(&cfg.pool, &[b, b + one, b + U256::from(2u128), b + U256::from(3u128), b + U256::from(4u128), b + U256::from(5u128), b + U256::from(6u128)])?.values;
+    let (rcfg, s1, s2, s3) = (r[0], r[1], r[2], r[3]);
+    let id_check = s3.shr(128 + 40).mask(16).low_u128() as u32;
+    if id_check != rid {
+        return Err(format!("reserve id mismatch {id_check} != {rid}"));
+    }
+    let last = s3.shr(128).mask(40).low_u128() as u64;
+    let lt = rcfg.shr(16).mask(16);
+    let dec = rcfg.shr(48).mask(8).low_u128() as u32;
+    let unit = U256::pow10(dec);
+    let price = if cfg.price_by_call {
+        agreed_price(rpc, cfg, &asset, block)?
+    } else {
+        let src = as_addr(pv.read(&cfg.oracle, &[map_slot(word_addr(&asset)?, U256::ZERO)])?.values[0]);
+        pv.read(&src, &[U256::ZERO])?.values[0]
+    };
+    let (mut coll_base, mut lt_part, mut debt_base) = (U256::ZERO, U256::ZERO, U256::ZERO);
+    let (mut cs, mut ds) = (U256::ZERO, U256::ZERO);
+    let (liq_rate, liq_index) = (s1.shr(128), s1.mask(128));
+    let income = if now != last { ray_mul(linear_interest(liq_rate, last, now), liq_index) } else { liq_index };
+    let (var_rate, var_index) = (s2.shr(128), s2.mask(128));
+    let debt_index = if now != last { ray_mul(compounded_interest(var_rate, last, now), var_index) } else { var_index };
+    let collateral = ucfg.bit(2 * rid + 1) && !lt.is_zero();
+    if collateral {
+        let a_tok = as_addr(r[4]);
+        cs = pv.read(&a_tok, &[map_slot(user, U256::from(ATOKEN_USER_STATE))])?.values[0].mask(128);
+        let bal = ray_mul(cs, income);
+        let base = bal * price / unit;
+        coll_base = base;
+        lt_part = base * lt;
+    }
+    if ucfg.bit(2 * rid) {
+        let (v_tok, s_tok) = (as_addr(r[6]), as_addr(r[5]));
+        ds = pv.read(&v_tok, &[map_slot(user, U256::from(DEBT_USER_STATE))])?.values[0].mask(128);
+        // Aave 3.2+ (Ethereum mainnet, revision 11) removed stable-rate debt: its token address is zero
+        let stable = if s_tok.trim_start_matches("0x").chars().all(|c| c == '0') {
+            U256::ZERO
+        } else {
+            pv.read(&s_tok, &[map_slot(user, U256::from(DEBT_USER_STATE))])?.values[0].mask(128)
+        };
+        if !stable.is_zero() {
+            return Err("stable debt isn't supported".into());
+        }
+        let debt = if ds.is_zero() {
+            U256::ZERO
+        } else if cfg.debt_round_up {
+            ray_mul_up(ds, debt_index)
+        } else {
+            ray_mul(ds, debt_index)
+        };
+        // in dollars too, Aave 3.4+ rounds the debt up
+        let in_base = price * debt;
+        let q = in_base / unit;
+        debt_base = if cfg.debt_round_up && q * unit != in_base { q + U256::from(1u128) } else { q };
+    }
+    Ok(Some(ReserveRead { out: ReserveOut { a: asset, p: price.to_string(), cs: cs.to_string(), ds: ds.to_string(), ci: income.to_string(), di: debt_index.to_string() }, coll_base, lt_part, debt_base }))
 }
 
 /// Native transport via `curl` (tests, local runs). Not compiled into the WASI build.

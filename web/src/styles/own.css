@@ -67,6 +67,12 @@
    the largest things on the page; balances, sources and "how it works" are small and quiet. The
    wallets sit on the console-green band so they read as connections, not tokens. */
 .st-dash { display: flex; flex-direction: column; gap: 12px; }
+/* the page is drawn in parts around the bid ladder; the parts don't add boxes of their own */
+.st-dash-part { display: contents; }
+/* The health factor's caution tone (1.15 to 1.50): one token pair, this page only. Ink passes
+   5:1 on the inset in light (#55520F) and 10:1 in dark (#CBC873); the fill is the bar's zone. */
+.st-dash, .st-dash-risk { --st-caution-ink: #55520F; --st-caution: #C9C27A; }
+[data-theme="dark"] .st-dash, [data-theme="dark"] .st-dash-risk { --st-caution-ink: #CBC873; --st-caution: #6E6A2C; }
 .st-dash .st-list-sub { font-size: 14px; }
 .st-dash .st-own-real, .st-dash .st-own-live { margin: 0; }
 
@@ -128,18 +134,45 @@
 .st-dash-big { display: flex; align-items: baseline; gap: 6px; margin-top: 4px !important; min-height: 46px; }
 .st-dash-big .st-num { font-size: 46px; line-height: 1; }
 .st-dash-kpi-hf .st-dash-big .st-num { font-size: 56px; }
-.st-dash-big .st-num.is-exposed { color: var(--st-exposure-ink); }
+/* the health factor: big and bold everywhere, coloured by how close it is to the lines */
+.st-dash-hf { font-weight: 800; }
+.st-dash-hf.is-danger, .st-dash-projnow.is-danger, .st-dash-projnum.is-danger { color: var(--st-trip); }
+.st-dash-hf.is-exposure, .st-dash-projnow.is-exposure, .st-dash-projnum.is-exposure { color: var(--st-exposure-ink); }
+.st-dash-hf.is-caution, .st-dash-projnow.is-caution, .st-dash-projnum.is-caution { color: var(--st-caution-ink); }
+.st-dash-hfrow { align-items: center !important; flex-wrap: wrap; gap: 6px 14px !important; }
+.st-dash-riskbtn { min-height: 44px; padding: 0 14px; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }
 .st-dash-nodebt { font-family: var(--st-font-head); font-weight: 700; font-size: 30px; line-height: 1.1; letter-spacing: var(--st-tracking-head); }
 .st-dash-unit { font-family: var(--st-font-head); font-weight: 700; font-size: 16px; letter-spacing: .04em; }
 .st-dash-cons { font-family: var(--st-font-head); font-weight: 600; font-size: 14px; line-height: 1.4; margin-top: 2px !important; }
 
 /* the health bar: 0.90 to 2.10, marks at Aave's 1.00 and Stead's 1.15 */
-.st-dash-bar { position: relative; height: 10px; margin: 10px 0 16px; border: var(--st-border); background: var(--st-panel); }
-.st-dash-bar-fill { position: absolute; inset: 0 auto 0 0; background: var(--st-level-safe); }
-.st-dash-bar.is-exposed .st-dash-bar-fill { background: var(--st-exposure); }
+/* the health bar: flat zones, marks at 1.00 / 1.10 / 1.15 (a steward chip at the rescue line),
+   and the current reading as an ink marker */
+.st-dash-bar { padding: 22px 0 18px; }
+.st-dash-bar-track { position: relative; height: 14px; border: var(--st-border); background: var(--st-panel); }
+.st-dash-zone { position: absolute; top: 0; bottom: 0; }
+.st-dash-zone.is-trip { background: var(--st-trip); }
+.st-dash-zone.is-settle { background: color-mix(in srgb, var(--st-trip) 30%, var(--st-panel)); }
+.st-dash-zone.is-exposure { background: var(--st-exposure); }
+.st-dash-zone.is-caution { background: var(--st-caution); }
+.st-dash-zone.is-safe { background: var(--st-level-safe); }
 .st-dash-bar-mark { position: absolute; top: -4px; bottom: -4px; width: 0; border-left: 2px solid var(--st-ink); }
-.st-dash-bar-mark i { position: absolute; top: 100%; left: -12px; padding-top: 1px; font-style: normal; font-family: var(--st-font-head); font-weight: 600; font-size: 10px; color: var(--st-quiet); }
-.st-dash-bar-mark.is-trigger i { left: 2px; }
+.st-dash-bar-mark i { position: absolute; top: 100%; left: 0; transform: translateX(-50%); padding-top: 2px; font-style: normal; font-family: var(--st-font-head); font-weight: 700; font-size: 11px; line-height: 1; color: var(--st-quiet); }
+.st-dash-bar-mark.is-trigger i { color: var(--st-ink); transform: none; left: 3px; }
+.st-dash-bar-rescue { position: absolute; bottom: calc(100% + 4px); display: inline-flex; align-items: center; gap: 3px; transform: translateX(-7px); font-family: var(--st-font-head); font-weight: 700; font-size: 11px; line-height: 1; letter-spacing: .04em; color: var(--st-ink); white-space: nowrap; }
+.st-dash-bar-now { position: absolute; top: -8px; bottom: -3px; width: 4px; transform: translateX(-2px); background: var(--st-ink); outline: 2px solid var(--st-panel); --pc: var(--st-ink); }
+.st-dash-bar-now.is-danger { --pc: var(--st-trip); }
+.st-dash-bar-now.is-exposure { --pc: var(--st-exposure); }
+.st-dash-bar-now.is-caution { --pc: var(--st-caution-ink); }
+/* under 1.50 the marker draws the eye now and then: two hard blinks of a ring every 6 s */
+.st-dash-bar-now.is-pulse { animation: st-dash-pulse 6s steps(1, end) infinite; }
+@keyframes st-dash-pulse {
+  0%, 88% { outline: 2px solid var(--st-panel); }
+  90% { outline: 4px solid var(--pc); }
+  93% { outline: 2px solid var(--st-panel); }
+  95% { outline: 4px solid var(--pc); }
+  98%, 100% { outline: 2px solid var(--st-panel); }
+}
 .st-dash-src { margin: 0; padding: 6px 16px; font-size: 12px; color: var(--st-quiet); line-height: 1.45; }
 
 /* the activity journal: the latest line, the rest behind a chevron */
@@ -156,7 +189,16 @@
 .st-dash-txlink:focus-visible { outline: 2px solid var(--st-journal-ink); outline-offset: 2px; }
 .st-dash-reason { color: var(--st-journal-quiet); }
 
-.st-dash-rescue { border: var(--st-border); padding: 4px 12px 10px; margin: 0; }
+/* the live bid ladder (the boards' ladder rows, pipes and lockout tags), read from the contract */
+.st-dash-rescue { border: var(--st-border-heavy); background: var(--st-panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.st-dash-rescue .st-ladder { height: calc(var(--pitch) * var(--n, 3)); }
+.st-dash-rescue .st-ladder.has-bids .st-placeholder { opacity: 0; }
+.st-dash-axis { display: flex; justify-content: space-between; }
+.st-dash-lclock { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.st-dash-lclock[hidden] { display: none; }
+.st-dash-lclock .st-label { margin: 0; color: var(--st-quiet); }
+.st-dash-pipes:empty, .st-dash-tags:empty { display: none; }
+.st-dash-tags { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; }
 
 /* the action cards: one per token, a switch for the side */
 .st-dash-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -198,7 +240,7 @@
 .st-dash-go .st-push--small { font-size: 15px; padding: 0 18px; min-height: 48px; }
 .st-dash-proj { margin: 0; display: inline-flex; align-items: baseline; gap: 6px; font-variant-numeric: tabular-nums; }
 .st-dash-projlbl { font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); }
-.st-dash-projnow { font-family: var(--st-font-display); font-weight: 700; font-size: 22px; color: var(--st-quiet); }
+.st-dash-projnow { font-family: var(--st-font-display); font-weight: 800; font-size: 24px; }
 .st-dash-proj.is-empty .st-dash-projnow { font-family: var(--st-font-head); font-size: 14px; }
 .st-dash-to { align-self: center; color: var(--st-quiet); }
 .st-dash-projnum { font-family: var(--st-font-display); font-weight: 800; font-size: 28px; line-height: 1; }
@@ -214,6 +256,11 @@
 .st-dash-buy .st-dash-owed .st-num { font-size: 40px; line-height: 1; }
 
 /* secondary: leftover gas, USDC left at the position */
+/* USDC at the position, moved to the wallet on its own */
+.st-dash-move { max-width: calc(50% - 6px); }
+.st-dash-move-have { margin: 0; display: inline-flex; align-items: baseline; gap: 6px; }
+.st-dash-move-have .st-num { font-size: 30px; line-height: 1; }
+@media (max-width: 900px) { .st-dash-move { max-width: none; } }
 .st-dash-minor { display: flex; flex-wrap: wrap; gap: 8px 24px; }
 .st-dash-minor-item { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 13px; }
 .st-dash-minor-lbl { font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); text-transform: uppercase; color: var(--st-quiet); }
@@ -260,4 +307,93 @@
   .st-dash-go { gap: 6px; }
   .st-dash-bal dd { font-size: 12px; }
   .st-dash-act { padding: 10px 12px; }
+}
+
+/* no Ethereum wallet: the pasted payout, shown back with its one rule */
+.st-dash-payout { display: grid; gap: 6px; margin-top: 6px; max-width: 640px; }
+.st-dash-payout .st-label { margin: 0; }
+.st-dash-payin input { font-family: var(--st-font-mono); font-weight: 500; font-size: 15px; }
+.st-dash-payout-ok { border: var(--st-border-heavy); padding: 8px 12px; display: grid; gap: 4px; }
+.st-dash-payout-addr { margin: 0; font-size: 16px; font-weight: 500; overflow-wrap: anywhere; word-break: break-all; }
+.st-dash-payout-warn { margin: 0; font-size: 14px; line-height: 1.45; }
+.st-dash-payout .st-own-stop { margin: 0; }
+
+/* send to the position's address: what to send big, the address large, its QR code */
+.st-dash-fund { border: var(--st-border-heavy); background: var(--st-panel); padding: 12px 14px; display: grid; gap: 10px; }
+.st-dash-fund .st-label { margin: 0; }
+.st-dash-fund-row { display: grid; grid-template-columns: 176px minmax(0, 1fr); gap: 18px; align-items: start; }
+.st-dash-qr { margin: 0; display: grid; gap: 4px; justify-items: center; }
+.st-dash-qr svg { display: block; width: 176px; height: 176px; border: var(--st-border); }
+.st-dash-qr figcaption { text-align: center; font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); text-transform: uppercase; color: var(--st-quiet); }
+.st-dash-fund-main { display: grid; gap: 8px; min-width: 0; }
+.st-dash-fund-main p { margin: 0; }
+.st-dash-fund-say { font-family: var(--st-font-head); font-weight: 700; font-size: 24px; line-height: 1.25; letter-spacing: var(--st-tracking-head); }
+.st-dash-fund-gas { font-weight: 600; }
+.st-dash-fund-addr { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.st-dash-fund-addr .st-mono { font-size: 20px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; word-break: break-all; }
+.st-dash-fund-only { font-size: 15px; line-height: 1.45; border: var(--st-border); padding: 6px 10px; justify-self: start; }
+.st-dash-fund-sub { font-size: 13px; line-height: 1.45; color: var(--st-quiet); }
+
+/* WETH that just arrived at the position: one stepped flash (none under reduced motion), then plain */
+.st-dash-arrived { margin: 0; border: var(--st-border-heavy); padding: 8px 10px; font-size: 14px; line-height: 1.45; }
+.st-dash-arrived strong { font-family: var(--st-font-head); font-size: 17px; }
+.st-dash-arrived.is-flash, .st-dash-bal > .is-flash { animation: st-flash var(--st-dur-flash) steps(4, end) 1; }
+
+@media (max-width: 620px) {
+  .st-dash-fund { padding: 10px 12px; }
+  .st-dash-fund-row { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .st-dash-qr svg { width: 200px; height: 200px; }
+  .st-dash-fund-say { font-size: 19px; }
+  .st-dash-fund-addr .st-mono { font-size: 15px; }
+  .st-dash-payout-addr { font-size: 14px; }
+}
+
+/* risk details: a native dialog, a sheet on phones */
+.st-dash-risk { width: min(680px, calc(100% - 32px)); max-height: calc(100% - 48px); padding: 0; border: var(--st-border-heavy); background: var(--st-panel); color: var(--st-ink); overflow: auto; }
+.st-dash-risk::backdrop { background: rgb(0 0 0 / .55); }
+.st-dash-risk-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 14px; background: var(--st-panel); border-bottom: var(--st-border); }
+.st-dash-risk-head .st-label { margin: 0; }
+.st-dash-risk-head h2 { font-size: 22px; }
+.st-dash-risk-x { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: none; padding: 0; border: var(--st-border); background: var(--st-inset); color: var(--st-ink); cursor: pointer; }
+.st-dash-risk-x:hover { background: var(--st-ground); }
+.st-dash-risk-x:focus-visible { outline: 2px solid var(--st-ink); outline-offset: 2px; }
+.st-dash-risk-body { padding: 12px 14px 16px; display: grid; gap: 10px; }
+.st-dash-risk-body > .st-label { margin: 6px 0 0; }
+.st-dash-risk-hf { border: var(--st-border); background: var(--st-inset); padding: 10px 14px 0; }
+.st-dash-risk-now { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; }
+.st-dash-risk-now .st-label { margin: 0; flex: 1 0 100%; color: var(--st-quiet); }
+.st-dash-risk-now .st-num { font-size: 56px; line-height: 1; }
+.st-dash-rls { list-style: none; margin: 0; padding: 0; display: grid; border: var(--st-border); }
+.st-dash-rl { display: grid; grid-template-columns: minmax(0, 1fr) 76px minmax(0, 1.2fr); align-items: center; gap: 4px 12px; padding: 8px 12px; }
+.st-dash-rl + .st-dash-rl { border-top: var(--st-hairline); }
+.st-dash-rl-name { font-family: var(--st-font-head); font-weight: 700; font-size: 15px; }
+.st-dash-rl-hf .st-num { font-size: 26px; font-weight: 800; line-height: 1; }
+.st-dash-rl.is-liquidation .st-dash-rl-hf .st-num { color: var(--st-trip); }
+.st-dash-rl.is-trigger .st-dash-rl-hf .st-num { color: var(--st-exposure-ink); }
+.st-dash-rl-fall { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.st-dash-rl-fall .st-num { font-size: 30px; font-weight: 800; line-height: 1; }
+.st-dash-rl-none { font-family: var(--st-font-head); font-weight: 700; font-size: 16px; }
+.st-dash-rl-sub { font-size: 12px; color: var(--st-quiet); }
+.st-dash-ltv { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: var(--st-border); }
+.st-dash-ltv > div { padding: 8px 12px; background: var(--st-inset); min-width: 0; }
+.st-dash-ltv > div + div { border-left: var(--st-hairline); }
+.st-dash-ltv dt { font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); }
+.st-dash-ltv dd { margin: 2px 0 0; font-size: 32px; font-weight: 800; line-height: 1; }
+.st-dash-protect { list-style: none; margin: 0; padding: 0; display: grid; border: var(--st-border); }
+.st-dash-protect li { display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 12px; font-size: 14px; line-height: 1.45; }
+.st-dash-protect li + li { border-top: var(--st-hairline); }
+.st-dash-pk .st-num { font-size: 26px; font-weight: 800; line-height: 1; }
+.st-dash-protect li.is-rule { grid-template-columns: minmax(0, 1fr); font-family: var(--st-font-head); font-weight: 700; font-size: 15px; background: var(--st-inset); }
+@media (max-width: 620px) {
+  .st-dash-risk { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; border: 0; }
+  .st-dash-risk-now .st-num { font-size: 46px; }
+  .st-dash-rl { grid-template-columns: minmax(0, 1fr) auto; }
+  .st-dash-rl-hf { grid-row: 1; grid-column: 2; }
+  .st-dash-rl-fall { grid-column: 1 / -1; flex-direction: row; align-items: baseline; justify-content: space-between; text-align: left; gap: 10px; }
+  .st-dash-ltv dd { font-size: 26px; }
+  .st-dash-ltv dt { font-size: 10px; }
+  .st-dash-protect li { grid-template-columns: 86px minmax(0, 1fr); font-size: 13px; }
+  .st-dash-rescue { padding: 10px 10px; }
+  .st-dash-lclock .st-mini-clock { font-size: 26px; }
+  .st-dash-axis { visibility: hidden; }
 }

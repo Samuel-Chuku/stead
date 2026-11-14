@@ -66,3 +66,17 @@ describe("capacity limits (pooled rescues)", () => {
     }
   });
 });
+
+describe("a steward never bids more than it can supply", () => {
+  it("caps the bid at the wallet's collateral when it can't source more", async () => {
+    const { bidCapacity } = await import("../src/steward.js");
+    expect(bidCapacity(undefined, 12_000_000_000_000_000n)).toBe(12_000_000_000_000_000n);
+    expect(bidCapacity(20_000_000_000_000_000n, 12_000_000_000_000_000n)).toBe(12_000_000_000_000_000n);
+    expect(bidCapacity(6_000_000_000_000_000n, 12_000_000_000_000_000n)).toBe(6_000_000_000_000_000n);
+  });
+  it("keeps the configured limit when it can source capital (testnets, or NEAR Intents on mainnet)", async () => {
+    const { bidCapacity } = await import("../src/steward.js");
+    expect(bidCapacity(undefined, undefined)).toBeUndefined();
+    expect(bidCapacity(6n, undefined)).toBe(6n);
+  });
+});

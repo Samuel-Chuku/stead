@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { cfg, env, hasEnv, REPO, stewardAccount, type StewardName } from "./config.js";
 import { call, view, viewAt, viewReport, NEAR, TGAS } from "./near.js";
-import { wallet, write, ensureTokens, fundEth, poolAbi, erc20Abi, MAX, pub, price } from "./fork.js";
+import { wallet, write, ensureTokens, fundEth, poolAbi, erc20Abi, MAX, pub, price, balance } from "./fork.js";
 import { strategies, undercut, type AuctionView } from "./strategy.js";
 import { deliverViaIntents, sourceCapital, type Delivery } from "./intents.js";
 import { DEFAULTS, clamp, type RiskSettings } from "./risk.js";
@@ -326,7 +326,12 @@ export class Steward {
       ltBps: market.lt_bps,
       debtBase: BigInt(pos.health.debt_base),
       earlyHf: params.early_settle_hf_bps / 10_000,
-      capacityUnits: this.capacityUnits ?? (this.capacity !== undefined ? units(this.capacity, (await marketAssets()).cDec) : undefined),
+      // never bid more than can actually be supplied: on Ethereum mainnet, a steward not opted in to
+      // NEAR Intents can only top up from the collateral its own wallet already holds
+      capacityUnits: bidCapacity(
+        this.capacityUnits ?? (this.capacity !== undefined ? units(this.capacity, (await marketAssets()).cDec) : undefined),
+        cfg.evm === "ethereum" && !this.intents ? await balance((await marketAssets()).collateral, this.evm.address) : undefined,
+      ),
       decimals: (await marketAssets()).cDec,
     };
     if (this.name === "hedged") {
@@ -338,6 +343,10 @@ export class Steward {
     if (!d.bid) {
       this.note(r.id, `auction ${r.id}: ${d.why}`);
       if (!d.wait) this.remember({ rescue: r.id, outcome: `skipped: ${d.why}` });
+      return;
+    }
+    if (d.amountUnits <= 0n) {
+      this.note(r.id, `auction ${r.id}: skips: no collateral in the wallet to top up with`);
       return;
     }
     this.remember({ rescue: r.id, outcome: "bid", bps: d.bps });
@@ -518,3 +527,10 @@ export class Steward {
 }
 
 export const NEAR_BOND = NEAR / 10n;
+
+/** The most a steward may bid: its configured risk limit, and (where it can't source more) what its
+ *  wallet holds. A bid it can't cover would lose its bond and leave the position unrescued. */
+export function bidCapacity(configured: bigint | undefined, walletUnits: bigint | undefined): bigint | undefined {
+  if (walletUnits === undefined) return configured;
+  return configured === undefined || walletUnits < configured ? walletUnits : configured;
+}

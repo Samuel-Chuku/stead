@@ -1,8 +1,14 @@
 // The mainnet position dashboard's arithmetic and rules, with no DOM, wallet or network (tested
 // offline): the health factor each action would leave (from Aave's own account data and oracle
 // prices), the amount helpers, the leftover-gas amount, and which actions the contract would sign
-// in each state of the position.
-//
+// in each state of the position; and, for a visitor with no Ethereum wallet connected, the pasted
+// payout's checks, what to send to the position's address, and the address as a QR code.
+
+import qrcode from "qrcode-generator";
+import { getAddress, isAddress, type Address } from "viem";
+import { CODE, STEWARD_ORDER } from "../board/model";
+import type { StewardId } from "../../../stewards/src/rescuelog";
+
 // Aave V3 units: getUserAccountData gives collateral, debt and available borrows in the base
 // currency (USD, 8 decimals) and the liquidation threshold in bps; the oracle gives prices with 8
 // decimals. Health factor = collateral × LT ÷ debt.
@@ -184,6 +190,10 @@ export type PosFacts = {
   hasColl: boolean;
   hasDebt: boolean;
   idleDebtUnits: bigint;
+  /** WETH sitting at the position's address (sent there, not supplied yet). */
+  idleCollUnits: bigint;
+  /** The repay is paid from the visitor's wallet (else from the position's own USDC). */
+  repayFromWallet: boolean;
   sweepSupported: boolean;
   sweepUnits: bigint;
 };
@@ -217,9 +227,10 @@ export function availability(f: PosFacts): Record<ActionId, Avail> {
   const deposit = (): Avail => {
     const c = common();
     if (c) return c;
-    if (!f.evmConnected) return off("Connect your Ethereum wallet: the WETH comes from it.");
     // the WETH is sent to the position first: during a rescue it would count as a buy-back payment
     if (f.locked) return off("While a rescue runs, WETH sent to the position counts toward the buy-back: deposit after it ends.");
+    // without a wallet, only WETH already sent to the position's address can be supplied
+    if (!f.evmConnected && f.idleCollUnits <= 0n) return off("Send WETH to the position's address, or connect your Ethereum wallet.");
     return on;
   };
   const repay = (): Avail => {
@@ -227,12 +238,17 @@ export function availability(f: PosFacts): Record<ActionId, Avail> {
     if (c) return c;
     if (!f.hasDebt) return off("No debt to repay.");
     if (f.locked && f.escrowHeld) return off(HELD);
+    if (f.repayFromWallet) {
+      // during a rescue, tokens sent to the position are held for the buy-back, not repaid
+      if (f.locked) return off("While a rescue runs, tokens sent to the position are held for the buy-back: repay from the position's USDC, or after the rescue.");
+      if (!f.evmConnected) return off("Send the USDC to the position's address, then repay from the position.");
+    }
     return on;
   };
   const buyback = (): Avail => {
     if (!f.registered) return off("Protect a position first.");
     if (!f.claimOpen) return off("Only while a claim is open.");
-    if (!f.evmConnected) return off("Connect your Ethereum wallet: the WETH comes from it.");
+    if (!f.evmConnected) return off("Send exactly the owed WETH to the position's address, or connect your Ethereum wallet.");
     return on;
   };
   const sweep = (): Avail => {
@@ -288,4 +304,238 @@ export function hfBarPct(h: bigint | null): number {
   if (h === null || h >= HF_BAR.max) return 100;
   if (h <= HF_BAR.min) return 0;
   return Number(((h - HF_BAR.min) * 10_000n) / (HF_BAR.max - HF_BAR.min)) / 100;
+}
+
+// ── no Ethereum wallet connected: a pasted payout, funds sent straight to the position ──
+
+export type PayoutCheck = { ok: true; address: Address } | { ok: false; why: string };
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+/** A pasted payout address: 0x and 40 hex characters; a mixed-case address must match its
+ *  checksum (all lower or all upper case carries none); never the zero address or one of the
+ *  addresses in `refuse` (the market's contracts, the position itself), which could never pay
+ *  anything back. Returns the checksummed address. */
+export function checkPayout(input: string, refuse: { address: string; name: string }[] = []): PayoutCheck {
+  const v = input.trim();
+  if (!v) return { ok: false, why: "Paste an Ethereum address." };
+  if (!/^0x[0-9a-fA-F]{40}$/.test(v)) return { ok: false, why: "Not an Ethereum address: it is 0x followed by 40 characters 0-9 and a-f." };
+  const body = v.slice(2);
+  const mixed = body !== body.toLowerCase() && body !== body.toUpperCase();
+  if (mixed && !isAddress(v, { strict: true })) return { ok: false, why: "The checksum does not match: a character is wrong. Copy the address again." };
+  const address = getAddress(v);
+  if (address === ZERO_ADDRESS) return { ok: false, why: "That is the zero address: nothing sent there can be spent." };
+  const hit = refuse.find((r) => r.address.toLowerCase() === address.toLowerCase());
+  if (hit) return { ok: false, why: `That is ${hit.name}, not a wallet: payouts sent there would be lost.` };
+  return { ok: true, address };
+}
+
+/** ETH to ask for when no wallet can top the position's gas up: two transactions' up-front fee
+ *  less what it holds (as `gasTopUp`), rounded up to 0.0001 ETH so the sentence reads plainly.
+ *  0 when the position can already pay its next transaction. */
+export function gasAsk(balanceWei: bigint, upfrontWei: bigint): bigint {
+  const top = gasTopUp(balanceWei, upfrontWei);
+  const step = 10n ** 14n;
+  return top === 0n ? 0n : ((top + step - 1n) / step) * step;
+}
+
+/** WETH newly at the position since the last reading (0 on the first reading, or when it fell). */
+export function arrived(prevUnits: bigint | null, nowUnits: bigint): bigint {
+  return prevUnits !== null && nowUnits > prevUnits ? nowUnits - prevUnits : 0n;
+}
+
+/** How a supply of `typed` units goes ahead. WETH already at the position counts first; only the
+ *  rest is sent from the visitor's wallet, and without one it has to be sent to the address. */
+export type DepositPlan = { kind: "supply" } | { kind: "transfer"; sendUnits: bigint } | { kind: "short"; shortUnits: bigint };
+export function depositPlan(typed: bigint, idleUnits: bigint, evmConnected: boolean): DepositPlan {
+  if (idleUnits >= typed) return { kind: "supply" };
+  return evmConnected ? { kind: "transfer", sendUnits: typed - idleUnits } : { kind: "short", shortUnits: typed - idleUnits };
+}
+
+/** The buy-back payment still due: what the open claims are owed less what is already at the position. */
+export const buybackDue = (owedUnits: bigint, heldUnits: bigint) => (owedUnits > heldUnits ? owedUnits - heldUnits : 0n);
+
+/** What the funding card asks the visitor to send to the position's address, when no Ethereum
+ *  wallet is connected (or an action is waiting for gas):
+ *  - "gas": an action is waiting for the position's gas: ETH only;
+ *  - "buyback": a claim is open: exactly the WETH still due (WETH arriving now is the buy-back
+ *    payment), plus gas for the contract's payouts when the position is short;
+ *  - "fund": no rescue: WETH to supply, plus gas when it can't pay one signed transaction;
+ *  - "none": a wallet does the funding, or an auction or top-up is running (WETH sent then would
+ *    be held for the buy-back, so nothing is asked for). */
+export type FundPrompt =
+  | { kind: "none" }
+  | { kind: "gas"; gasWei: bigint }
+  | { kind: "buyback"; wethUnits: bigint; gasWei: bigint }
+  | { kind: "fund"; gasWei: bigint };
+export function fundPrompt(f: { registered: boolean; evmConnected: boolean; locked: boolean; claimOpen: boolean; ethWei: bigint; upfrontWei: bigint; gasWaitWei: bigint; dueUnits: bigint }): FundPrompt {
+  if (!f.registered) return { kind: "none" };
+  if (f.gasWaitWei > 0n) return { kind: "gas", gasWei: f.gasWaitWei };
+  if (f.evmConnected) return { kind: "none" };
+  const gasWei = gasAsk(f.ethWei, f.upfrontWei);
+  if (f.claimOpen) return { kind: "buyback", wethUnits: f.dueUnits, gasWei };
+  if (f.locked) return { kind: "none" };
+  return { kind: "fund", gasWei };
+}
+
+// ── the address as a QR code (SVG, no DOM) ──
+
+/** Light modules around the code, as the QR standard asks (4 modules). */
+export const QR_QUIET = 4;
+/** The code's two colours: the light theme's panel and ink, in both themes (a camera needs dark
+ *  modules on a light square; the dark theme's light-on-black would be an inverted code). */
+export const QR_LIGHT = "#D8DDD2";
+export const QR_DARK = "#1D1F1C";
+/** The QR code of `text` as an SVG string: one light square (quiet zone included) and one path of
+ *  dark unit squares, error correction level M. */
+export function qrSvg(text: string, label: string): string {
+  const q = qrcode(0, "M");
+  q.addData(text, "Byte");
+  q.make();
+  const n = q.getModuleCount();
+  const size = n + 2 * QR_QUIET;
+  let d = "";
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c + QR_QUIET} ${r + QR_QUIET}h1v1h-1z`;
+  const esc = label.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" role="img" aria-label="${esc}" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="${QR_LIGHT}"/><path fill="${QR_DARK}" d="${d}"/></svg>`;
+}
+
+// ── the health factor's colour, the risk details, the health bar's zones ──
+
+/** Under this, a claim on the position settles early (the contract's early-settlement level). */
+export const EARLY_SETTLE_BPS = 11_000n;
+/** At and above this, the health factor reads in plain ink; under it, in the caution tone. */
+export const CAUTION_BPS = 15_000n;
+/** What a health factor's colour says: "danger" under 1.10 (early settlement, then liquidation),
+ *  "exposure" 1.10 to 1.15 (under the trigger: a rescue opens), "caution" 1.15 to 1.50, "safe" at
+ *  1.50 and above or with no debt. */
+export type HfBand = "danger" | "exposure" | "caution" | "safe";
+export function hfBand(h: bigint | null): HfBand {
+  if (h === null) return "safe";
+  if (h < EARLY_SETTLE_BPS) return "danger";
+  if (h < TRIGGER_BPS) return "exposure";
+  if (h < CAUTION_BPS) return "caution";
+  return "safe";
+}
+/** The current-HF marker on the bar draws attention now and then only under 1.50. */
+export const hfPulses = (h: bigint | null) => h !== null && h < CAUTION_BPS;
+
+export type RiskLineKey = "liquidation" | "early" | "trigger";
+/** One line the health factor can fall to, and how far the collateral price can fall before it
+ *  gets there, in bps of today's price (rounded down: never overstates the room). With one
+ *  collateral and a stable debt the health factor moves with the collateral's price, so the fall
+ *  is 1 − line ÷ HF. `reached`: the health factor is already at or under the line. */
+export type RiskLine = { key: RiskLineKey; bps: bigint; fallBps: bigint | null; reached: boolean };
+export function riskLines(h: bigint | null, early = EARLY_SETTLE_BPS, trigger = TRIGGER_BPS): RiskLine[] {
+  const one = (key: RiskLineKey, bps: bigint): RiskLine => {
+    if (h === null) return { key, bps, fallBps: null, reached: false };
+    if (h <= bps) return { key, bps, fallBps: 0n, reached: true };
+    const ratio = (bps * 10_000n + h - 1n) / h; // line ÷ HF, rounded up
+    return { key, bps, fallBps: 10_000n - ratio, reached: false };
+  };
+  return [one("liquidation", LIQUIDATION_BPS), one("early", early), one("trigger", trigger)];
+}
+/** The collateral's oracle price (8 dp) at which the health factor reaches `lineBps`: price × line
+ *  ÷ HF, rounded up (the line is reached no later than this). Null without debt. */
+export const linePrice = (price: bigint, lineBps: bigint, h: bigint | null) => (h === null || h <= 0n ? null : (price * lineBps + h - 1n) / h);
+/** bps as a percentage with one decimal, rounded down ("12.3%"). */
+export const pctText = (bps: bigint) => `${(Number(bps / 10n) / 10).toFixed(1)}%`;
+
+/** The loan-to-value now (debt ÷ collateral, rounded up), beside Aave's maximum and its
+ *  liquidation threshold (all bps, from getUserAccountData). Null without collateral. */
+export type LtvView = { currentBps: bigint; maxBps: bigint; ltBps: bigint };
+export function ltvView(a: Account, maxLtvBps: bigint): LtvView | null {
+  if (a.collBase <= 0n) return null;
+  return { currentBps: (a.debtBase * 10_000n + a.collBase - 1n) / a.collBase, maxBps: maxLtvBps, ltBps: a.ltBps };
+}
+
+/** The most a rescue can cost this position in total (base units, 8 dp), as the contract sets it
+ *  when the first rescue opens: half the debt (Aave's close factor) × the liquidation bonus. Every
+ *  premium on the position counts against it, so a stack of rescues shares one cap. */
+export const premiumCapBase = (debtBase: bigint, liqBonusBps: bigint) => (debtBase * liqBonusBps) / 10_000n / 2n;
+
+/** The health bar's coloured zones, left to right on the bar's scale (percent): under 1.00
+ *  liquidation, 1.00 to 1.10 early settlement, 1.10 to 1.15 under the trigger, 1.15 to 1.50
+ *  caution, over 1.50 safe. Flat colours, no gradient. */
+export type BarZone = { band: "trip" | "settle" | "exposure" | "caution" | "safe"; left: number; width: number };
+export function barZones(): BarZone[] {
+  const edges = [HF_BAR.min, LIQUIDATION_BPS, EARLY_SETTLE_BPS, TRIGGER_BPS, CAUTION_BPS, HF_BAR.max];
+  const bands: BarZone["band"][] = ["trip", "settle", "exposure", "caution", "safe"];
+  return bands.map((band, i) => {
+    const left = hfBarPct(edges[i]);
+    return { band, left, width: hfBarPct(edges[i + 1]) - left };
+  });
+}
+/** The marks on the bar: liquidation, early settlement, and the rescue trigger (where stewards act). */
+export const BAR_MARKS: { bps: bigint; label: string; rescue: boolean }[] = [
+  { bps: LIQUIDATION_BPS, label: "1.00", rescue: false },
+  { bps: EARLY_SETTLE_BPS, label: "1.10", rescue: false },
+  { bps: TRIGGER_BPS, label: "1.15", rescue: true },
+];
+
+// ── the live bid ladder, fed from the contract's own rescue record ──
+
+export type LadderBid = { steward: string; premium_bps: number; amount_units: string; seq: number };
+/** What the page has seen of each steward's bid: bids carry no time on chain, so each is stamped
+ *  when the page first sees it, and a rebid (a new `seq`) keeps the premium it replaced. */
+export type SeenBid = { seq: number; bps: number; prevBps: number | null; seenMs: number };
+export type LadderRow = {
+  steward: string;
+  name: string;
+  /** One of the known stewards (its colour and tile), or null for any other account. */
+  id: StewardId | null;
+  code: string;
+  bps: number;
+  prevBps: number | null;
+  amountUnits: bigint;
+  rank: number;
+  seenMs: number;
+  /** A new bid or a rebid since the last reading (never on the page's first reading). */
+  fresh: boolean;
+  /** A fresh bid in the auction's last 10 seconds. */
+  late: boolean;
+  won: boolean;
+};
+export const LATE_MS = 10_000;
+export function stewardIdOf(account: string): StewardId | null {
+  const n = account.split(".")[0] as StewardId;
+  return STEWARD_ORDER.includes(n) ? n : null;
+}
+/** One reading of the rescue → the ladder: each steward's bid, lowest premium first and, at equal
+ *  premiums, the earlier bid first (the order the contract awards them in), with when each was
+ *  first seen and what changed. `prev` is null on the page's first reading of this rescue. */
+export function ladderStep(
+  prev: Map<string, SeenBid> | null,
+  r: { state: string; bids: LadderBid[]; members: { steward: string }[] },
+  nowMs: number,
+  closesAtMs: number,
+): { seen: Map<string, SeenBid>; rows: LadderRow[] } {
+  const seen = new Map<string, SeenBid>();
+  const fresh = new Set<string>();
+  for (const b of r.bids) {
+    const was = prev?.get(b.steward);
+    if (!was) {
+      seen.set(b.steward, { seq: b.seq, bps: b.premium_bps, prevBps: null, seenMs: nowMs });
+      if (prev) fresh.add(b.steward);
+    } else if (was.seq !== b.seq) {
+      seen.set(b.steward, { seq: b.seq, bps: b.premium_bps, prevBps: was.bps !== b.premium_bps ? was.bps : was.prevBps, seenMs: was.seenMs });
+      fresh.add(b.steward);
+    } else seen.set(b.steward, was);
+  }
+  const won = new Set(r.state === "auction" ? [] : r.members.map((m) => m.steward));
+  const late = r.state === "auction" && closesAtMs - nowMs <= LATE_MS;
+  const rows = [...r.bids]
+    .sort((a, b) => a.premium_bps - b.premium_bps || a.seq - b.seq)
+    .map((b, rank): LadderRow => {
+      const id = stewardIdOf(b.steward);
+      const name = b.steward.split(".")[0];
+      const f = fresh.has(b.steward);
+      return { steward: b.steward, name, id, code: id ? CODE[id] : name.slice(0, 2).toUpperCase(), bps: b.premium_bps, prevBps: seen.get(b.steward)!.prevBps, amountUnits: BigInt(b.amount_units), rank, seenMs: seen.get(b.steward)!.seenMs, fresh: f, late: f && late, won: won.has(b.steward) };
+    });
+  return { seen, rows };
+}
+/** A bid's bar on the ladder: its premium as a share of the auction's cap (0–100). */
+export const bidBarPct = (bps: number, capBps: number) => (capBps > 0 ? Math.min(100, (bps / capBps) * 100) : 0);
+/** What a bid's premium costs the borrower (base units, 8 dp): the premium in the supplied asset's
+ *  units (rounded down, as the contract fixes it) at the oracle price. */
+export function premiumCostBase(amountUnits: bigint, bps: number, price: bigint, decimals: number): bigint {
+  return toBase((amountUnits * BigInt(bps)) / 10_000n, price, decimals);
 }
