@@ -1136,19 +1136,26 @@ export function mountDash(root: HTMLElement): () => void {
     const rows = owned ?? [];
     const row = (o: Owned) => {
       const open = o.collBase > 0n || o.debtBase > 0n;
-      const hf = o.debtBase > 0n ? (Number(o.hf) / 1e18).toFixed(2) : "no debt";
-      return `<li><button type="button" class="st-dash-posrow" data-open-pos="${o.id}">
-        <span class="st-dash-posid"><span class="st-label">POSITION</span><b class="st-num">${o.id}</b></span>
-        <span class="st-chip">${open ? "OPEN" : "CLOSED"}</span>
-        <span class="st-dash-posfig"><span class="st-label">COLLATERAL</span><b class="st-num">${usd8(o.collBase)}</b></span>
-        <span class="st-dash-posfig"><span class="st-label">DEBT</span><b class="st-num">${usd8(o.debtBase)}</b></span>
-        <span class="st-dash-posfig"><span class="st-label">HEALTH</span><b class="st-num">${hf}</b></span>
-        <span class="st-dash-posfig"><span class="st-label">PROTECTIONS</span><b class="st-num">${o.prot}</b></span>
-        <span class="st-dash-posgo" aria-hidden="true">${glyph("M6 3.5 10.5 8 6 12.5", 16)}</span>
+      const bps = o.debtBase > 0n ? o.hf / 10n ** 14n : null;
+      const band = open ? hfBand(bps) : "closed";
+      const hf = bps !== null ? (Number(bps) / 1e4).toFixed(2) : open ? "no debt" : "—";
+      const addr = o.evm ? `${o.evm.slice(0, 6)}…${o.evm.slice(-4)}` : "deriving…";
+      return `<li><button type="button" class="st-dash-posrow is-${band}" data-open-pos="${o.id}" aria-label="Open position ${o.id} (${open ? "open" : "closed"})">
+        <span class="st-dash-poshead">${icon("rescues", 22)}<span class="st-mono">${addr}</span><span class="st-dash-poschip${open ? " is-open" : ""}">${open ? "PROTECTED" : "CLOSED"}</span></span>
+        <span class="st-dash-posfig"><span class="st-label">${tokenMark(C.symbol, 16)}COLLATERAL</span><b class="st-num">${usd8(o.collBase)}</b></span>
+        <span class="st-dash-posfig"><span class="st-label">${tokenMark(D.symbol, 16)}DEBT</span><b class="st-num">${usd8(o.debtBase)}</b></span>
+        <span class="st-dash-posfig is-hf"><span class="st-label">HEALTH</span><b class="st-num">${hf}</b></span>
+        <span class="st-dash-posfig is-prot"><span class="st-label">PROTECTIONS</span><b class="st-num">${icon("rescues", 20)}${o.prot}</b></span>
+        <span class="st-dash-posgo" aria-hidden="true">${glyph("M6 3.5 10.5 8 6 12.5", 18)}</span>
       </button></li>`;
     };
+    const live = rows.filter((o) => o.collBase > 0n || o.debtBase > 0n).length;
     return `<section class="st-dash-poslist" aria-label="Your positions">
-      <div class="st-dash-jhead"><span class="st-label">YOUR POSITIONS · ${esc(near ?? "")}</span>${!newOpen ? `<button type="button" class="st-secondary st-cut st-dash-freshbtn" data-new-open>Open a new position</button>` : ""}</div>
+      <div class="st-dash-poslist-head">
+        <span class="st-dash-poslist-shield" aria-hidden="true">${icon("rescues", 30)}</span>
+        <div><div class="st-label">YOUR STEAD POSITIONS · ${esc(near ?? "")}</div><h2>${live ? `${live} protected, ${rows.length - live} closed` : `${rows.length} closed`}</h2></div>
+        ${!newOpen ? `<button type="button" class="st-dash-newbig st-cut" data-new-open>${icon("rescues", 18)}Open a new position</button>` : ""}
+      </div>
       <ol class="st-dash-posrows">${rows.map(row).join("")}</ol>
     </section>
     ${newOpen ? newPositionHtml() : ""}`;

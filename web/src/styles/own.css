@@ -613,18 +613,51 @@
 /* the account's positions, listed on connecting; a row opens that position */
 .st-dash-allpos { margin-left: auto; font-size: 13px; min-height: 32px; }
 .st-dash-allpos + .st-dash-freshbtn { margin-left: 8px; }
-.st-dash-poslist { border: var(--st-border-heavy); background: var(--st-panel); padding: 14px 16px; display: grid; gap: 10px; }
-.st-dash-poslist .st-dash-jhead { display: flex; align-items: center; gap: 12px; }
-.st-dash-posrows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.st-dash-posrow { width: 100%; display: grid; grid-template-columns: 90px 90px repeat(4, minmax(0, 1fr)) 24px; align-items: center; gap: 12px; padding: 12px 14px; border: var(--st-border); background: var(--st-ground); color: var(--st-ink); text-align: left; cursor: pointer; font: inherit; }
-.st-dash-posrow:hover, .st-dash-posrow:focus-visible { background: var(--st-inset); outline: 2px solid var(--st-ink); outline-offset: -2px; }
-.st-dash-posid, .st-dash-posfig { display: grid; gap: 2px; min-width: 0; }
-.st-dash-posid b { font-family: var(--st-font-head); font-weight: 800; font-size: 30px; line-height: 1; }
-.st-dash-posfig b { font-family: var(--st-font-head); font-weight: 800; font-size: 22px; line-height: 1.1; }
-.st-dash-posrow .st-chip { justify-self: start; padding: 3px 8px; font-size: 11px; letter-spacing: .08em; }
+.st-dash-poslist { border: var(--st-border-heavy); background: var(--st-panel); padding: 18px 18px 20px; display: grid; gap: 14px; }
+.st-dash-poslist-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.st-dash-poslist-head h2 { margin: 2px 0 0; font-family: var(--st-font-head); font-weight: 800; font-size: 26px; line-height: 1.1; }
+.st-dash-poslist-shield { display: grid; place-items: center; width: 52px; height: 52px; background: var(--st-ink); color: var(--st-level-safe); }
+.st-dash-newbig { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; background: var(--st-ink); color: var(--st-ground); border: 0; font-family: var(--st-font-head); font-weight: 700; font-size: 14px; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.st-dash-newbig:hover { background: var(--st-brand); color: var(--st-ink); }
+.st-dash-posrows { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.st-dash-posrow { --edge: var(--st-level-safe); width: 100%; display: grid; grid-template-columns: minmax(220px, 1.4fr) repeat(4, minmax(0, 1fr)) 24px; align-items: center; gap: 16px; padding: 14px 16px 14px 20px; border: var(--st-border); border-left: 8px solid var(--edge); background: var(--st-ground); color: var(--st-ink); text-align: left; cursor: pointer; font: inherit; transition: transform .15s var(--st-ease-glide, ease), background .15s; }
+.st-dash-posrow:hover, .st-dash-posrow:focus-visible { background: var(--st-inset); transform: translateX(3px); outline: 2px solid var(--st-ink); outline-offset: -2px; }
+.st-dash-posrow.is-caution { --edge: var(--st-caution); }
+.st-dash-posrow.is-exposure { --edge: var(--st-exposure); }
+.st-dash-posrow.is-danger { --edge: var(--st-trip); }
+.st-dash-posrow.is-closed { --edge: var(--st-line); }
+.st-dash-posrow.is-closed .st-dash-posfig b { color: var(--st-quiet); }
+.st-dash-poshead { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 16px; font-weight: 700; }
+.st-dash-poshead > svg { color: var(--edge); flex: none; }
+.st-dash-poshead .st-mono { font-size: 16px; font-weight: 600; }
+.st-dash-poschip { padding: 3px 8px; font-family: var(--st-font-head); font-weight: 700; font-size: 11px; letter-spacing: .08em; border: var(--st-border); color: var(--st-quiet); }
+.st-dash-poschip.is-open { background: var(--st-ink); color: var(--st-level-safe); border-color: var(--st-ink); }
+.st-dash-posfig { display: grid; gap: 4px; min-width: 0; }
+.st-dash-posfig .st-label { display: inline-flex; align-items: center; gap: 6px; }
+.st-dash-posfig b { display: inline-flex; align-items: center; gap: 6px; font-family: var(--st-font-head); font-weight: 800; font-size: 26px; line-height: 1; }
+.st-dash-posrow.is-caution .is-hf b { color: var(--st-caution-ink); }
+.st-dash-posrow.is-exposure .is-hf b { color: var(--st-exposure-ink); }
+.st-dash-posrow.is-danger .is-hf b { color: var(--st-trip); }
+.st-dash-posfig.is-prot b svg { color: var(--st-brand); }
 .st-dash-posgo { justify-self: end; }
-@media (max-width: 720px) {
-  .st-dash-posrow { grid-template-columns: auto auto 1fr; row-gap: 10px; }
-  .st-dash-posrow .st-dash-posgo { grid-column: 3; grid-row: 1; }
-  .st-dash-posfig { grid-column: span 1; }
+@media (max-width: 860px) {
+  .st-dash-posrow { grid-template-columns: repeat(2, minmax(0, 1fr)) 24px; row-gap: 12px; }
+  .st-dash-poshead { grid-column: 1 / 3; }
+  .st-dash-posgo { grid-column: 3; grid-row: 1; }
+  .st-dash-newbig { margin-left: 0; width: 100%; justify-content: center; }
 }
+/* the list's colour: teal marks a protected position, blue the protections count, the health
+   figure keeps its own scale (amber under 1.50, red near liquidation) */
+.st-dash-poslist { --prot: var(--st-steward-patient); --protn: var(--st-steward-pool); }
+.st-dash-poslist-shield { background: var(--prot); color: #fff; }
+.st-dash-newbig { background: var(--prot); color: #fff; }
+.st-dash-newbig:hover { background: var(--st-ink); color: var(--st-ground); }
+.st-dash-posrow.is-safe { --edge: var(--prot); }
+.st-dash-posrow:hover, .st-dash-posrow:focus-visible { background: var(--st-acting-tint); }
+.st-dash-poshead > svg { color: var(--prot); }
+.st-dash-posrow.is-closed .st-dash-poshead > svg { color: var(--st-quiet); }
+.st-dash-poschip.is-open { background: var(--prot); color: #fff; border-color: var(--prot); }
+.st-dash-posfig.is-prot b svg { color: var(--protn); }
+.st-dash-posfig.is-prot b { color: var(--protn); }
+.st-dash-posrow.is-closed .st-dash-posfig.is-prot b, .st-dash-posrow.is-closed .st-dash-posfig.is-prot b svg { color: var(--protn); opacity: .75; }
+[data-theme="dark"] .st-dash-poslist-shield, [data-theme="dark"] .st-dash-newbig, [data-theme="dark"] .st-dash-poschip.is-open { color: #0B0D0B; }
