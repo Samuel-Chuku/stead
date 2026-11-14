@@ -5,8 +5,17 @@ import { CODE, consequence, fmtAmt, isPooled, RISK, RISK_WORD, RULE, STEWARD_ORD
 import { poolMarkup, updatePool } from "./pool";
 import { crown } from "../crown";
 import { powerOn } from "../ambience/stead-ambience.js";
+import { clockDigits, marketChip, replayGroups } from "./controls";
 
-export type ReplayChoice = { id: string; label: string };
+/** The recordings as one compact native menu, real funds first (keyboard and screen readers for free). */
+function watchMenu(list: ReplayChoice[], current: string | undefined, mode: BoardMode) {
+  const opt = (r: ReplayChoice) => `<option value="${esc(r.id)}"${r.id === current ? " selected" : ""}>${esc(r.label)}</option>`;
+  const groups = replayGroups(list);
+  const body = groups.length > 1 ? groups.map((g) => `<optgroup label="${esc(g.label)}">${g.items.map(opt).join("")}</optgroup>`).join("") : list.map(opt).join("");
+  return `<label class="st-select st-watch"><span class="st-select-label">${mode === "replay" ? "WATCH" : "RESCUE"}</span><select data-pick-menu aria-label="${mode === "replay" ? "Recorded rescue to watch" : "Open rescue to follow"}">${body}</select></label>`;
+}
+
+export type ReplayChoice = { id: string; label: string; net?: "mainnet" | "testnet" };
 
 const LAMPS: { id: LampId; cls: string }[] = [
   { id: "TRIGGER", cls: "exposure" },
@@ -45,11 +54,11 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
   root.innerHTML = `
   <div class="st-board">
     <header class="st-annunciator" aria-label="Status" data-panel>
-      <div class="st-lamps">${LAMPS.map((l) => `<div class="st-lamp-cell" data-lamp="${l.id}" data-tone="${l.cls}"><span class="st-dot" aria-hidden="true"></span>${l.id}</div>`).join("")}</div>
+      <div class="st-lamps" role="list" aria-label="Phase">${LAMPS.map((l) => `<div class="st-lamp-cell" data-lamp="${l.id}" data-tone="${l.cls}" role="listitem" title="${l.id}"><span class="st-dot" aria-hidden="true"></span>${l.id}</div>`).join("")}</div>
       <div class="st-annunciator-right">
-        <span class="st-chip-market">SEPOLIA · MARKET ${m.id} · ${m.collateral}/${m.debt}</span>
-        ${controls.replays && controls.replays.length > 1 ? `<div class="st-seg st-seg--rec" role="group" aria-label="${mode === "replay" ? "Recorded rescue" : "Open rescue"}">${controls.replays.map((r) => `<button type="button" data-pick="${r.id}" aria-pressed="${r.id === controls.current}">${esc(r.label)}</button>`).join("")}</div>` : ""}
+        <span class="st-chip-market${log.evmChain === "ethereum" ? " st-chip-market--real" : ""}">${esc(marketChip(log))}</span>
         ${modeSwitch(mode)}
+        ${controls.replays && controls.replays.length > 1 ? watchMenu(controls.replays, controls.current, mode) : ""}
         ${mode === "replay" ? `<button type="button" class="st-push st-push--small st-cut" data-toggle><span class="st-lamp" aria-hidden="true"></span><span data-toggle-label>PLAY</span></button>` : ""}
       </div>
     </header>
@@ -100,7 +109,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
             <div class="st-panel-sub" data-subtitle></div>
           </div>
           <div class="st-flip" aria-label="Time left" role="timer" data-clock>
-            <span class="st-flap">0</span><span class="st-flap">0</span><span class="st-flap st-flap--colon">:</span><span class="st-flap" data-d1>4</span><span class="st-flap" data-d2>5</span>
+            <span class="st-flap" data-m1>0</span><span class="st-flap" data-m2>0</span><span class="st-flap st-flap--colon">:</span><span class="st-flap" data-d1>4</span><span class="st-flap" data-d2>5</span>
           </div>
         </div>
         <div class="st-ladder-head" aria-hidden="true">
@@ -158,7 +167,10 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
   requestAnimationFrame(() => powerOn(root));
   root.querySelector("[data-toggle]")?.addEventListener("click", controls.onToggle);
   bindModeSwitch(root, mode, controls.onMode);
-  for (const btn of root.querySelectorAll<HTMLButtonElement>("[data-pick]")) btn.addEventListener("click", () => btn.dataset.pick !== controls.current && controls.onPick?.(btn.dataset.pick!));
+  root.querySelector<HTMLSelectElement>("[data-pick-menu]")?.addEventListener("change", (e) => {
+    const id = (e.target as HTMLSelectElement).value;
+    if (id !== controls.current) controls.onPick?.(id);
+  });
   const poolState = { fell: new Map<string, number>(), tagKey: "" };
   const open = log.events.find((e) => e.kind === "AUCTION_OPEN") as any;
   q("[data-topup]").textContent = open ? `${fmtAmt(open.topUp.amount)} ${open.topUp.asset}` : "—";
@@ -217,11 +229,12 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
       q("[data-title]").textContent = b.title;
       q("[data-subtitle]").textContent = b.subtitle;
       if (b.clock !== lastClock) {
-        const s = String(b.clock).padStart(2, "0");
-        const d1 = q("[data-d1]");
-        const d2 = q("[data-d2]");
-        if (d1.textContent !== s[0]) flip(d1, s[0]);
-        if (d2.textContent !== s[1]) flip(d2, s[1]);
+        // minutes and seconds: a mainnet auction runs 120 s, so "80" must read 01:20
+        const s = clockDigits(b.clock);
+        ["[data-m1]", "[data-m2]", "[data-d1]", "[data-d2]"].forEach((sel, i) => {
+          const d = q(sel);
+          if (d.textContent !== s[i]) flip(d, s[i]);
+        });
         lastClock = b.clock;
       }
 

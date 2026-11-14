@@ -12,6 +12,7 @@ import { createPublicClient, createWalletClient, custom, fallback, http, parseAb
 import { mainnet, sepolia } from "viem/chains";
 import { icon } from "../icons";
 import { mountLive } from "../board/live";
+import { fmtAmt } from "../board/model";
 import type { FeedRescue } from "../../../stewards/src/livefeed";
 import {
   NETS, netFromSearch, gasFromMarket, marketMismatch, allowed, capUsd, borrowUnits, withdrawUnits, repayUnits, valueBase, walletNeeds, isShort,
@@ -104,15 +105,15 @@ function liveLine(e: FeedRescue["events"][number]): string | null {
   const x = e as any;
   switch (e.kind) {
     case "TRIGGER": return `Proven: health ${Number(x.hf).toFixed(3)}, under 1.15`;
-    case "AUCTION_OPEN": return `Auction open: ${x.topUp.amount} ${x.topUp.asset} needed, premium cap ${x.capBps} bps`;
-    case "BID": return `<strong>${x.steward}</strong> bids ${x.bps} bps for ${Number(x.amount).toFixed(2)}`;
+    case "AUCTION_OPEN": return `Auction open: ${fmtAmt(x.topUp.amount)} ${x.topUp.asset} needed, premium cap ${x.capBps} bps`;
+    case "BID": return `<strong>${x.steward}</strong> bids ${x.bps} bps for ${fmtAmt(x.amount)}`;
     case "AUCTION_CLOSE": return `Auction closed: ${x.winners.map((w: any) => `<strong>${w.steward}</strong> at ${w.bps} bps`).join(", ") || "no winner"}`;
-    case "TOPUP_SENT": return `<strong>${x.steward}</strong> tops up ${Number(x.amount).toFixed(2)} ${x.asset} on Aave`;
+    case "TOPUP_SENT": return `<strong>${x.steward}</strong> tops up ${fmtAmt(x.amount)} ${x.asset} on Aave`;
     case "TOPUP_CONFIRMED": return `Top-up proven on Sepolia`;
-    case "CLAIM_MINTED": return `Claim ${x.claim} minted to <strong>${x.holder}</strong>: owed ${Number(x.owed).toFixed(4)} ${x.asset}`;
-    case "PAYMENT_IN": return `Payment into the position: ${Number(x.amount).toFixed(4)} ${x.asset}`;
+    case "CLAIM_MINTED": return `Claim ${x.claim} minted to <strong>${x.holder}</strong>: owed ${fmtAmt(x.owed)} ${x.asset}`;
+    case "PAYMENT_IN": return `Payment into the position: ${fmtAmt(x.amount)} ${x.asset}`;
     case "BOUGHT_BACK": return `Bought back`;
-    case "PAYOUT": return `Paid out: ${Number(x.amount).toFixed(4)} ${x.asset} (${x.purpose})`;
+    case "PAYOUT": return `Paid out: ${fmtAmt(x.amount)} ${x.asset} (${x.purpose})`;
     case "SETTLE_START": return `Settlement started at the oracle price`;
     case "SETTLED": return `Settled`;
     default: return null;

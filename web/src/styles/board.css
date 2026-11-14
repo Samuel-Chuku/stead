@@ -20,12 +20,20 @@
   display: flex; flex-wrap: wrap; align-items: stretch; justify-content: space-between; gap: var(--st-space-12);
   background: var(--st-brand); border: var(--st-border); padding: 10px 12px;
 }
-.st-lamps { display: flex; flex-wrap: wrap; gap: var(--st-space-8); }
+/* the phases read as a quiet step indicator: unlit steps are plain small labels, only the lit one is a filled lamp */
+.st-lamps { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .st-lamp-cell {
-  display: flex; align-items: center; gap: var(--st-space-8); border: var(--st-border); padding: 6px 10px;
-  font-family: var(--st-font-head); font-weight: 600; font-size: 13px; letter-spacing: .02em;
-  background: var(--st-panel); color: var(--st-quiet);
+  display: flex; align-items: center; gap: 6px; border: 1.5px solid transparent; padding: 5px 8px; min-height: 32px;
+  font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label);
+  background: transparent; color: var(--st-ink);
 }
+.st-lamp-cell .st-dot { width: 7px; height: 7px; background: transparent; border: 1.5px solid currentColor; box-sizing: border-box; }
+.st-lamp-cell.is-lit { border-color: var(--st-ink); }
+/* wide screens: an unlit phase is only its hollow dot (named in its title and to screen readers) */
+@media (min-width: 900px) {
+  .st-lamp-cell:not(.is-lit) { font-size: 0; letter-spacing: 0; gap: 0; padding: 5px 4px; }
+}
+.st-annunciator { align-items: center; }
 .st-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--st-hair); flex: none; }
 .st-lamp-cell.is-lit { color: var(--st-on-exposure); }
 .st-lamp-cell.is-lit .st-dot { background: var(--st-on-exposure); }
@@ -34,11 +42,14 @@
 .st-lamp-cell.is-lit[data-tone="trip"] { background: var(--st-trip-lamp); }
 .st-annunciator-right { display: flex; flex-wrap: wrap; align-items: center; gap: var(--st-space-8); }
 .st-chip-market {
-  border: var(--st-border); background: var(--st-panel); padding: 6px 10px;
+  border: var(--st-hairline); padding: 4px 8px; white-space: nowrap;
   font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label);
 }
+/* a recording with real funds is marked in ink (never amber: amber means exposure) */
+.st-chip-market--real { background: var(--st-ink); color: var(--st-panel); border-color: var(--st-ink); }
+.st-annunciator .st-watch { min-height: 36px; }
+.st-annunciator .st-watch select { min-height: 34px; max-width: 200px; text-overflow: ellipsis; font-size: 13px; }
 .st-seg--mode button { min-height: 36px; white-space: nowrap; }
-.st-seg--rec button { min-height: 36px; white-space: nowrap; }
 .st-seg button[aria-disabled="true"] { cursor: not-allowed; opacity: .45; }
 .st-annunciator .st-push--small { min-height: 40px; padding: 0 16px; font-size: 14px; }
 
@@ -286,13 +297,13 @@
   .st-lamps { flex-wrap: nowrap; overflow-x: auto; gap: 5px; scrollbar-width: none; }
   .st-lamp-cell { padding: 4px 7px; font-size: 11px; gap: 5px; white-space: nowrap; flex: none; }
   .st-lamp-cell .st-dot { width: 7px; height: 7px; }
-  .st-chip-market { display: none; }
+  .st-chip-market:not(.st-chip-market--real) { display: none; }
   .st-annunciator-right { justify-content: space-between; }
   .st-annunciator .st-push--small { min-height: 36px; padding: 0 12px; font-size: 13px; }
   .st-seg--mode button { min-height: 36px; padding: 4px 8px; }
-  /* Three or more recorded rescues share the row: equal cells, labels wrap instead of running off. */
-  .st-seg--rec { width: 100%; }
-  .st-seg--rec button { flex: 1 1 0; min-width: 0; white-space: normal; padding: 4px 6px; line-height: 1.2; }
+  /* the Watch menu takes its own full row under the mode switch */
+  .st-annunciator .st-watch { order: 3; flex: 1 1 100%; }
+  .st-annunciator .st-watch select { flex: 1; max-width: none; }
   .st-pos { gap: 12px; }
   .st-gauge, .st-gauge-labels { height: 180px; }
   .st-gauge-wrap { grid-template-columns: 44px 64px minmax(0, 1fr); gap: 6px; }
@@ -443,3 +454,19 @@
 /* replays: why a replay is showing, and when it fast-forwards */
 .st-replay-note { margin: 0 0 12px; border: var(--st-border); background: var(--st-panel); padding: 10px 12px; font-size: 14px; line-height: 1.5; }
 .st-ff { align-self: center; font-family: var(--st-font-head); font-weight: 600; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--st-quiet); }
+
+/* the control bar holds one row on a laptop: tighter cells than the generic segment */
+@media (min-width: 900px) {
+  .st-annunciator { flex-wrap: nowrap; padding: 8px 10px; }
+  .st-annunciator .st-lamps { flex-wrap: nowrap; flex: none; }
+  .st-annunciator-right { flex-wrap: nowrap; gap: 6px; }
+  .st-annunciator .st-seg--mode button { padding: 0 9px; }
+  .st-annunciator .st-watch { padding-left: 8px; gap: 6px; }
+  .st-annunciator .st-watch select { padding: 0 26px 0 8px; background-position: right 12px center, right 7px center; }
+  .st-annunciator .st-push--small { padding: 0 12px; }
+  .st-chip-market { padding: 4px 6px; letter-spacing: .06em; }
+}
+/* below a wide laptop the bar wraps under the phases rather than squeezing them */
+@media (min-width: 900px) and (max-width: 1199.98px) {
+  .st-annunciator { flex-wrap: wrap; }
+}

@@ -1,6 +1,7 @@
 // The live board as a pure function of a recorded event log and a time (seconds from the opening).
 // Nothing here reads a clock or animates: the view renders whatever this returns.
 import type { Evidence, RescueEvent, RescueLog, StewardId } from "../../../stewards/src/rescuelog";
+import { evmName } from "./controls";
 
 export const STEWARD_ORDER: StewardId[] = ["patient", "hedged", "pool", "deep", "swift"];
 export const CODE: Record<StewardId, string> = { patient: "PT", hedged: "HG", pool: "PL", deep: "DP", swift: "SW" };
@@ -57,10 +58,14 @@ export type Board = {
 export const SETTLING_WARNING = "Settlement running: don't repay this position on Aave directly until it ends. The settlement's repay is proven from the drop in the position's debt, so a direct repay would be counted toward the settler's.";
 
 /** Display amounts: two decimals from 1 up, otherwise up to 8 decimals (0.00865215). Exact values stay in the log. */
+/** The one token-amount formatter for reading (contracts hand out 18-decimal strings): two decimals
+ *  from 1 up, below 1 at most 6 significant digits, trailing zeros trimmed. Exact units stay in the
+ *  records and on the explorers. */
 export const fmtAmt = (v: string | number) => {
   const n = Number(v);
-  if (!Number.isFinite(n)) return String(v);
-  return n >= 1 ? n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : n.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+  if (!Number.isFinite(n) || String(v).trim() === "") return String(v);
+  if (Math.abs(n) >= 1) return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n === 0 ? "0" : n.toLocaleString("en-US", { maximumSignificantDigits: 6, maximumFractionDigits: 20 });
 };
 const fmtUsd = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtBlock = (b?: number) => (b ? b.toLocaleString("en-US") : "");
@@ -224,7 +229,7 @@ function journal(log: RescueLog, seen: RescueEvent[]): JournalLine[] {
         at("WON", "acting", e.winners.map((w) => `${w.steward} wins at ${w.bps} bps`).join(", ") || "No bid covered the top-up", e.evidence);
         break;
       case "TOPUP_SENT":
-        at("TOP-UP", "safe", `${e.steward} supplies ${fmtAmt(e.amount)} ${e.asset} to the position · Sepolia block ${fmtBlock(e.evidence.block)}`, e.evidence);
+        at("TOP-UP", "safe", `${e.steward} supplies ${fmtAmt(e.amount)} ${e.asset} to the position · ${evmName(log.evmChain)} block ${fmtBlock(e.evidence.block)}`, e.evidence);
         break;
       case "TOPUP_CONFIRMED":
         at("TOP-UP", "safe", `Top-up proven at block ${fmtBlock(e.evidence.block)}`, e.evidence);
@@ -239,13 +244,13 @@ function journal(log: RescueLog, seen: RescueEvent[]): JournalLine[] {
         at("CLAIM", "exposure", `Claim ${e.claim} to ${e.holder}: ${fmtAmt(e.owed)} + ${fmtAmt(e.premium)} ${e.asset} premium`, e.evidence);
         break;
       case "PAYMENT_IN":
-        at("BUY-BACK", "plain", `Borrower pays ${e.amount} ${e.asset} into the position`, e.evidence);
+        at("BUY-BACK", "plain", `Borrower pays ${fmtAmt(e.amount)} ${e.asset} into the position`, e.evidence);
         break;
       case "ESCROW_PROVEN":
         at("BUY-BACK", "plain", `Payment proven in the position at block ${fmtBlock(e.evidence.block)}`, e.evidence);
         break;
       case "BUYBACK":
-        at("BUY-BACK", "plain", `Buy-back committed: ${e.amount} ${e.asset} owed to the claim owner`, e.evidence);
+        at("BUY-BACK", "plain", `Buy-back committed: ${fmtAmt(e.amount)} ${e.asset} owed to the claim owner`, e.evidence);
         break;
       case "BOUGHT_BACK":
         at("CLAIM", "plain", `Claim closed · withdrawals unlocked`, e.evidence);
@@ -253,7 +258,7 @@ function journal(log: RescueLog, seen: RescueEvent[]): JournalLine[] {
       case "PAYOUT": {
         const tx = (e as any).transfer as Evidence | undefined;
         const who = e.purpose === "buyback" ? "the claim owner, exactly the claim" : e.purpose === "refund" ? "the borrower (overpayment refunded)" : "the steward";
-        at("PAYOUT", "plain", `${e.amount} ${e.asset} paid to ${who}${tx ? ` · ${short(tx.tx)}` : ""}`, tx ?? e.evidence);
+        at("PAYOUT", "plain", `${fmtAmt(e.amount)} ${e.asset} paid to ${who}${tx ? ` · ${short(tx.tx)}` : ""}`, tx ?? e.evidence);
         break;
       }
       case "SETTLE_START":

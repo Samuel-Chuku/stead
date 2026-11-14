@@ -1,4 +1,5 @@
 // npx tsx scripts/rescue-log.ts --rescue 8 [--contract sepolia-demo.steadfi.testnet] [--minutes 20] [--out file] [--raw file]
+// npx tsx scripts/rescue-log.ts --rescue 81 --contract app.usestead.near   (NEAR mainnet + Ethereum mainnet, public nodes only)
 //
 // READ-ONLY. Rebuilds one real rescue's event log from the chains, for the front end's replay:
 //  - the contract's transactions in the rescue's time window (NearBlocks API, public),
@@ -11,7 +12,8 @@ import { dirname, join, resolve } from "node:path";
 import { buildLog, STEWARDS, type ClaimRecord, type Inputs } from "../src/rescuelog.js";
 import { contractTxs, evmTransfers, reader, scrub, sleep, tokenSymbol, txLogs } from "../src/chainread.js";
 import { env, hasEnv } from "../src/config.js";
-import { walletsOf } from "../src/recorder.js";
+import { recordRescue, walletsOf } from "../src/recorder.js";
+import { BLOCKSCOUT_ETHEREUM } from "../src/chainread.js";
 
 const REPO = resolve(dirname(new URL(import.meta.url).pathname), "..", "..");
 const arg = (n: string) => (process.argv.includes(n) ? process.argv[process.argv.indexOf(n) + 1] : undefined);
@@ -26,7 +28,18 @@ const own = hasEnv("QUICKNODE_NEAR_TESTNET_URL") ? [env("QUICKNODE_NEAR_TESTNET_
 const rd = reader("stead-rescue-log", { current: own, archival: own });
 const view = (method: string, args: object, height?: number) => rd.view(contract, method, args, height);
 
+/** A mainnet contract: the rescue's own record gives its window (no steward scan); public NEAR
+ *  mainnet nodes, NearBlocks mainnet and Ethereum Blockscout. Real funds, read only. */
+async function mainnet() {
+  const rdm = reader("stead-rescue-log", {}, { net: "mainnet", blockscout: BLOCKSCOUT_ETHEREUM });
+  const log = await recordRescue(rdm, contract, rid);
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, JSON.stringify(log, null, 1));
+  console.log(`${log.events.length} events, outcome ${log.outcome} → ${out}`);
+}
+
 async function main() {
+  if (contract.endsWith(".near")) return mainnet();
   // 1. The bids for this rescue give its time window (stewards' own transactions are few).
   let bidTimes: bigint[] = [];
   const now = BigInt(Date.now()) * 1_000_000n;

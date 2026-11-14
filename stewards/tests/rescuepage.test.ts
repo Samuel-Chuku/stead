@@ -31,7 +31,8 @@ describe("rescue page", () => {
   it("states the counterfactual price path plainly and shows the chain's numbers", () => {
     expect(html).toContain("fixed at $60,000");
     expect(html).toContain("BTC/USDT hourly closes");
-    expect(html).toContain("524.3202 DAI");
+    expect(html).toContain("524.32 DAI"); // amounts go through the one formatter, never the raw string
+    expect(html).not.toContain("524.3202 DAI");
     expect(html).toContain("0.00865215 + 0.00008652 WBTC");
     expect(html).toContain("$49–103");
   });

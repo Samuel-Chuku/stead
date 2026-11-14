@@ -30,16 +30,16 @@ export function proofRows(log: RescueLog): ProofRow[] {
       AUCTION_CLOSE: `Auction closed${win ? `: ${win.steward} wins at ${win.bps} bps` : ""}`,
       TOPUP_CONFIRMED: "Top-up proven in the position",
       CLAIM_MINTED: e.kind === "CLAIM_MINTED" ? `Claim ${e.claim} minted to ${e.holder}` : "",
-      PAYMENT_IN: `Borrower pays ${pay?.amount ?? ""} ${pay?.asset ?? ""} into the position`,
+      PAYMENT_IN: `Borrower pays ${pay ? fmtAmt(pay.amount) : ""} ${pay?.asset ?? ""} into the position`,
       ESCROW_PROVEN: "Payment proven in the position",
-      BUYBACK: e.kind === "BUYBACK" ? `Buy-back committed: ${e.amount} ${e.asset}` : "",
+      BUYBACK: e.kind === "BUYBACK" ? `Buy-back committed: ${fmtAmt(e.amount)} ${e.asset}` : "",
       BOUGHT_BACK: "Claim closed, withdrawals unlocked",
     };
     let step = label[e.kind];
     if (e.kind === "BID") step = `${e.steward} bids ${e.bps} bps`;
-    if (e.kind === "TOPUP_SENT") step = `${e.steward} supplies ${e.amount} ${e.asset}`;
+    if (e.kind === "TOPUP_SENT") step = `${e.steward} supplies ${fmtAmt(e.amount)} ${e.asset}`;
     if (e.kind === "READING") step = `Health ${e.hf.toFixed(3)}`;
-    if (e.kind === "PAYOUT") step = e.purpose === "buyback" ? `${e.amount} ${e.asset} paid to the claim owner` : `${e.amount} ${e.asset} refunded to the borrower`;
+    if (e.kind === "PAYOUT") step = e.purpose === "buyback" ? `${fmtAmt(e.amount)} ${e.asset} paid to the claim owner` : `${fmtAmt(e.amount)} ${e.asset} refunded to the borrower`;
     const kind = KIND[e.kind];
     if (!step || !kind) continue;
     if (rows.some((r) => r.ev.tx === ev.tx && r.step === step)) continue;
@@ -149,7 +149,7 @@ export function render(log: RescueLog, path: CostPath | null): string {
     { title: "Won", t: close?.t, body: pooled ? `${winners.length} stewards, ${bpsRange} bps` : win ? `${win.steward} at ${win.bps} bps` : "no cover", state: close ? "done" : "pending" },
     { title: "Top-up", t: proven?.t ?? sent?.t, body: proven ? `${fmtAmt(open.topUp.amount)} ${m.collateral}, proven` : sent ? `${sent.amount} ${sent.asset} sent` : "waiting", state: proven ? "done" : "pending" },
     { title: pooled ? "Claims" : "Claim", t: claim?.t, body: pooled ? `${claims.length} claims, one per steward` : claim ? `${claim.claim} to ${claim.holder}` : "", state: claim ? "done" : "pending" },
-    { title: "Buy-back", t: bought?.t, body: pooled && toOwners.length ? `${fmtAmt(sum(toOwners))} ${toOwners[0].asset} to ${toOwners.length} owners` : toOwner ? `${toOwner.amount} ${toOwner.asset} to the owner` : buyback ? "committed" : "window open", state: bought ? "done" : "pending" },
+    { title: "Buy-back", t: bought?.t, body: pooled && toOwners.length ? `${fmtAmt(sum(toOwners))} ${toOwners[0].asset} to ${toOwners.length} owners` : toOwner ? `${fmtAmt(toOwner.amount)} ${toOwner.asset} to the owner` : buyback ? "committed" : "window open", state: bought ? "done" : "pending" },
     { title: "Settle", body: bought ? "Not needed: bought back" : "If the window ends", state: "pending" },
   ];
   const timeline = `
@@ -219,8 +219,8 @@ export function render(log: RescueLog, path: CostPath | null): string {
           <div class="st-tag-kicker">LOCKOUT TAG · NFT</div>
           <h2 class="st-tag-big" id="claim-h">Claim <span class="st-mono-big">${esc(claim.claim)}</span></h2>
           <dl class="st-tag-rows">
-            <div><dt>HOLDER</dt><dd>${tile(claim.holder, 22)} ${claim.holder}.steadfi.testnet</dd></div>
-            <div><dt>OWED</dt><dd>${claim.owed} + ${claim.premium} ${claim.asset}</dd></div>
+            <div><dt>HOLDER</dt><dd>${tile(claim.holder, 22)} ${claim.holder}.${log.nearNetwork === "mainnet" ? "usestead.near" : "steadfi.testnet"}</dd></div>
+            <div><dt>OWED</dt><dd>${fmtAmt(claim.owed)} + ${fmtAmt(claim.premium)} ${claim.asset}</dd></div>
             <div><dt>LOCKED</dt><dd>Withdrawals on position ${log.positionId}${bought ? " (released)" : ""}</dd></div>
             <div><dt>WINDOW</dt><dd>${fmtDur(claim.windowEndsT - claim.t)} from ${clock(log, claim.t)} UTC${bought ? ` · closed ${clock(log, bought.t)}` : ""}</dd></div>
           </dl>
@@ -231,11 +231,11 @@ export function render(log: RescueLog, path: CostPath | null): string {
           <span class="st-chip st-chip--${bought ? "rescued" : "open"}">${outcome}</span>
           <p class="st-buyback-text">${
             bought && toOwner
-              ? `The borrower paid ${pay ? pay.amount + " " + pay.asset : "the buy-back"} into the position. Once the payment was proven, the contract paid the claim owner exactly ${toOwner.amount} ${toOwner.asset}${refund ? ` and refunded ${refund.amount} ${refund.asset} to the borrower` : ""}. The claim is burned and withdrawals are unlocked.`
+              ? `The borrower paid ${pay ? fmtAmt(pay.amount) + " " + pay.asset : "the buy-back"} into the position. Once the payment was proven, the contract paid the claim owner exactly ${fmtAmt(toOwner.amount)} ${toOwner.asset}${refund ? ` and refunded ${fmtAmt(refund.amount)} ${refund.asset} to the borrower` : ""}. The claim is burned and withdrawals are unlocked.`
               : "The borrower can buy the claim back until the window ends; after that it settles."
           }</p>
           <div class="st-tag-links">${pay ? txLink(pay.evidence, "Borrower's payment") : ""}${txLink(all(log, "ESCROW_PROVEN")[0]?.evidence, "Payment proven")}${bought ? txLink(bought.evidence, "Buy-back committed") : ""}</div>
-          <button type="button" class="st-push st-cut" aria-disabled="true" disabled><span class="st-lamp" aria-hidden="true"></span>BUY BACK FOR ${esc(buyback?.amount ?? toOwner?.amount ?? "")} ${esc(buyback?.asset ?? toOwner?.asset ?? m.debt)}</button>
+          <button type="button" class="st-push st-cut" aria-disabled="true" disabled><span class="st-lamp" aria-hidden="true"></span>BUY BACK FOR ${esc(fmtAmt(buyback?.amount ?? toOwner?.amount ?? ""))} ${esc(buyback?.asset ?? toOwner?.asset ?? m.debt)}</button>
           <span class="st-disabled-reason">${bought ? `Bought back at ${clock(log, bought.t)} UTC · claim closed` : "Replay: buy-back opens from a borrower's own position"}</span>
         </div>
       </div>

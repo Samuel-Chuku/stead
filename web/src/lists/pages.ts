@@ -5,9 +5,10 @@
 // page; one dropdown for the chain.
 import type { ClaimRow, PositionRow, Records, RescueRow, StewardRow } from "../../../stewards/src/records";
 import type { StewardId } from "../../../stewards/src/rescuelog";
-import { CODE, RISK, RISK_WORD, STEWARD_ORDER } from "../board/model";
+import { CODE, fmtAmt, RISK, RISK_WORD, STEWARD_ORDER } from "../board/model";
 import { crown } from "../crown";
 import { icon } from "../icons";
+import { chooseNet, listNet, loadMainnetRecords, MAINNET_NOTE, readStoredNet, type ListNet } from "./mainnet";
 
 export type ListRoute = "overview" | "positions" | "rescues" | "claims" | "stewards";
 /** Rescues with a published recording (their own page with timeline, chart and proofs). */
@@ -20,10 +21,7 @@ export const pageSize = () => (typeof matchMedia === "function" && matchMedia("(
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const usd = (n: number | null) => (n === null ? "—" : "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 /** Amounts for reading: two decimals from 1 up, else up to 6 significant decimals. Exact values sit in the details. */
-const amt = (v: string) => {
-  const n = Number(v);
-  return n >= 1 ? n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(Number(n.toPrecision(4)));
-};
+const amt = fmtAmt;
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ") + " UTC";
 const shortC = (c: string) => (c.startsWith("sepolia-demo") ? "sepolia-demo" : c.split(".")[0]);
@@ -132,7 +130,7 @@ const positionItem = (p: PositionRow): Item => ({
     ["Collateral", usd(p.collateralUsd)],
     ["Debt", usd(p.debtUsd)],
     ["Chain", esc(p.chain)],
-    ["Contract", `<span class="st-mono">${esc(p.contract)}</span>`],
+    ["Contract", contractCell(p.contract)],
     ...(p.openRescues.length ? ([["Open rescue", p.openRescues.map((r) => `#${r}`).join(", ") + ` · <a class="st-textlink" href="#/live">Watch live</a>`]] as [string, string][]) : []),
   ],
 });
@@ -152,7 +150,11 @@ export function winnersShort(winners: RescueRow["winners"], range: string): stri
   const more = byBps.length - 2;
   return `<span class="st-item-tiles">${byBps.slice(0, 2).map((w) => `<span title="${esc(w.steward)}, ${w.bps} bps">${tile(w.steward)}</span>`).join("")}${more > 0 ? `<span class="st-item-more">+${more} more</span>` : ""}</span><span class="st-item-sub">${range}</span>`;
 }
-const pageHref = (contract: string, id: number) => `?rescue=${contract === "steadfi.testnet" ? "steadfi" : contract.split(".")[0]}:${id}#/rescues`;
+/** A recorded rescue's page; a mainnet recording plays on the live board (real funds). */
+export const pageHref = (contract: string, id: number) =>
+  contract.endsWith(".near") ? `?replay=mainnet-${id}#/live` : `?rescue=${contract === "steadfi.testnet" ? "steadfi" : contract.split(".")[0]}:${id}#/rescues`;
+/** A mainnet contract links to NearBlocks; testnet ones stay plain. */
+const contractCell = (c: string) => (c.endsWith(".near") ? ext(`https://nearblocks.io/address/${c}`, `<span class="st-mono">${esc(c)}</span>`) : `<span class="st-mono">${esc(c)}</span>`);
 const ext = (url: string | undefined, label: string) => (url ? `<a class="st-textlink st-extlink" href="${url}" target="_blank" rel="noopener">${label}${icon("external", 12)}</a>` : "");
 function rescueItem(r: RescueRow, recorded: Recorded[]): Item {
   const page = r.recorded || recorded.some((x) => x.contract === r.contract && x.rescueId === r.id) ? pageHref(r.contract, r.id) : null;
@@ -175,8 +177,8 @@ function rescueItem(r: RescueRow, recorded: Recorded[]): Item {
       ["Bids", `${r.bids} · premium cap ${r.capBps.toLocaleString("en-US")} bps (below Aave's liquidation penalty)`],
       ["Winners", r.winners.length ? [...r.winners].sort((a, b) => a.bps - b.bps).map((w) => `<span class="st-item-winner">${tile(w.steward)} ${esc(w.steward)} ${crown(w.steward, [["Premium", `${w.bps} bps`], ["Share", `${amt(w.share)} ${esc(r.asset)}`]], 13)}</span>`).join("") : "—"],
       ["Premiums", usd(r.premiumUsd)],
-      ["Contract", `<span class="st-mono">${esc(r.contract)}</span>`],
-      ...(page ? ([["The whole story", `<a class="st-textlink" href="${page}">Open rescue #${r.id}</a>: every step from the trigger to the end, each linked to its transaction`]] as [string, string][]) : open ? ([["Live", `<a class="st-textlink" href="#/live">Watch it on the live board</a>`]] as [string, string][]) : ([["The whole story", "being recorded from the chains; it appears a few minutes after the rescue ends"]] as [string, string][])),
+      ["Contract", contractCell(r.contract)],
+      ...(page && r.contract.endsWith(".near") ? ([["The whole story", `<a class="st-textlink" href="${page}">Replay rescue #${r.id}</a> on the live board, every event linked to NearBlocks or Etherscan`]] as [string, string][]) : page ? ([["The whole story", `<a class="st-textlink" href="${page}">Open rescue #${r.id}</a>: every step from the trigger to the end, each linked to its transaction`]] as [string, string][]) : r.contract.endsWith(".near") && !open ? ([["The whole story", `<a class="st-textlink" href="#/mainnet">On mainnet</a> shows its full flow, read from the contract`]] as [string, string][]) : open ? ([["Live", `<a class="st-textlink" href="#/live">Watch it on the live board</a>`]] as [string, string][]) : ([["The whole story", "being recorded from the chains; it appears a few minutes after the rescue ends"]] as [string, string][])),
       ...(r.triggerUrl ? ([["Trigger", ext(r.triggerUrl, "The reading that opened the auction, on NearBlocks")]] as [string, string][]) : []),
     ],
   };
@@ -204,7 +206,7 @@ function claimsPage(rec: Records, live: boolean) {
         state(st),
       ],
       details: [
-        ["Owed", `${c.owed} ${esc(c.asset)}: ${c.share} supplied + ${c.premium} premium`],
+        ["Owed", `${amt(c.owed)} ${esc(c.asset)}: ${amt(c.share)} supplied + ${amt(c.premium)} premium`],
         ["Premium", `${c.bps} bps`],
         ["Buy-back window", c.status === "open" ? `until ${when(c.expiresAtMs)}` : `ended ${when(c.expiresAtMs)}`],
         ["Rescue", `<a class="st-textlink" href="${pageHref(c.contract, c.rescueId)}">Rescue #${c.rescueId}</a> on position ${c.positionId}`],
@@ -339,21 +341,54 @@ export function wire(root: HTMLElement, signal: AbortSignal) {
   }
 }
 
+/** The Testnet · Mainnet switch above a list (Overview stays on the testnet contracts). */
+export const netSwitch = (n: ListNet) => `<div class="st-seg st-seg--net" role="group" aria-label="Network">
+    <button type="button" data-net="testnet" aria-pressed="${n === "testnet"}">TESTNET</button>
+    <button type="button" data-net="mainnet" aria-pressed="${n === "mainnet"}">MAINNET</button>
+  </div>`;
+
 export function mountList(root: HTMLElement, route: ListRoute, recorded: Recorded[]): () => void {
   let gone = false;
-  const stop = new AbortController();
-  root.innerHTML = `<section class="st-panel st-page" aria-busy="true"><div class="st-label">${route.toUpperCase()}</div><p class="st-empty">Reading the contracts…</p></section>`;
-  loadRecords().then(
-    ({ rec, live }) => {
-      if (gone) return;
-      root.innerHTML =
-        route === "positions" ? positionsPage(rec, live) : route === "rescues" ? rescuesPage(rec, live, recorded) : route === "claims" ? claimsPage(rec, live) : route === "stewards" ? stewardsPage(rec, live) : overviewPage(rec, live, recorded);
-      wire(root, stop.signal);
-    },
-    (e) => {
-      if (!gone) root.innerHTML = `<section class="st-error" role="alert"><h2>Records not loaded</h2><p>Neither the live feed nor the site's snapshot answered (${esc(String((e as Error).message))}). Reload the page to try again.</p></section>`;
-    },
-  );
+  let stop = new AbortController();
+  const switchable = route !== "overview";
+  const draw = () => {
+    const net: ListNet = switchable ? listNet(location.search, readStoredNet()) : "testnet";
+    const bar = switchable ? `<div class="st-net-bar">${netSwitch(net)}${net === "mainnet" ? `<p class="st-net-note">${MAINNET_NOTE}</p>` : ""}</div>` : "";
+    const bind = () =>
+      root.querySelectorAll<HTMLButtonElement>("[data-net]").forEach((b) =>
+        b.addEventListener("click", () => {
+          if (b.dataset.net === net) return;
+          chooseNet(b.dataset.net as ListNet);
+          stop.abort();
+          stop = new AbortController();
+          draw();
+        }),
+      );
+    root.innerHTML = `${bar}<section class="st-panel st-page" aria-busy="true"><div class="st-label">${route.toUpperCase()}</div><p class="st-empty">${net === "mainnet" ? "Reading app.usestead.near on NEAR mainnet, one record at a time…" : "Reading the contracts…"}</p></section>`;
+    bind();
+    const signal = stop.signal;
+    const load = net === "mainnet" ? loadMainnetRecords(signal).then((rec) => ({ rec, live: true })) : loadRecords();
+    load.then(
+      ({ rec, live }) => {
+        if (gone || signal.aborted) return;
+        root.innerHTML =
+          bar +
+          (route === "positions" ? positionsPage(rec, live) : route === "rescues" ? rescuesPage(rec, live, recorded) : route === "claims" ? claimsPage(rec, live) : route === "stewards" ? stewardsPage(rec, live) : overviewPage(rec, live, recorded));
+        bind();
+        wire(root, signal);
+      },
+      (e) => {
+        if (gone || signal.aborted) return;
+        root.innerHTML =
+          bar +
+          (net === "mainnet"
+            ? `<section class="st-error" role="alert"><h2>Mainnet records not loaded</h2><p>The public NEAR mainnet RPCs did not answer (${esc(String((e as Error).message))}). They rate-limit; wait a minute and switch again, or see <a class="st-textlink" href="#/mainnet">On mainnet</a>.</p></section>`
+            : `<section class="st-error" role="alert"><h2>Records not loaded</h2><p>Neither the live feed nor the site's snapshot answered (${esc(String((e as Error).message))}). Reload the page to try again.</p></section>`);
+        bind();
+      },
+    );
+  };
+  draw();
   return () => {
     gone = true;
     stop.abort();

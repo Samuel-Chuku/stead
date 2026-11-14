@@ -66,7 +66,8 @@ async function rpc(urls: string[], body: object, signal: AbortSignal): Promise<a
   }
   throw new Error(`no RPC answered (${(last as Error)?.message ?? "no answer"})`);
 }
-async function view<T>(method: string, args: object, signal: AbortSignal): Promise<T> {
+/** One read-only view of the mainnet contract over the public NEAR RPCs (rotating, backing off). */
+export async function view<T>(method: string, args: object, signal: AbortSignal): Promise<T> {
   const j = await rpc(net.nearRpcs, { method: "query", params: { request_type: "call_function", finality: "optimistic", account_id: net.contract, method_name: method, args_base64: btoa(JSON.stringify(args)) } }, signal);
   if (!j.result) throw new Error(j.error?.cause?.name ?? "NEAR view failed");
   return JSON.parse(new TextDecoder().decode(new Uint8Array(j.result.result)));

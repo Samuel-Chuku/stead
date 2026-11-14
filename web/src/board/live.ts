@@ -128,7 +128,7 @@ const feedUrl = () =>
 function quietAnnunciator(mode: BoardMode) {
   const lamps = ["TRIGGER", "AUCTION", "TOP-UP", "CLAIM OPEN", "TRIP"];
   return `<header class="st-annunciator" aria-label="Status">
-      <div class="st-lamps">${lamps.map((l) => `<div class="st-lamp-cell"><span class="st-dot" aria-hidden="true"></span>${l}</div>`).join("")}</div>
+      <div class="st-lamps" role="list" aria-label="Phase">${lamps.map((l) => `<div class="st-lamp-cell" role="listitem" title="${l}"><span class="st-dot" aria-hidden="true"></span>${l}</div>`).join("")}</div>
       <div class="st-annunciator-right">${modeSwitch(mode)}</div>
     </header>`;
 }

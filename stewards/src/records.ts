@@ -181,10 +181,11 @@ export function buildRecords(all: RawContract[], now = new Date()): Records {
 /** Read one contract's records. `view` is any read-only view call; `symbol` resolves a token address. */
 export async function fetchContract(contract: string, view: <T>(contract: string, method: string, args: object) => Promise<T>, symbol: (address: string) => Promise<string>): Promise<RawContract> {
   const rescues: Rescue[] = [];
-  for (let from = 0; ; from += 100) {
-    const page = await view<Rescue[]>(contract, "get_rescues", { from, limit: 100 });
+  // the contract returns at most 50 rescues a call: asking for more ended the list at 50
+  for (let from = 0; ; from += 50) {
+    const page = await view<Rescue[]>(contract, "get_rescues", { from, limit: 50 });
     rescues.push(...page);
-    if (page.length < 100) break;
+    if (page.length < 50) break;
   }
   const positions: Position[] = [];
   for (let id = 0, misses = 0; misses < 3; id++) {

@@ -27,6 +27,15 @@ export function windowEnd(r: { opened_at: string; claims_opened_at: string; sett
   return end < nowNs ? end : nowNs;
 }
 
+/** Which chains a recording comes from: a `.near` contract is NEAR mainnet, an EVM chain id 1 is
+ *  Ethereum mainnet (real funds), 11155111 Sepolia; anything else is the local fork (unverified). */
+export function recordingChains(contract: string, chainId: number): { nearNetwork: "testnet" | "mainnet"; evmChain: string; label: string } {
+  const nearNetwork = contract.endsWith(".near") ? "mainnet" : "testnet";
+  if (chainId === 1) return { nearNetwork, evmChain: "ethereum", label: `Real funds, recorded on NEAR ${nearNetwork} and Ethereum mainnet` };
+  if (chainId === 11155111) return { nearNetwork, evmChain: "sepolia", label: `Recorded on NEAR ${nearNetwork} and Sepolia` };
+  return { nearNetwork, evmChain: "fork", label: `Recorded on NEAR ${nearNetwork} and a local Sepolia fork (unverified)` };
+}
+
 export async function recordRescue(rd: Reader, contract: string, rid: number, nowNs = BigInt(Date.now()) * 1_000_000n): Promise<RescueLog> {
   const view = (method: string, args: object, height?: number) => rd.view(contract, method, args, height);
   const rescue = await view("get_rescue", { rescue_id: rid });
@@ -65,13 +74,14 @@ export async function recordRescue(rd: Reader, contract: string, rid: number, no
   }
   // Sepolia: the position's token transfers (top-ups, payments in, payouts). The local fork copies
   // Sepolia's tokens but its transactions exist nowhere public: no transfers, labelled unverified.
-  const sepolia = market.chain_id === 11155111;
+  const where = recordingChains(contract, market.chain_id);
+  const sepolia = where.evmChain !== "fork";
   const transfers = sepolia ? await evmTransfers(rd, position.evm_address, Number(fromNs / 1_000_000n)) : [];
   const symbols = { collateral: await tokenSymbol(rd, market.collateral), debt: await tokenSymbol(rd, market.debt) };
   const stewardWallets = await walletsOf(rd, contract, rescue.members.map((m: { steward: string }) => m.steward));
-  const inputs: Inputs = { contract, nearNetwork: "testnet", evmChain: sepolia ? "sepolia" : "fork", rescue, position, market, params, symbols, claims, logs, transfers, stewardWallets };
+  const inputs: Inputs = { contract, nearNetwork: where.nearNetwork, evmChain: where.evmChain, rescue, position, market, params, symbols, claims, logs, transfers, stewardWallets };
   const log = buildLog(inputs);
   const day = new Date(log.openedAtMs).toISOString().slice(0, 10);
-  log.label = sepolia ? `Recorded on NEAR testnet and Sepolia, ${day}` : `Recorded on NEAR testnet and a local Sepolia fork (unverified), ${day}`;
+  log.label = `${where.label}, ${day}`;
   return log;
 }

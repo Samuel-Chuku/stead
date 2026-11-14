@@ -4,6 +4,7 @@ import { icon, logo, type IconName } from "./icons";
 import { mountReplay } from "./board/player";
 import { mountLive } from "./board/live";
 import type { BoardMode } from "./board/view";
+import type { Recording } from "./board/controls";
 import { mountProofs, mountRescue } from "./rescue/page";
 import { mountHome } from "./home/page";
 import { loadRecords, mountList } from "./lists/pages";
@@ -16,16 +17,21 @@ const liveFeedUrl = () => (import.meta as any).env?.VITE_LIVE_FEED ?? (/^(localh
 /** The recorded rescue the live board replays: a real auction on Sepolia, rebuilt from the chains. */
 const REPLAY_URL = "/replays/sepolia-demo-rescue-8.json";
 /** Recorded rescues the live board can replay (?replay=<id>). */
-const REPLAYS = [
-  { id: "8", label: "RESCUE 8", url: "/replays/sepolia-demo-rescue-8.json" },
-  { id: "10", label: "RESCUE 10 · POOLED", url: "/replays/sepolia-demo-rescue-10.json" },
-  { id: "11", label: "RESCUE 11 · POOLED", url: "/replays/sepolia-demo-rescue-11.json" },
-  { id: "14", label: "RESCUE 14 · POOLED", url: "https://live.usestead.xyz/rescue/sepolia-demo.steadfi.testnet/14.json" },
+const REPLAYS: Recording[] = [
+  { id: "mainnet-81", label: "Rescue 81 · bought back", url: "/replays/mainnet-rescue-81.json", net: "mainnet" },
+  { id: "mainnet-78", label: "Rescue 78 · settled", url: "/replays/mainnet-rescue-78.json", net: "mainnet" },
+  { id: "8", label: "Rescue 8", url: "/replays/sepolia-demo-rescue-8.json", net: "testnet" },
+  { id: "10", label: "Rescue 10 · pooled", url: "/replays/sepolia-demo-rescue-10.json", net: "testnet" },
+  { id: "11", label: "Rescue 11 · pooled", url: "/replays/sepolia-demo-rescue-11.json", net: "testnet" },
+  { id: "14", label: "Rescue 14 · pooled", url: "https://live.usestead.xyz/rescue/sepolia-demo.steadfi.testnet/14.json", net: "testnet" },
 ];
+/** The Sepolia demo contract's recordings (its rescue pages, lists and proofs). */
+const TESTNET_REPLAYS = REPLAYS.filter((x) => x.net === "testnet");
+const DEFAULT_REPLAY = "8";
 let replayNote = ""; // shown once on the replay that opened because nothing was live
 const replayId = () => {
   const r = new URLSearchParams(location.search).get("replay");
-  return REPLAYS.some((x) => x.id === r) ? r! : REPLAYS[0].id;
+  return REPLAYS.some((x) => x.id === r) ? r! : DEFAULT_REPLAY;
 };
 /** #/live opens on LIVE; ?replay=<id> (or the REPLAY switch) opens a recorded rescue; ?demo opens DEMO. */
 const boardMode = (): BoardMode => {
@@ -243,10 +249,10 @@ function fill(r: Route) {
     const raw = new URLSearchParams(location.search).get("rescue") ?? "";
     const [short, id] = raw.includes(":") ? raw.split(":") : ["sepolia-demo", raw];
     const contract = short === "steadfi" ? "steadfi.testnet" : `${short}.steadfi.testnet`;
-    const published = short === "sepolia-demo" ? REPLAYS.find((x) => x.id === id)?.url : undefined;
+    const published = short === "sepolia-demo" ? TESTNET_REPLAYS.find((x) => x.id === id)?.url : undefined;
     void mountRescue(content, [`${liveFeedUrl()}/rescue/${contract}/${id}.json`, ...(published ? [published] : [])]);
   } else if (r === "overview" || r === "positions" || r === "rescues" || r === "claims" || r === "stewards") {
-    unmount = mountList(content, r, REPLAYS.map((x) => ({ id: x.id, contract: "sepolia-demo.steadfi.testnet", rescueId: Number(x.id) })));
+    unmount = mountList(content, r, TESTNET_REPLAYS.map((x) => ({ id: x.id, contract: "sepolia-demo.steadfi.testnet", rescueId: Number(x.id) })));
   } else if (r === "how") {
     unmount = mountHow(content);
   } else if (r === "try") {
@@ -264,7 +270,7 @@ function fill(r: Route) {
   } else if (r === "mainnet") {
     unmount = mountMainnet(content);
   } else if (r === "proofs") {
-    void mountProofs(content, REPLAYS);
+    void mountProofs(content, TESTNET_REPLAYS);
   } else content.innerHTML = page(r);
 }
 
