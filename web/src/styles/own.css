@@ -609,3 +609,22 @@
   .st-dash-lright { flex-direction: row-reverse; justify-content: space-between; align-items: center; width: 100%; }
   .st-dash-axis { visibility: hidden; }
 }
+
+/* the account's positions, listed on connecting; a row opens that position */
+.st-dash-allpos { margin-left: auto; font-size: 13px; min-height: 32px; }
+.st-dash-allpos + .st-dash-freshbtn { margin-left: 8px; }
+.st-dash-poslist { border: var(--st-border-heavy); background: var(--st-panel); padding: 14px 16px; display: grid; gap: 10px; }
+.st-dash-poslist .st-dash-jhead { display: flex; align-items: center; gap: 12px; }
+.st-dash-posrows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.st-dash-posrow { width: 100%; display: grid; grid-template-columns: 90px 90px repeat(4, minmax(0, 1fr)) 24px; align-items: center; gap: 12px; padding: 12px 14px; border: var(--st-border); background: var(--st-ground); color: var(--st-ink); text-align: left; cursor: pointer; font: inherit; }
+.st-dash-posrow:hover, .st-dash-posrow:focus-visible { background: var(--st-inset); outline: 2px solid var(--st-ink); outline-offset: -2px; }
+.st-dash-posid, .st-dash-posfig { display: grid; gap: 2px; min-width: 0; }
+.st-dash-posid b { font-family: var(--st-font-head); font-weight: 800; font-size: 30px; line-height: 1; }
+.st-dash-posfig b { font-family: var(--st-font-head); font-weight: 800; font-size: 22px; line-height: 1.1; }
+.st-dash-posrow .st-chip { justify-self: start; padding: 3px 8px; font-size: 11px; letter-spacing: .08em; }
+.st-dash-posgo { justify-self: end; }
+@media (max-width: 720px) {
+  .st-dash-posrow { grid-template-columns: auto auto 1fr; row-gap: 10px; }
+  .st-dash-posrow .st-dash-posgo { grid-column: 3; grid-row: 1; }
+  .st-dash-posfig { grid-column: span 1; }
+}

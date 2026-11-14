@@ -184,6 +184,30 @@ export function mountDash(root: HTMLElement): () => void {
   let prefillKey = "";
   // opening a new position beside an empty one: the empty position's id while its form shows
   let freshFrom: number | null = null;
+  // on connecting, the page lists the account's positions; one opens on a click (kept per tab, so a
+  // reload stays on it). The list is read from the contract and Aave, at most every 20 s.
+  type Owned = { id: number; evm: string | null; collBase: bigint; debtBase: bigint; hf: bigint; prot: number };
+  let listMode = true;
+  let owned: Owned[] | null = null;
+  let ownedAt = 0;
+  let newOpen = false;
+  const OPENKEY = () => `stead-own-mainnet-open-${near}`;
+  const openedId = (): number | null => {
+    try {
+      const v = sessionStorage.getItem(OPENKEY());
+      return v !== null && Number.isInteger(Number(v)) ? Number(v) : null;
+    } catch {
+      return null;
+    }
+  };
+  const setOpened = (id: number | null) => {
+    try {
+      if (id === null) sessionStorage.removeItem(OPENKEY());
+      else sessionStorage.setItem(OPENKEY(), String(id));
+    } catch {
+      /* ignore */
+    }
+  };
   // the click that started or continued the running action: a NEAR wallet that signs in a window
   // of its own can open it only right after one
   let clickAt = 0;
@@ -383,6 +407,26 @@ export function mountDash(root: HTMLElement): () => void {
 
   // ── chain state ──
   let noPosUntil = 0;
+  /** Every position this NEAR account owns, with its Aave figures and how many rescues ran on it. */
+  async function readOwned(): Promise<Owned[]> {
+    const mine: Position[] = [];
+    for (let i = 0; i < 400; i += 8) {
+      const page = await Promise.all(Array.from({ length: 8 }, (_, k) => nearView<Position | null>("get_position", { position_id: i + k })));
+      for (const x of page) if (x && x.owner === near) mine.push(x);
+      if (page.some((x) => !x)) break;
+    }
+    const ran = new Map<number, number>();
+    for (let from = 0; from < 5000; from += 50) {
+      const pg = await nearView<{ position_id: number; bids: unknown[] }[]>("get_rescues", { from, limit: 50 });
+      for (const x of pg) if (x.bids.length) ran.set(x.position_id, (ran.get(x.position_id) ?? 0) + 1);
+      if (pg.length < 50) break;
+    }
+    const rows = await Promise.all(mine.map(async (p) => {
+      const a = p.evm_address ? ((await pub.readContract({ address: net.pool, abi: poolAbi, functionName: "getUserAccountData", args: [p.evm_address as Address] }).catch(() => null)) as readonly bigint[] | null) : null;
+      return { id: p.id, evm: p.evm_address ?? null, collBase: a?.[0] ?? 0n, debtBase: a?.[1] ?? 0n, hf: a?.[5] ?? 0n, prot: ran.get(p.id) ?? 0 };
+    }));
+    return rows.sort((x, y) => y.id - x.id);
+  }
   async function findPosition(): Promise<Position | null> {
     if (!near) return null;
     let id = NaN;
@@ -486,7 +530,12 @@ export function mountDash(root: HTMLElement): () => void {
     refreshing = true;
     try {
       await readCfg();
-      const pos = await findPosition();
+      if (near && listMode && openedId() !== null) listMode = false;
+      if (near && listMode && (owned === null || Date.now() - ownedAt > 20_000)) {
+        owned = await readOwned();
+        ownedAt = Date.now();
+      }
+      const pos = listMode ? null : await findPosition();
       const pa = (pos?.evm_address ?? null) as Address | null;
       const e = await readEvm(pa);
       let books: Books | null = null, rescue: RescueView | null = null, claims: ClaimView[] = [];
@@ -789,6 +838,7 @@ export function mountDash(root: HTMLElement): () => void {
       // the position shown before (an empty one when starting fresh): the new one must be another
       const oldId = s?.pos?.id ?? null;
       const mark = txs.length;
+      listMode = false;
       const forget = () => {
         try {
           localStorage.removeItem(POSKEY());
@@ -808,6 +858,9 @@ export function mountDash(root: HTMLElement): () => void {
         await sleep(2000);
       }
       if (!p?.evm_address || p.id === oldId) throw new Error("the new position didn't appear yet; it will show on the next read");
+      setOpened(p.id);
+      owned = null;
+      newOpen = false;
       // the register was listed under the position shown at the time: it belongs to the new one
       txs.forEach((t, i) => {
         if ((i >= mark || t.pos === undefined) && /^Protect a new position/.test(t.label)) t.pos = p!.id;
@@ -1079,6 +1132,28 @@ export function mountDash(root: HTMLElement): () => void {
     </div>`;
   }
 
+  function listHtml(): string {
+    const rows = owned ?? [];
+    const row = (o: Owned) => {
+      const open = o.collBase > 0n || o.debtBase > 0n;
+      const hf = o.debtBase > 0n ? (Number(o.hf) / 1e18).toFixed(2) : "no debt";
+      return `<li><button type="button" class="st-dash-posrow" data-open-pos="${o.id}">
+        <span class="st-dash-posid"><span class="st-label">POSITION</span><b class="st-num">${o.id}</b></span>
+        <span class="st-chip">${open ? "OPEN" : "CLOSED"}</span>
+        <span class="st-dash-posfig"><span class="st-label">COLLATERAL</span><b class="st-num">${usd8(o.collBase)}</b></span>
+        <span class="st-dash-posfig"><span class="st-label">DEBT</span><b class="st-num">${usd8(o.debtBase)}</b></span>
+        <span class="st-dash-posfig"><span class="st-label">HEALTH</span><b class="st-num">${hf}</b></span>
+        <span class="st-dash-posfig"><span class="st-label">PROTECTIONS</span><b class="st-num">${o.prot}</b></span>
+        <span class="st-dash-posgo" aria-hidden="true">${glyph("M6 3.5 10.5 8 6 12.5", 16)}</span>
+      </button></li>`;
+    };
+    return `<section class="st-dash-poslist" aria-label="Your positions">
+      <div class="st-dash-jhead"><span class="st-label">YOUR POSITIONS · ${esc(near ?? "")}</span>${!newOpen ? `<button type="button" class="st-secondary st-cut st-dash-freshbtn" data-new-open>Open a new position</button>` : ""}</div>
+      <ol class="st-dash-posrows">${rows.map(row).join("")}</ol>
+    </section>
+    ${newOpen ? newPositionHtml() : ""}`;
+  }
+
   function newPositionHtml(): string {
     const allow = allowed(cfg?.limits ?? null, near);
     const pasted = evm ? null : checkPayout(payoutText, refuseList());
@@ -1088,7 +1163,7 @@ export function mountDash(root: HTMLElement): () => void {
     return `<div class="st-dash-new">
       ${from
         ? `<div class="st-dash-new-top"><div class="st-label">NEW POSITION ON MARKET ${net.market}${near ? ` · ${esc(near)}` : ""}</div><button type="button" class="st-dash-linkbtn" data-fresh-back${busy ? " disabled" : ""}>Back to position ${from.id}</button></div>`
-        : `<div class="st-label">NO POSITION ON MARKET ${net.market} YET${near ? ` · ${esc(near)}` : ""}</div>`}
+        : `<div class="st-label">${owned?.length ? "NEW POSITION" : "NO POSITION"} ON MARKET ${net.market}${owned?.length ? "" : " YET"}${near ? ` · ${esc(near)}` : ""}</div>`}
       <h2>Protect a new position</h2>
       <p>${C.symbol} collateral, ${D.symbol} debt, Aave V3 on Ethereum · up to $${capUsd(cfg?.limits ?? null) || 150} · payout ${payoutShown}</p>
       ${from ? `<p>Position ${from.id} is empty and stays yours on the contract. Once the new one is registered, this page shows the new one.</p>${leftoverHtml(from.id)}` : ""}
@@ -1145,7 +1220,7 @@ export function mountDash(root: HTMLElement): () => void {
     const protKpi = `<div class="st-dash-kpi-prot"><dt>STEAD PROTECTIONS</dt><dd class="st-dash-big"><button type="button" class="st-dash-protkpi" data-prots="kpi" aria-haspopup="dialog" aria-label="${tally.count} Stead protection${tally.count === 1 ? "" : "s"} on this position: open the list">${icon("rescues", 30)}<span class="st-num">${protLoading() && !tally.count ? "…" : tally.count}</span></button></dd><dd class="st-dash-cons">${protLoading() && !tally.count ? "reading…" : tally.line}</dd></div>`;
     const collSub = !a ? "" : waiting ? `waiting to be supplied · ${usdOf(s!.posBal.coll, s!.prices.coll, C.decimals)}` : a.collBase > 0n ? `${fmt(collUnits, C.decimals, 6)} ${C.symbol} supplied` : "nothing supplied";
     return `<section class="st-own-live st-dash-status" data-own-live aria-label="Your position" role="status">
-      <div class="st-np-head"><span class="${lamp}" aria-hidden="true"></span><span class="st-np-label">POSITION ${pos.id}</span>${chip}<span class="st-np-now">${now}</span>${!busy && isEmpty() ? `<button type="button" class="st-secondary st-cut st-dash-freshbtn" data-fresh>Open a new position</button>` : ""}</div>
+      <div class="st-np-head"><span class="${lamp}" aria-hidden="true"></span><span class="st-np-label">POSITION ${pos.id}</span>${chip}<span class="st-np-now">${now}</span>${!busy ? `<button type="button" class="st-dash-linkbtn st-dash-allpos" data-all-pos>All positions</button>` : ""}${!busy && isEmpty() ? `<button type="button" class="st-secondary st-cut st-dash-freshbtn" data-fresh>Open a new position</button>` : ""}</div>
       <dl class="st-dash-kpis">
         <div class="st-dash-kpi-hf"><dt>HEALTH FACTOR</dt><dd class="st-dash-big st-dash-hfrow">${hf === null ? `<span class="st-dash-nodebt">no debt</span>` : `<span class="st-num st-dash-hf${hfCls(hf)}">${hfLabel}</span>`}${riskBtn}</dd><dd class="st-dash-cons">${hf === null ? "nothing to liquidate" : fallLine(hf, C.symbol)}</dd><dd>${bar}</dd></div>
         <div><dt>COLLATERAL</dt><dd class="st-dash-big">${collNum}</dd><dd class="st-dash-cons">${collSub}</dd></div>
@@ -2114,8 +2189,12 @@ export function mountDash(root: HTMLElement): () => void {
     const pos = s?.pos ?? null;
     const fresh = freshShown();
     if (!fresh && !busy) freshFrom = null;
-    const full = !!s && !!pos?.evm_address && !fresh;
-    const body = !s
+    const full = !!s && !!pos?.evm_address && !fresh && !listMode;
+    const body = near && listMode && owned?.length
+      ? listHtml()
+      : near && listMode && owned === null
+      ? `<p class="st-empty">Reading your positions…</p>`
+      : !s
       ? `<p class="st-empty">${near ? "Reading the contract and Ethereum…" : ""}</p>`
       : fresh
         ? newPositionHtml()
@@ -2185,6 +2264,9 @@ export function mountDash(root: HTMLElement): () => void {
       await disconnectNear();
       near = null;
       s = null;
+      listMode = true;
+      owned = null;
+      newOpen = false;
       freshFrom = null;
       noPosUntil = 0;
       loadTxs();
@@ -2202,6 +2284,37 @@ export function mountDash(root: HTMLElement): () => void {
       if (id !== null) root.querySelector<HTMLElement>("[data-fresh]")?.focus({ preventScroll: true });
     });
     root.querySelector("[data-register]")?.addEventListener("click", register);
+    root.querySelectorAll<HTMLElement>("[data-open-pos]").forEach((b) => b.addEventListener("click", () => {
+      const id = Number(b.dataset.openPos);
+      try {
+        localStorage.setItem(POSKEY(), String(id));
+      } catch {
+        /* ignore */
+      }
+      setOpened(id);
+      listMode = false;
+      s = null;
+      freshFrom = null;
+      noPosUntil = 0;
+      render();
+      window.scrollTo({ top: 0 });
+      void refresh();
+    }));
+    root.querySelector("[data-all-pos]")?.addEventListener("click", () => {
+      setOpened(null);
+      listMode = true;
+      owned = null;
+      newOpen = false;
+      s = null;
+      freshFrom = null;
+      render();
+      window.scrollTo({ top: 0 });
+      void refresh();
+    });
+    root.querySelector("[data-new-open]")?.addEventListener("click", () => {
+      newOpen = true;
+      render();
+    });
     root.querySelector("[data-risk]")?.addEventListener("click", openRisk);
     root.querySelectorAll<HTMLElement>("[data-fund]").forEach((b) => b.addEventListener("click", () => openFund(b)));
     root.querySelector("[data-more-txs]")?.addEventListener("click", () => {
@@ -2359,6 +2472,9 @@ export function mountDash(root: HTMLElement): () => void {
     stopNear = onNearAccount((a) => {
       near = a;
       noPosUntil = 0;
+      listMode = true;
+      owned = null;
+      newOpen = false;
       s = null;
       freshFrom = null;
       loadTxs();
