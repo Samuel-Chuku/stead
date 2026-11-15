@@ -9,7 +9,7 @@
 
 use near_sdk::json_types::U128;
 use near_sdk::serde::{Deserialize, Serialize};
-use near_sdk::{env, ext_contract, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError};
+use near_sdk::{env, ext_contract, near, AccountId, Gas, NearToken, PanicOnDefault, Promise, PromiseError, PromiseOrValue};
 use omni_transaction::evm::types::Signature;
 use stead_core::{
     Action, Books, Claim, ClaimStatus, EvmAddr, GasArgs, HealthReport, Market, Params, PendingTx, Position, Rescue,
@@ -452,9 +452,16 @@ impl Contract {
         ok(self.core.start_settlement(&caller(), rescue_id, env::block_timestamp()));
         self.flush();
     }
-    pub fn settle_next(&mut self, rescue_id: u64, gas: GasArgs) -> Promise {
-        let plan = ok(self.core.settle_next(rescue_id, gas, env::block_timestamp()));
-        self.request_sign(plan)
+    /// Anyone: sign the next settlement step. Nothing to sign (the remaining payouts didn't cover
+    /// their own gas and were skipped): returns null, and the settlement may have closed.
+    pub fn settle_next(&mut self, rescue_id: u64, gas: GasArgs) -> PromiseOrValue<Option<String>> {
+        match ok(self.core.settle_next(rescue_id, gas, env::block_timestamp())) {
+            Some(plan) => PromiseOrValue::Promise(self.request_sign(plan)),
+            None => {
+                self.flush();
+                PromiseOrValue::Value(None)
+            }
+        }
     }
 
     // ── views ──

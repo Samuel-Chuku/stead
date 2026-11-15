@@ -48,7 +48,7 @@ fn start_at_expiry(f: &mut F, rid: u64) -> Settlement {
 fn send_leg(f: &mut F, rid: u64, confirm: bool) -> (SignPlan, u128) {
     f.report(f.price);
     let leg = f.s.rescue(rid).unwrap().settlement.clone().unwrap().legs.into_iter().find(|l| !l.done).unwrap();
-    let plan = f.s.settle_next(rid, gas(), f.now).unwrap();
+    let plan = f.s.settle_next(rid, gas(), f.now).unwrap().unwrap();
     let AmountArg::Exact(u) = leg.amount else { panic!("exact leg") };
     f.s.on_signed(f.pid, plan.tx.nonce, Some(vec![1])).unwrap();
     f.link -= u;
@@ -462,7 +462,7 @@ fn verified_legs_are_allowed_at_the_start_index() {
     let (ci_a, ci_b) = (ci0 + RAY / 1000, ci0 + RAY / 100);
     accrue(&mut f, ci0, ci_a);
     let leg = f.s.rescue(rid).unwrap().settlement.clone().unwrap().legs[0].clone();
-    let plan = f.s.settle_next(rid, gas(), f.now).unwrap();
+    let plan = f.s.settle_next(rid, gas(), f.now).unwrap().unwrap();
     f.s.on_signed(f.pid, plan.tx.nonce, Some(vec![1])).unwrap();
     let AmountArg::Exact(u) = leg.amount else { panic!() };
     f.link -= u; // burns u / ci_a scaled units

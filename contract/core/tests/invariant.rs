@@ -231,7 +231,7 @@ impl World {
         // withdrawals land one per reading (each needs a reading at least as new as the last
         // event); Aave refuses one that leaves HF < 1 (re-signed after the next reading)
         if f.s.rescue(st.rid).unwrap().state == RescueState::Settling {
-            let Ok(plan) = f.s.settle_next(st.rid, gas(), f.now) else { return true };
+            let Ok(Some(plan)) = f.s.settle_next(st.rid, gas(), f.now) else { return true };
             let leg = f.s.rescue(st.rid).unwrap().settlement.as_ref().unwrap().legs.iter().find(|l| !l.done).unwrap().clone();
             let u = match leg.amount {
                 AmountArg::Exact(u) => u,

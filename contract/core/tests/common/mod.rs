@@ -43,6 +43,13 @@ pub fn market() -> Market {
     }
 }
 
+/// The fixture market with Aave's Sepolia test WETH as collateral (chain 31337 = the Sepolia fork):
+/// a wrapped-native market, so its settlements are batched.
+pub const WETH: &str = "0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c";
+pub fn weth_market() -> Market {
+    Market { collateral: a(WETH), ..market() }
+}
+
 pub fn gas() -> GasArgs {
     GasArgs { gas_limit: 300_000, max_fee_per_gas: 20_000_000_000, max_priority_fee_per_gas: 1_000_000_000 }
 }
@@ -71,8 +78,13 @@ pub struct F {
 
 impl F {
     pub fn new() -> Self {
+        Self::with_market(market())
+    }
+
+    /// The same fixture on another market (e.g. `weth_market()`, where settlements are batched).
+    pub fn with_market(m: Market) -> Self {
         let mut s = Stead::new(OWNER, REPORTER);
-        s.add_market(OWNER, market()).unwrap();
+        s.add_market(OWNER, m).unwrap();
         for (i, st) in STEWARDS.iter().enumerate() {
             s.set_role(OWNER, "steward", st, true).unwrap();
             s.set_evm_payout(st, steward_payout(i)).unwrap();
@@ -152,7 +164,7 @@ impl F {
             self.report(p);
             let s = self.s.rescue(rid).unwrap().settlement.clone().unwrap();
             let leg = s.legs.iter().find(|l| !l.done).unwrap().clone();
-            let plan = self.s.settle_next(rid, gas(), self.now).unwrap();
+            let plan = self.s.settle_next(rid, gas(), self.now).unwrap().unwrap();
             let u = match leg.amount {
                 AmountArg::Exact(u) => u,
                 AmountArg::Max => self.link,

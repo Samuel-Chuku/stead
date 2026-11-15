@@ -400,7 +400,7 @@ fn settlement_b_full_flow_and_buyback_closes_on_commit() {
     assert!(f.s.book(f.pid).outflows.is_empty());
     f.s.confirm_settlement_repay(REPORTER, rid, "0xrepay", s.repay_units, f.block + 1).unwrap();
     f.report(f.price); // each leg needs a reading after the last event
-    let plan = f.s.settle_next(rid, gas(), f.now).unwrap();
+    let plan = f.s.settle_next(rid, gas(), f.now).unwrap().unwrap();
     assert_eq!(plan.tx.selector().unwrap(), SEL_WITHDRAW);
     assert_eq!(arg_addr(&plan.tx.data, 2), steward_payout(0), "settlement withdraw to the claim owner's payout");
     f.land(&plan);
@@ -424,14 +424,14 @@ fn settlement_withdraw_cannot_be_burned_and_failed_leg_can_be_resigned() {
     let s = f.s.rescue(rid).unwrap().settlement.clone().unwrap();
     f.s.confirm_settlement_repay(REPORTER, rid, "0xr", s.repay_units, f.block + 1).unwrap();
     f.report(f.price); // each leg needs a reading after the last event
-    let plan = f.s.settle_next(rid, gas(), f.now).unwrap();
+    let plan = f.s.settle_next(rid, gas(), f.now).unwrap().unwrap();
     f.s.on_signed(f.pid, plan.tx.nonce, Some(vec![1])).unwrap();
     f.tick(601);
     assert!(err(f.s.burn_nonce("x.testnet", f.pid, gas(), f.now)).contains("only a borrower tx"));
     f.s.confirm_nonce(REPORTER, f.pid, plan.tx.nonce + 1, false, f.block + 1).unwrap(); // reverted on-chain
     assert_eq!(f.s.rescue(rid).unwrap().state, RescueState::Settling);
     f.report(f.price); // each leg needs a reading after the last event
-    let again = f.s.settle_next(rid, gas(), f.now).unwrap();
+    let again = f.s.settle_next(rid, gas(), f.now).unwrap().unwrap();
     assert_eq!(again.tx.data, plan.tx.data);
 }
 
@@ -741,7 +741,7 @@ fn takeover_after_3_min_moves_r_leg_and_fee_from_settler_not_borrower() {
     f.s.confirm_settlement_repay(REPORTER, rid, "0xtake", after.repay_units, f.block + 1).unwrap();
     while f.s.rescue(rid).unwrap().state == RescueState::Settling {
         f.report(f.price); // each leg needs a reading after the last event
-        let plan = f.s.settle_next(rid, gas(), f.now).unwrap();
+        let plan = f.s.settle_next(rid, gas(), f.now).unwrap().unwrap();
         f.land(&plan);
     }
     assert_eq!(f.s.claims[&cl.token_id].status, ClaimStatus::Settled);

@@ -25,9 +25,32 @@ const GAS_BASE = cfg.evm === "sepolia"
     ? { gas_limit: "400000", max_fee_per_gas: "1000000000", max_priority_fee_per_gas: "10000000" }
     : { gas_limit: "400000", max_fee_per_gas: "20000000000", max_priority_fee_per_gas: "1000000000" };
 let GAS = GAS_BASE;
+let FEE_CAP: bigint | undefined;
 async function loadGas() {
-  const m = await view<{ gas_limit_cap: string } | null>("get_market", { market_id: cfg.marketId });
+  const m = await view<{ gas_limit_cap: string; max_fee_cap: string } | null>("get_market", { market_id: cfg.marketId });
   if (m && BigInt(m.gas_limit_cap) < BigInt(GAS_BASE.gas_limit)) GAS = { ...GAS_BASE, gas_limit: m.gas_limit_cap };
+  if (m) FEE_CAP = BigInt(m.max_fee_cap);
+}
+
+/** Gas a batched settlement's payout transfer is signed with: an ERC-20 transfer (30–50k, more to
+ *  an address that never held the token) with margin. Its recipient is charged gas limit x max fee,
+ *  so both are kept tight. */
+export const PAYOUT_TRANSFER_GAS = 70_000n;
+
+/** Gas args for a batched payout transfer: twice the current base fee plus the tip (room for the
+ *  base fee to rise for a few blocks; the existing fee bump covers a longer climb), never above the
+ *  market's fee cap. */
+export function payoutGas(baseFee: bigint, tip: bigint, feeCap: bigint | undefined): { gas_limit: string; max_fee_per_gas: string; max_priority_fee_per_gas: string } {
+  let fee = 2n * baseFee + tip;
+  if (feeCap !== undefined && fee > feeCap) fee = feeCap;
+  const t = tip > fee ? fee : tip;
+  return { gas_limit: PAYOUT_TRANSFER_GAS.toString(), max_fee_per_gas: fee.toString(), max_priority_fee_per_gas: t.toString() };
+}
+
+/** The next settlement step is a batched payout transfer (the batch withdraw to the position is done). */
+export function nextIsPayoutTransfer(legs: { to: string; claim_id: string | null; done: boolean }[] | undefined, positionAddress: string | null | undefined): boolean {
+  const first = legs?.[0];
+  return !!first && !!positionAddress && first.claim_id === null && first.to.toLowerCase() === positionAddress.toLowerCase() && first.done;
 }
 const REPORT_EVERY_MS = 60_000; // refresh even when nothing moved (settlement needs ≤ 120 s old)
 /** The contract's grace before a missed top-up on a verified market may be expired directly. */
@@ -471,8 +494,11 @@ export class Keeper {
         } else if (r.state === "settling" && r.settlement?.repay_confirmed) {
           const p = await view<Position>("get_position", { position_id: r.position_id });
           if (!p.pending) {
-            const c = await this.callR("settle_next", { rescue_id: r.id, gas: GAS }, 150n * 1_000_000_000_000n);
-            log("keeper", `settlement leg signed for rescue ${r.id} (MPC) ${short(c.hash)}`);
+            // a batched payout is charged to its recipient at gas limit x max fee: sign it tight
+            const transfer = nextIsPayoutTransfer(r.settlement.legs, p.evm_address);
+            const gas = transfer ? payoutGas((await pub.getBlock()).baseFeePerGas ?? 0n, BigInt(GAS.max_priority_fee_per_gas), FEE_CAP) : GAS;
+            const c = await this.callR("settle_next", { rescue_id: r.id, gas }, 150n * 1_000_000_000_000n);
+            log("keeper", `settlement ${transfer ? `payout signed for rescue ${r.id} (gas ${gas.gas_limit} @ ${Number(BigInt(gas.max_fee_per_gas)) / 1e9} gwei max)` : `leg signed for rescue ${r.id}`} (MPC) ${short(c.hash)}`);
           }
         }
       } catch (e) {

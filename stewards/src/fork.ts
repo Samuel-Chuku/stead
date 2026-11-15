@@ -92,10 +92,9 @@ export async function fundEth(who: Address, eth = 10n) {
 /** Sepolia: mint test tokens from Aave's faucet (permissionless). A local copy of Ethereum: write
  *  the token balance directly (fork only). A real chain without a faucet: funded by hand. */
 export async function faucet(w: WalletClient, token: Address, to: Address, units: bigint): Promise<void> {
-  if (!cfg.aave.faucet) {
-    if (cfg.evm !== "fork") throw new Error("no test-token faucet on this chain: fund the wallet by hand");
-    return deal(token, to, (await balance(token, to)) + units);
-  }
+  // a local fork sets the balance directly (any token, any amount); the faucet is for real Sepolia
+  if (cfg.evm === "fork") return deal(token, to, (await balance(token, to)) + units);
+  if (!cfg.aave.faucet) throw new Error("no test-token faucet on this chain: fund the wallet by hand");
   const max = 10_000n * E18; // faucet per-call limit
   for (let left = units; left > 0n; left -= left > max ? max : left) {
     await write(w, cfg.aave.faucet, faucetAbi, "mint", [token, to, left > max ? max : left]);

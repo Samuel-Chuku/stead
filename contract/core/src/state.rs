@@ -20,6 +20,17 @@ pub const TOPUP_DEADLINE_RANGE_NS: (u64, u64) = (60 * SEC, 3600 * SEC);
 pub const MAX_COLLATERAL_CEILING_BASE: u128 = 1_000 * 100_000_000;
 /// Plain ETH transfer gas; the floor for a nonce-burn.
 pub const TRANSFER_GAS: u128 = 21_000;
+
+/// Each chain's wrapped native token, as Aave lists it (read from each Pool's reserves list):
+/// Ethereum WETH; Aave's Sepolia test WETH (also on the local Sepolia fork, chain 31337). On these
+/// markets gas, paid in ETH, is charged 1:1 in collateral units, so a settlement is batched: one
+/// withdraw to the position (the borrower's gas), then one transfer per payout, each recipient
+/// paying its own transfer's gas out of what it receives.
+pub const WRAPPED_NATIVE: [(u64, &str); 3] = [
+    (1, "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
+    (11155111, "0xc558dbdd856501fcd9aaf1e62eae57a9f0629a3c"),
+    (31337, "0xc558dbdd856501fcd9aaf1e62eae57a9f0629a3c"),
+];
 /// If the settler hasn't supplied the deleverage repayment within this time, anyone may
 /// switch the settlement to the fallback (withdraw the owed units only). A constant, not a
 /// `Params` field, so the storage layout stays unchanged.
@@ -193,6 +204,9 @@ pub enum TxKind {
         #[serde(with = "crate::as_str")]
         value: u128,
     },
+    /// A batched settlement's payout: one `collateral.transfer` from the position to one payout,
+    /// covering these legs (indexes into `Settlement.legs`). Appended last.
+    SettlementPay { rescue_id: u64, legs: Vec<u32> },
 }
 
 impl TxKind {
@@ -1119,6 +1133,11 @@ impl Stead {
         self.emit("nonce_confirmed", json!({"position_id": id, "nonce": t.tx.nonce, "success": success}));
         match (t.kind, success) {
             (TxKind::Settlement { rescue_id, leg }, true) => self.settlement_leg_done(rescue_id, leg)?,
+            (TxKind::SettlementPay { rescue_id, legs }, true) => {
+                for leg in legs {
+                    self.settlement_leg_done_as(rescue_id, leg, false)?;
+                }
+            }
             (TxKind::Outflow, true) => self.outflow_done(id)?,
             _ => {}
         }
@@ -1543,19 +1562,24 @@ impl Stead {
     /// already sent, or in flight, keeps it.
     fn forfeit_premiums(&mut self, pid: u64) -> R<()> {
         let p = self.position(pid)?;
-        let inflight = match p.pending.as_ref().map(|t| &t.kind) {
-            Some(TxKind::Settlement { rescue_id, leg }) => Some((*rescue_id, *leg)),
-            _ => None,
+        let inflight: Vec<(u64, u32)> = match p.pending.as_ref().map(|t| &t.kind) {
+            Some(TxKind::Settlement { rescue_id, leg }) => vec![(*rescue_id, *leg)],
+            Some(TxKind::SettlementPay { rescue_id, legs }) => legs.iter().map(|l| (*rescue_id, *l)).collect(),
+            _ => vec![],
         };
         for rid in p.open_rescues.clone() {
             // only a PREMIUM leg in flight keeps its claim's premium (bounded by that one leg)
-            let inflight_claim = inflight.filter(|(r, _)| *r == rid).and_then(|(_, i)| {
-                let legs = &self.rescue(rid).ok()?.settlement.as_ref()?.legs;
-                (Self::is_premium_leg(legs, i as usize)).then(|| legs[i as usize].claim_id.clone()).flatten()
-            });
+            let inflight_claims: Vec<String> = inflight
+                .iter()
+                .filter(|(r, _)| *r == rid)
+                .filter_map(|(_, i)| {
+                    let legs = &self.rescue(rid).ok()?.settlement.as_ref()?.legs;
+                    (Self::is_premium_leg(legs, *i as usize)).then(|| legs[*i as usize].claim_id.clone()).flatten()
+                })
+                .collect();
             let mut forfeited: BTreeMap<String, u128> = BTreeMap::new();
             for cl in self.claims.values_mut().filter(|c| c.rescue_id == rid && c.status == ClaimStatus::Open && c.premium_units > 0) {
-                if inflight_claim.as_deref() == Some(cl.token_id.as_str()) {
+                if inflight_claims.iter().any(|c| c == &cl.token_id) {
                     continue;
                 }
                 forfeited.insert(cl.token_id.clone(), cl.premium_units);
@@ -1579,7 +1603,7 @@ impl Stead {
                     s.owed_units = s.owed_units.saturating_sub(total);
                     for i in 0..s.legs.len() {
                         let forfeits = s.legs[i].claim_id.as_ref().is_some_and(|id| forfeited.contains_key(id));
-                        if !s.legs[i].done && inflight != Some((rid, i as u32)) && forfeits && Self::is_premium_leg(&s.legs, i) {
+                        if !s.legs[i].done && !inflight.contains(&(rid, i as u32)) && forfeits && Self::is_premium_leg(&s.legs, i) {
                             s.legs[i].amount = AmountArg::Exact(0);
                             zero_legs.push(i as u32); // a premium leg: dropped, nothing sent
                         }
@@ -1706,6 +1730,7 @@ impl Stead {
     fn set_escrow(&mut self, pid: u64, collateral_units: u128, debt_units: u128, block: u64, now: u64, trust: &str) -> R<()> {
         let p = self.position(pid)?;
         ensure!(!p.open_rescues.is_empty(), "no open claim: nothing to hold");
+        ensure!(!self.holds_settlement_collateral(pid), "the position holds a settlement's collateral: prove the balance after its payouts");
         ensure!(self.book(pid).outflows.is_empty(), "payouts queued: prove the balance after they're sent");
         ensure!(!matches!(p.pending.as_ref().map(|t| &t.kind), Some(TxKind::Outflow)), "a payout is in flight");
         let last = self.book(pid).last_event_block;
@@ -1838,7 +1863,7 @@ impl Stead {
         self.emit("health_verified", json!({"position_id": pid, "block": out.block, "hf_wad": hf.to_string(), "rpcs_agreeing": out.agree}));
 
         // escrow: the position's own balances, proven
-        if !self.position(pid)?.open_rescues.is_empty() && self.book(pid).outflows.is_empty() {
+        if !self.position(pid)?.open_rescues.is_empty() && self.book(pid).outflows.is_empty() && !self.holds_settlement_collateral(pid) {
             let bal = |a: &EvmAddr| -> R<u128> { out.bal.iter().find(|b| b.0.to_lowercase() == a.to_hex()).map_or(Ok(0), |b| num(&b.1)) };
             let (bc, bd) = (bal(&m.collateral)?, bal(&m.debt)?);
             let e = self.book(pid).escrow;
@@ -2004,6 +2029,7 @@ impl Stead {
         let open: Vec<Claim> = self.claims.values().filter(|x| x.rescue_id == rid && x.status == ClaimStatus::Open).cloned().collect();
         ensure!(open.iter().any(|x| x.owner == c), "only a claim owner can settle");
         let p = self.position(r.position_id)?;
+        let pos_addr = p.evm_address.ok_or("no position address")?;
         // A reading at least as new as the last event (a pre-top-up reading counts the claims'
         // owed units but not the top-up collateral, so net HF would look far too low)
         let h = self.decision_reading(r.position_id, now)?;
@@ -2058,6 +2084,7 @@ impl Stead {
         if full && avail >= need {
             legs.push(Leg { to: borrower_payout, amount: AmountArg::Max, claim_id: None, done: false });
         }
+        Self::add_batch_leg(&mut legs, &m, pos_addr);
         let s = Settlement {
             settler: c.into(),
             early: early && !expired,
@@ -2179,6 +2206,7 @@ impl Stead {
             }
         }
         legs.extend(premium_legs);
+        Self::add_batch_leg(&mut legs, &m, p.evm_address.ok_or("no position address")?);
         let s = self.rescue_mut(rid)?.settlement.as_mut().unwrap();
         s.price_base = price;
         s.collateral_base = h.r.collateral_base;
@@ -2220,33 +2248,116 @@ impl Stead {
         Ok(())
     }
 
-    /// Anyone: sign the next settlement withdraw (only from `Settling`, after the repay).
-    pub fn settle_next(&mut self, rid: u64, gas: GasArgs, now: u64) -> R<SignPlan> {
+    /// A settlement on a wrapped-native market whose legs can all be sent from one withdraw: the
+    /// batch leg goes first (to the position itself; its amount is set when it is signed).
+    fn add_batch_leg(legs: &mut Vec<Leg>, m: &Market, pos: EvmAddr) {
+        let native = WRAPPED_NATIVE.iter().any(|(chain, a)| *chain == m.chain_id && EvmAddr::parse(a).ok() == Some(m.collateral));
+        if native && !legs.is_empty() && legs.iter().all(|l| matches!(l.amount, AmountArg::Exact(_))) {
+            // the amount shown until it is signed (then set to what is still owed)
+            let total: u128 = legs.iter().map(|l| if let AmountArg::Exact(u) = l.amount { u } else { 0 }).sum();
+            legs.insert(0, Leg { to: pos, amount: AmountArg::Exact(total), claim_id: None, done: false });
+        }
+    }
+
+    /// The settlement is batched: its first leg is the withdraw to the position itself.
+    pub fn is_batched(s: &Settlement, pos: &EvmAddr) -> bool {
+        s.legs.first().is_some_and(|l| l.claim_id.is_none() && l.to == *pos)
+    }
+
+    /// A batched settlement has withdrawn to the position and not paid everything out yet: the
+    /// position's own collateral balance then holds the claim owners' WETH, not the borrower's.
+    pub fn holds_settlement_collateral(&self, pid: u64) -> bool {
+        let Ok(p) = self.position(pid) else { return false };
+        let Some(pos) = p.evm_address else { return false };
+        p.open_rescues.iter().any(|rid| {
+            self.rescues.get(rid).is_some_and(|r| {
+                r.state == RescueState::Settling
+                    && r.settlement.as_ref().is_some_and(|s| Self::is_batched(s, &pos) && s.legs[0].done && s.legs.iter().any(|l| !l.done))
+            })
+        })
+    }
+
+    /// Anyone: sign the next settlement step (only from `Settling`, after the repay). Per-leg
+    /// markets: one `Pool.withdraw` to each leg's payout. Batched (wrapped-native) markets: one
+    /// `Pool.withdraw` of everything owed to the position (the borrower's gas), then one
+    /// `collateral.transfer` per payout covering all its legs, minus that transfer's own gas
+    /// (gas limit x max fee of the signed tx, at least what it can cost: the borrower never pays
+    /// it). A payout whose legs don't cover its own transfer is not sent (no tx) and its amount
+    /// stays with the borrower. `None` when nothing is left to sign.
+    pub fn settle_next(&mut self, rid: u64, gas: GasArgs, now: u64) -> R<Option<SignPlan>> {
         let r = self.rescue(rid)?;
         ensure!(r.state == RescueState::Settling, "not settling");
         let s = r.settlement.as_ref().unwrap();
         ensure!(s.repay_confirmed, "settler's repay not confirmed yet");
-        let leg_i = s.legs.iter().position(|l| !l.done).ok_or("all legs done")?;
-        let leg = s.legs[leg_i].clone();
+        ensure!(s.legs.iter().any(|l| !l.done), "all legs done");
         let pid = r.position_id;
         let p = self.position(pid)?;
         if let Some(t) = &p.pending {
             return Err(format!("tx in flight: nonce {} unconfirmed", t.tx.nonce));
         }
-        // Each leg needs a reading at least as new as the last event (the repay or the previous
-        // leg): a liquidation since then is seen first, so no leg pays a premium after one.
+        // Each step needs a reading at least as new as the last event (the repay or the previous
+        // step): a liquidation since then is seen first, so no premium is paid after one.
         self.decision_reading(pid, now)?;
         let p = self.position(pid)?;
-        let m = self.market_of(p);
-        Self::check_gas(m, &gas, TRANSFER_GAS)?;
-        let tx = TxFields { chain_id: m.chain_id, nonce: p.next_nonce, to: m.pool, data: evm::withdraw(&m.collateral, leg.amount, &leg.to), gas };
-        self.rescue_mut(rid)?.settlement.as_mut().unwrap().committed = true;
-        self.set_pending(pid, tx, TxKind::Settlement { rescue_id: rid, leg: leg_i as u32 }, now)
+        let pos = p.evm_address.ok_or("no position address")?;
+        let m = self.market_of(p).clone();
+        let nonce = p.next_nonce;
+        Self::check_gas(&m, &gas, TRANSFER_GAS)?;
+        let s = self.rescue(rid)?.settlement.clone().unwrap();
+        if !Self::is_batched(&s, &pos) {
+            let leg_i = s.legs.iter().position(|l| !l.done).ok_or("all legs done")?;
+            let leg = s.legs[leg_i].clone();
+            let tx = TxFields { chain_id: m.chain_id, nonce, to: m.pool, data: evm::withdraw(&m.collateral, leg.amount, &leg.to), gas };
+            self.rescue_mut(rid)?.settlement.as_mut().unwrap().committed = true;
+            return self.set_pending(pid, tx, TxKind::Settlement { rescue_id: rid, leg: leg_i as u32 }, now).map(Some);
+        }
+        if !s.legs[0].done {
+            // everything still owed, in one withdraw to the position (the borrower's gas)
+            let total: u128 = s.legs[1..].iter().filter(|l| !l.done).map(|l| if let AmountArg::Exact(u) = l.amount { u } else { 0 }).sum();
+            ensure!(total > 0, "nothing to withdraw");
+            let st = self.rescue_mut(rid)?.settlement.as_mut().unwrap();
+            st.legs[0].amount = AmountArg::Exact(total); // the collateral watch counts this withdraw
+            st.committed = true;
+            let tx = TxFields { chain_id: m.chain_id, nonce, to: m.pool, data: evm::withdraw(&m.collateral, AmountArg::Exact(total), &pos), gas };
+            return self.set_pending(pid, tx, TxKind::Settlement { rescue_id: rid, leg: 0 }, now).map(Some);
+        }
+        let charge = gas.gas_limit.saturating_mul(gas.max_fee_per_gas);
+        loop {
+            let Some(s) = self.rescue(rid)?.settlement.clone() else { return Ok(None) };
+            if self.rescue(rid)?.state != RescueState::Settling {
+                return Ok(None);
+            }
+            let Some(i) = s.legs.iter().position(|l| !l.done) else { return Ok(None) };
+            let to = s.legs[i].to;
+            let group: Vec<u32> = (1..s.legs.len()).filter(|&j| !s.legs[j].done && s.legs[j].to == to).map(|j| j as u32).collect();
+            let owed: u128 = group.iter().map(|&j| if let AmountArg::Exact(u) = s.legs[j as usize].amount { u } else { 0 }).sum();
+            if owed <= charge {
+                // its own transfer would cost more than it carries: not sent, the borrower keeps it
+                self.emit("settlement_payout_skipped", json!({"rescue_id": rid, "to": to.to_hex(), "owed_units": owed.to_string(), "gas_charge_units": charge.to_string()}));
+                for &j in &group {
+                    self.settlement_leg_done_as(rid, j, false)?;
+                }
+                continue;
+            }
+            self.rescue_mut(rid)?.settlement.as_mut().unwrap().committed = true;
+            self.emit(
+                "settlement_payout",
+                json!({"rescue_id": rid, "to": to.to_hex(), "owed_units": owed.to_string(), "gas_charge_units": charge.to_string(), "sent_units": (owed - charge).to_string(), "legs": group}),
+            );
+            let tx = TxFields { chain_id: m.chain_id, nonce, to: m.collateral, data: evm::transfer(&to, owed - charge), gas };
+            return self.set_pending(pid, tx, TxKind::SettlementPay { rescue_id: rid, legs: group }, now).map(Some);
+        }
     }
 
     fn settlement_leg_done(&mut self, rid: u64, leg: u32) -> R<()> {
+        self.settlement_leg_done_as(rid, leg, true)
+    }
+
+    /// `withdrew`: the leg left Aave in its own withdraw (counted by the collateral watch); false
+    /// for a batched payout, whose collateral already left Aave in the batch withdraw.
+    fn settlement_leg_done_as(&mut self, rid: u64, leg: u32, withdrew: bool) -> R<()> {
         let pid = self.rescue(rid)?.position_id;
-        let amount = self.rescue(rid)?.settlement.as_ref().and_then(|s| s.legs.get(leg as usize)).map(|l| l.amount);
+        let amount = if withdrew { self.rescue(rid)?.settlement.as_ref().and_then(|s| s.legs.get(leg as usize)).map(|l| l.amount) } else { None };
         let exact = self.watch_of(pid).last.is_some() && self.is_verified(pid)?;
         if let Some(a) = amount {
             let allow = self.withdraw_allowance(pid, &a, exact);
