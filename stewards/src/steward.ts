@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { cfg, env, hasEnv, REPO, stewardAccount, type StewardName } from "./config.js";
 import { call, view, viewAt, viewReport, NEAR, TGAS } from "./near.js";
 import { wallet, write, ensureTokens, fundEth, poolAbi, erc20Abi, MAX, pub, price, balance } from "./fork.js";
-import { strategies, undercut, type AuctionView } from "./strategy.js";
+import { strategies, undercut, payItsWay, rescueGasUsd, gasFloorBps, type AuctionView } from "./strategy.js";
 import { deliverViaIntents, sourceCapital, type Delivery } from "./intents.js";
 import { DEFAULTS, clamp, type RiskSettings } from "./risk.js";
 import { marketAssets, units } from "./market.js";
@@ -38,6 +38,37 @@ const ROLES: Record<StewardName, string> = {
   pool: "joins coalitions with a partial amount; same margin filter as deep",
   hedged: "deep's filters; shorts the top-up asset on a testnet perps venue while its claim is open, so it bids without the price-risk premium",
 };
+
+/** The test-token faucet (Sepolia) or the fork can mint the debt asset; on Ethereum only the wallet's own balance counts. */
+const canSourceDebt = () => !!cfg.aave.faucet || cfg.evm === "fork";
+
+/** Settlement B's repay as the contract computes it when a settlement starts
+ *  (R = (h·D − LT·(C − O)) / (h − LT), clamped to [0, D], in debt units), plus `headroomBps` for
+ *  the price and the debt interest moving before the start lands. */
+export function expectedRepayUnits(x: { collBase: bigint; debtBase: bigint; owedUnits: bigint; collPriceBase: bigint; debtPriceBase: bigint; collDec: number; debtDec: number; ltBps: bigint; targetBps: bigint }, headroomBps = 200n): bigint {
+  const ceil = (a: bigint, b: bigint) => (a + b - 1n) / b;
+  if (x.debtPriceBase === 0n) return 0n;
+  const owed = ceil(x.owedUnits * x.collPriceBase, 10n ** BigInt(x.collDec));
+  let r: bigint;
+  if (x.collBase <= owed) r = x.debtBase;
+  else {
+    const lhs = x.targetBps * x.debtBase, rhs = x.ltBps * (x.collBase - owed);
+    r = lhs <= rhs ? 0n : ceil(lhs - rhs, x.targetBps - x.ltBps);
+    if (r > x.debtBase) r = x.debtBase;
+  }
+  const units = ceil(r * 10n ** BigInt(x.debtDec), x.debtPriceBase);
+  return units + ceil(units * headroomBps, 10_000n);
+}
+
+/** Whether to start (or take over) a settlement this steward must repay. Funded, or able to mint
+ *  test tokens: go. Unfunded: only for an early settlement (the claims are at risk; a funded
+ *  steward takes over after the delay). On a plain expiry it waits: the borrower can still buy
+ *  back, and a steward that can fund the repay can start it. */
+export function settleDecision(x: { have: bigint; need: bigint; canSource: boolean; early: boolean }): { go: boolean; why: string } {
+  if (x.canSource || x.have >= x.need) return { go: true, why: "repay funded" };
+  if (x.early) return { go: true, why: "net HF below the early level: starting unfunded, a funded steward can take over" };
+  return { go: false, why: "can't fund the repay, leaving the settlement to a steward that can" };
+}
 
 export class Steward {
   readonly account: string;
@@ -186,8 +217,12 @@ export class Steward {
     const mine = r.bids.find((b) => b.steward === this.account);
     if (!mine) return;
     const n = this.rebids.get(r.id) ?? 0;
-    const d = undercut(this.name, this.account, r.bids, { capBps: r.cap_bps, closesAtNs: BigInt(r.closes_at), nowNs: nowNs() }, this.settings, n);
-    if (!d) return;
+    const u = undercut(this.name, this.account, r.bids, { capBps: r.cap_bps, closesAtNs: BigInt(r.closes_at), nowNs: nowNs() }, this.settings, n);
+    if (!u) return;
+    // never re-bid below what pays this share's gas
+    const floor = this.gasFloor.get(r.id) ?? 0;
+    if (u.bps < floor && floor >= mine.premium_bps) return;
+    const d = u.bps < floor ? { bps: floor, why: `${u.why}; held at ${floor} bps to cover gas` } : u;
     this.rebids.set(r.id, n + 1);
     this.remember({ rescue: r.id, outcome: "bid", bps: d.bps });
     try {
@@ -304,6 +339,18 @@ export class Steward {
 
   /** Re-bids made per auction (undercutting stewards only). */
   private rebids = new Map<number, number>();
+  /** The lowest premium per auction that pays this steward's gas (re-bids never go under it). */
+  private gasFloor = new Map<number, number>();
+
+  /** What winning would cost in gas, in USD. Ethereum mainnet with WETH collateral only: test gas
+   *  has no value. The collateral price is the ETH price there; NEAR's price is STEWARD_NEAR_USD
+   *  (an estimate, default $3: the NEAR side is cents). */
+  private async gasIfWon(collateralUsd: number): Promise<number | undefined> {
+    const a = await marketAssets();
+    if (cfg.evm !== "ethereum" || a.cSym !== "WETH") return undefined;
+    const allowance = (await pub.readContract({ address: a.collateral, abi: erc20Abi, functionName: "allowance", args: [this.evm.address, cfg.aave.pool] })) as bigint;
+    return rescueGasUsd({ gasPriceWei: await pub.getGasPrice(), ethUsd: collateralUsd, needsApprove: allowance < MAX / 2n, nearUsd: Number(process.env.STEWARD_NEAR_USD ?? 3) });
+  }
 
   private async onAuction(r: Rescue, params: Params) {
     if (this.bid.has(r.id) || r.bids.some((b) => b.steward === this.account)) {
@@ -342,7 +389,9 @@ export class Steward {
       a.hedge = await (await this.hedge()).quote(Number(units) / 10 ** (a.decimals ?? 18));
     }
     if (a.nowNs >= a.closesAtNs) return;
-    const d = strategies[this.name](a, this.settings);
+    a.gasUsd = await this.gasIfWon(px);
+    const d = payItsWay(strategies[this.name](a, this.settings), a);
+    if (d.bid && a.gasUsd !== undefined) this.gasFloor.set(r.id, gasFloorBps(a, d.amountUnits, a.gasUsd));
     if (!d.bid) {
       this.note(r.id, `auction ${r.id}: ${d.why}`);
       if (!d.wait) this.remember({ rescue: r.id, outcome: `skipped: ${d.why}` });
@@ -445,6 +494,16 @@ export class Steward {
     const nh = await view<[string, string, string] | null>("get_net_health", { position_id: r.position_id });
     const early = nh != null && BigInt(nh[1]) < BigInt(params.early_settle_hf_bps) * 10n ** 14n;
     if (!expired && !early) return;
+    // Starting commits this steward to repay part of the debt. One that can't fund it would stall
+    // the settlement for the takeover delay, lose its premium to whoever takes over, and close the
+    // borrower's buy-back (a proven payment still buys the claims back until a settlement starts).
+    const a = await marketAssets();
+    const claims = await Promise.all(r.members.filter((x) => x.claim_id).map((x) => view<Claim>("get_claim", { token_id: x.claim_id })));
+    const owed = claims.filter((x) => x.status === "open").reduce((s, x) => s + BigInt(x.owed_units), 0n);
+    const h = pos.health;
+    const need = expectedRepayUnits({ collBase: BigInt(h.collateral_base), debtBase: BigInt(h.debt_base), owedUnits: owed, collPriceBase: BigInt(h.collateral_price_base), debtPriceBase: BigInt(h.debt_price_base), collDec: a.cDec, debtDec: a.dDec, ltBps: BigInt(a.ltBps), targetBps: BigInt(params.target_hf_bps) });
+    const go = settleDecision({ have: await balance(a.debt, this.evm.address), need, canSource: canSourceDebt(), early });
+    if (!go.go) return this.note(r.id, `claim ${claim.token_id}: ${go.why} (${fmt(need, a.dDec)} ${a.dSym} needed)`);
     const c = await call(this.account, "start_settlement", { rescue_id: r.id });
     log(this.name, `claim ${claim.token_id} ${expired ? "expired" : "net HF below early level"} → start_settlement ${short(c.hash)}`);
     this.onAction?.("start_settlement", c.hash);
@@ -457,6 +516,11 @@ export class Steward {
       // Take over a stalled repayment after 3 min
       const stalled = nowNs() >= BigInt(s.started_at) + TAKEOVER_AFTER_NS;
       if (!stalled) return;
+      // taking over without the repay amount would only stall it again
+      const a = await marketAssets();
+      const need = BigInt(s.repay_units);
+      const go = settleDecision({ have: await balance(a.debt, this.evm.address), need, canSource: canSourceDebt(), early: false });
+      if (!go.go) return this.note(r.id, `settlement ${r.id} stalled, not taking over: ${go.why} (${fmt(need, a.dDec)} ${a.dSym} needed)`);
       const c = await call(this.account, "take_over_settlement", { rescue_id: r.id });
       log(this.name, `settlement ${r.id} stalled → took it over ${short(c.hash)}`);
       return;

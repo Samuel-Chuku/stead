@@ -24,6 +24,8 @@ export interface AuctionView {
   decimals?: number;
   /** The hedged steward only: what the venue can do for this top-up now. */
   hedge?: HedgeQuote;
+  /** What winning would cost this steward in gas, in USD (Ethereum mainnet; undefined where gas has no value). */
+  gasUsd?: number;
 }
 
 export type Decision = { bid: true; bps: number; amountUnits: bigint; why: string } | { bid: false; wait?: boolean; why: string };
@@ -107,6 +109,40 @@ export const strategies: Record<StewardName, (a: AuctionView, s?: RiskSettings) 
     };
   },
 };
+
+// ── gas: a bid must pay for itself ──
+
+/** Gas a won top-up costs on Ethereum (measured on mainnet: supply 143–149k, approve 46,364). */
+export const RESCUE_GAS = { supply: 160_000n, approve: 50_000n } as const;
+/** NEAR a rescue's calls cost the steward (bid, a re-bid, close, settlement calls; measured ~0.005). */
+export const RESCUE_NEAR = 0.006;
+/** Profit a bid must clear on top of its gas, as a fraction of that gas. */
+export const MIN_GAS_PROFIT = 0.25;
+
+/** What a won rescue costs this steward in gas, in USD: the Ethereum supply (and the approve, the
+ *  first time) at the current gas price, plus its NEAR calls. */
+export function rescueGasUsd(x: { gasPriceWei: bigint; ethUsd: number; needsApprove: boolean; nearUsd: number }): number {
+  const gas = RESCUE_GAS.supply + (x.needsApprove ? RESCUE_GAS.approve : 0n);
+  return (Number(gas * x.gasPriceWei) / 1e18) * x.ethUsd + RESCUE_NEAR * x.nearUsd;
+}
+
+/** The lowest premium (bps) at which `amountUnits` of this top-up pays `gasUsd` plus the margin. */
+export function gasFloorBps(a: AuctionView, amountUnits: bigint, gasUsd: number, minProfit = MIN_GAS_PROFIT): number {
+  if (a.topupUnits === 0n || amountUnits === 0n) return Infinity;
+  const shareUsd = (Number(a.topupBase) / 1e8) * (Number(amountUnits) / Number(a.topupUnits));
+  return Math.ceil(((gasUsd * (1 + minProfit)) / shareUsd) * 10_000);
+}
+
+/** Applied to every strategy's bid: under the gas floor it is raised to the floor while that stays
+ *  within the cap (the borrower's bound is the cap, not the steward's spread); above the cap the
+ *  rescue is too small to pay its gas and the steward skips it. No gas figure: unchanged. */
+export function payItsWay(d: Decision, a: AuctionView): Decision {
+  if (!d.bid || a.gasUsd === undefined) return d;
+  const floor = gasFloorBps(a, d.amountUnits, a.gasUsd);
+  if (d.bps >= floor) return d;
+  if (floor > a.capBps) return { bid: false, why: `skips: gas ~$${a.gasUsd.toFixed(2)} needs ${floor} bps on this share, above the ${a.capBps} bps cap (too small to pay its gas)` };
+  return { ...d, bps: floor, why: `${d.why}; raised ${d.bps} → ${floor} bps to cover gas ~$${a.gasUsd.toFixed(2)}` };
+}
 
 // ── undercutting: re-bidding lower inside an auction (only some stewards) ──
 

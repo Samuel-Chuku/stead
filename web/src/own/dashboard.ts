@@ -19,7 +19,7 @@ import { CODE } from "../board/model";
 import { dialogHtml as svDialogHtml, showSteward, stewardPanel, flowSeq } from "../mainnet/runs";
 import { NETS, gasFromMarket, marketMismatch, allowed, capUsd, rescueFlow, protectionRows, rescueFinished, OUTCOME_WORD, units as fmtUnits, type MarketView, type LimitsView, type ParamsView, type RescueView, type ClaimView, type ProtectionRow } from "./net";
 import {
-  project, depositMax, borrowMax, withdrawMax, repayAllUnits, sweepAmount, sweepSupported, gasTopUp, phaseOf, availability, fallLine,
+  project, depositMax, borrowMax, withdrawMax, repayAllUnits, sweepAmount, sweepSupported, gasTopUp, phaseOf, availability, fallLine, smallRescueNote,
   hfFromWad, hfText, hfBarPct, TRIGGER_BPS, TRANSFER_GAS, KEEPER_TOPS_UP_GAS, UNDER_TRIGGER_WARNING,
   checkPayout, gasAsk, arrived, depositPlan, buybackDue, qrSvg,
   hfBand, hfPulses, riskLines, pctText, ltvView, premiumCapBase, barZones, BAR_MARKS, EARLY_SETTLE_BPS, linePrice,
@@ -131,6 +131,21 @@ export function mountDash(root: HTMLElement): () => void {
   let showNoBids = false;
   let showAllProt = false;
   // the times of the Ethereum blocks the contract's proofs name, read once each
+  // Ethereum's gas price for the small-loan warning, read at most once a minute
+  let gasWei: bigint | null = null;
+  let gasReadAt = 0;
+  const wantGas = () => {
+    if (Date.now() - gasReadAt < 60_000) return;
+    gasReadAt = Date.now();
+    pub.getGasPrice().then(
+      (g) => {
+        const changed = g !== gasWei;
+        gasWei = g;
+        if (changed) render();
+      },
+      () => (gasReadAt = 0),
+    );
+  };
   const blockTimes = new Map<number, number | null>();
   const wantBlock = (n: number) => {
     if (blockTimes.has(n)) return;
@@ -1248,8 +1263,18 @@ export function mountDash(root: HTMLElement): () => void {
         <div><dt>DEBT</dt><dd class="st-dash-big"><span class="st-num">${a ? usd8(a.debtBase, 2) : "…"}</span></dd><dd class="st-dash-cons">${a ? (a.debtBase > 0n ? `${fmt(debtUnits, D.decimals, 2)} ${D.symbol} borrowed` : "nothing borrowed") : ""}</dd></div>
         ${protKpi}
       </dl>
+      ${smallNote()}
       <p class="st-dash-src">${C.symbol} <strong>${s!.prices.coll ? usd8(s!.prices.coll, 2) : "…"}</strong> · Aave V3, read every ${FAST_MS / 1000} s and on each block</p>
     </section>`;
+  }
+
+  /** The small-loan gas warning (WETH collateral: its price is ETH's), or nothing. */
+  function smallNote(): string {
+    const a = s?.acct;
+    if (!a || a.debtBase === 0n || C.symbol !== "WETH" || !s?.prices.coll) return "";
+    wantGas();
+    const note = gasWei === null ? null : smallRescueNote({ debtBase: a.debtBase, liqBonusBps: BigInt(cfg?.market?.liq_bonus_bps ?? 0), gasWei, ethBase: s.prices.coll });
+    return note ? `<p class="st-dash-warn"><span class="st-dash-warn-tag is-ink">SMALL LOAN</span>${esc(note)}</p>` : "";
   }
 
   /** This position's rescues (with bids, and the ones no steward bid on), and whether they are still being read. */

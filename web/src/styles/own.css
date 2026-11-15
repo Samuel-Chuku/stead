@@ -358,6 +358,7 @@
 .st-dash-act .st-own-stop { margin: 0; font-size: 13px; }
 .st-dash-warn { margin: 0; border: var(--st-border); padding: 8px 10px; font-size: 13px; line-height: 1.5; }
 .st-dash-warn-tag { display: inline-block; margin-right: 8px; padding: 1px 6px; background: var(--st-exposure); color: var(--st-on-exposure); font-family: var(--st-font-head); font-weight: 700; font-size: 11px; letter-spacing: var(--st-tracking-label); }
+.st-dash-warn-tag.is-ink { background: var(--st-ink); color: var(--st-panel); }
 .st-dash-act.is-off h3 { color: var(--st-quiet); }
 .st-dash-try .st-secondary { font-size: 13px; min-height: 40px; padding: 0 12px; }
 .st-dash-buy .st-dash-owed { margin: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 10px; }

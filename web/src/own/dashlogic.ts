@@ -519,6 +519,23 @@ export function ltvView(a: Account, maxLtvBps: bigint): LtvView | null {
  *  premium on the position counts against it, so a stack of rescues shares one cap. */
 export const premiumCapBase = (debtBase: bigint, liqBonusBps: bigint) => (debtBase * liqBonusBps) / 10_000n / 2n;
 
+/** Ethereum gas one rescue's transactions take, estimated from the pooled mainnet rescue of
+ *  2026-11-15: two stewards' top-ups (approve + supply each, ~400k) and a settlement's withdraw
+ *  legs (5 x ~235k). The legs are paid from the position. */
+export const RESCUE_ETH_GAS = 1_600_000n;
+
+/** A small position's warning, or null: shown when a rescue's gas at today's price is a quarter or
+ *  more of the most it can save over an Aave liquidation (the premium cap). Base amounts are USD
+ *  with 8 decimals; `ethBase` is ETH's price. */
+export function smallRescueNote(x: { debtBase: bigint; liqBonusBps: bigint; gasWei: bigint; ethBase: bigint }): string | null {
+  const cap = Number(premiumCapBase(x.debtBase, x.liqBonusBps)) / 1e8;
+  if (cap <= 0 || x.gasWei <= 0n || x.ethBase <= 0n) return null;
+  const gasUsd = (Number(RESCUE_ETH_GAS * x.gasWei) / 1e18) * (Number(x.ethBase) / 1e8);
+  if (gasUsd < cap / 4) return null;
+  const gwei = Number(x.gasWei) / 1e9;
+  return `A rescue can save this loan at most $${cap.toFixed(2)} against a liquidation, and at today's gas (${gwei < 1 ? gwei.toFixed(2) : gwei.toFixed(1)} gwei) its Ethereum transactions cost about $${gasUsd.toFixed(2)}. Stewards may skip it, and if it ends in a settlement, the gas paid from the position can cost you more than a liquidation would.`;
+}
+
 /** The health bar's coloured zones, left to right on the bar's scale (percent): under 1.00
  *  liquidation, 1.00 to 1.10 early settlement, 1.10 to 1.15 under the trigger, 1.15 to 1.50
  *  caution, over 1.50 safe. Flat colours, no gradient. */
