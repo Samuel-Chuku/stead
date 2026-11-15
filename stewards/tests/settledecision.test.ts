@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { expectedRepayUnits, settleDecision } from "../src/steward.js";
+import { expectedRepayUnits, settleDecision, takeoverDecision, settleGraceS } from "../src/steward.js";
 
 // A real settlement on Ethereum mainnet (WETH collateral, USDC debt): the contract's reading at the
 // start and the repay it computed (repay_base 2247446048, repay_units 22479786).
@@ -33,19 +33,46 @@ describe("expected settlement repay", () => {
 
 describe("whether to start a settlement", () => {
   const need = 22_929_382n;
-  it("an unfunded steward does not start on a plain expiry (the run where one stalled and lost its premium)", () => {
-    expect(settleDecision({ have: 0n, need, canSource: false, early: false }).go).toBe(false);
+  const base = { need, canSource: false, early: false };
+  it("waits out the late buy-back grace, funded or not (a late buy-back still commits)", () => {
+    expect(settleDecision({ ...base, have: need, graceLeftS: 30 }).go).toBe(false);
+    expect(settleDecision({ ...base, have: 0n, graceLeftS: 30 }).go).toBe(false);
   });
-  it("a funded steward starts", () => {
-    expect(settleDecision({ have: need, need, canSource: false, early: false }).go).toBe(true);
+  it("after the grace a funded steward starts", () => {
+    expect(settleDecision({ ...base, have: need, graceLeftS: 0 })).toEqual({ go: true, why: "grace over, repay funded" });
   });
-  it("one short by a single unit does not", () => {
-    expect(settleDecision({ have: need - 1n, need, canSource: false, early: false }).go).toBe(false);
+  it("after the grace an unfunded steward still starts, handing the repay to a funded steward's takeover", () => {
+    const d = settleDecision({ ...base, have: 0n, graceLeftS: 0 });
+    expect(d.go).toBe(true);
+    expect(d.why).toContain("take over");
   });
-  it("starts unfunded only for an early settlement, where the claims are at risk", () => {
-    expect(settleDecision({ have: 0n, need, canSource: false, early: true }).go).toBe(true);
+  it("an early settlement starts at once, inside the grace and unfunded", () => {
+    expect(settleDecision({ ...base, have: 0n, early: true, graceLeftS: 1800 }).go).toBe(true);
   });
-  it("a steward that can mint test tokens always goes", () => {
-    expect(settleDecision({ have: 0n, need, canSource: true, early: false }).go).toBe(true);
+});
+
+describe("whether to take over a stalled settlement", () => {
+  const need = 22_479_786n;
+  it("only with the repay amount in hand", () => {
+    expect(takeoverDecision({ have: 0n, need, canSource: false }).go).toBe(false);
+    expect(takeoverDecision({ have: need - 1n, need, canSource: false }).go).toBe(false);
+    expect(takeoverDecision({ have: need, need, canSource: false }).go).toBe(true);
+  });
+  it("a steward that can mint test tokens always can", () => {
+    expect(takeoverDecision({ have: 0n, need, canSource: true }).go).toBe(true);
+  });
+});
+
+describe("the late buy-back grace setting", () => {
+  it("defaults to 30 min on Ethereum mainnet and none on testnets", () => {
+    expect(settleGraceS(undefined, "ethereum")).toBe(1800);
+    expect(settleGraceS(undefined, "sepolia")).toBe(0);
+    expect(settleGraceS(undefined, "fork")).toBe(0);
+  });
+  it("takes the configured seconds (the 90 s demo setting), never more than a day", () => {
+    expect(settleGraceS("90", "ethereum")).toBe(90);
+    expect(settleGraceS("0", "ethereum")).toBe(0);
+    expect(settleGraceS("999999", "ethereum")).toBe(86_400);
+    expect(settleGraceS("nonsense", "ethereum")).toBe(1800);
   });
 });

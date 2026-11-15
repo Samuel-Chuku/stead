@@ -60,14 +60,30 @@ export function expectedRepayUnits(x: { collBase: bigint; debtBase: bigint; owed
   return units + ceil(units * headroomBps, 10_000n);
 }
 
-/** Whether to start (or take over) a settlement this steward must repay. Funded, or able to mint
- *  test tokens: go. Unfunded: only for an early settlement (the claims are at risk; a funded
- *  steward takes over after the delay). On a plain expiry it waits: the borrower can still buy
- *  back, and a steward that can fund the repay can start it. */
-export function settleDecision(x: { have: bigint; need: bigint; canSource: boolean; early: boolean }): { go: boolean; why: string } {
-  if (x.canSource || x.have >= x.need) return { go: true, why: "repay funded" };
-  if (x.early) return { go: true, why: "net HF below the early level: starting unfunded, a funded steward can take over" };
-  return { go: false, why: "can't fund the repay, leaving the settlement to a steward that can" };
+/** The late buy-back grace after a claim's window, in seconds: STEWARD_SETTLE_GRACE_S, else 30 min
+ *  on Ethereum mainnet and none on testnets. A proven buy-back still commits until a settlement
+ *  starts, so waiting this long keeps a late payment from the borrower good. */
+export function settleGraceS(v: string | undefined, evm: string): number {
+  const s = Number(v);
+  if (v !== undefined && v !== "" && Number.isFinite(s) && s >= 0) return Math.min(s, 24 * 3600);
+  return evm === "ethereum" ? 1800 : 0;
+}
+
+/** Whether a claim holder starts the settlement now. Net HF under the early level: at once (the
+ *  claims are at risk). Otherwise it waits out the grace, then starts, funded or not: an unfunded
+ *  start hands the repay to a funded steward, which takes it over (and the premium) after the
+ *  contract's takeover delay. */
+export function settleDecision(x: { have: bigint; need: bigint; canSource: boolean; early: boolean; graceLeftS: number }): { go: boolean; why: string } {
+  const funded = x.canSource || x.have >= x.need;
+  if (x.early) return { go: true, why: funded ? "net HF below the early level, repay funded" : "net HF below the early level: starting unfunded, a funded steward can take over" };
+  if (x.graceLeftS > 0) return { go: false, why: "waiting out the late buy-back grace" };
+  return { go: true, why: funded ? "grace over, repay funded" : "grace over and the repay isn't funded: starting so a funded steward can take over" };
+}
+
+/** Whether to take over a stalled settlement: only with the repay amount in hand (an unfunded
+ *  takeover would only stall it again). */
+export function takeoverDecision(x: { have: bigint; need: bigint; canSource: boolean }): { go: boolean; why: string } {
+  return x.canSource || x.have >= x.need ? { go: true, why: "repay funded" } : { go: false, why: "can't fund the repay" };
 }
 
 export class Steward {
@@ -94,6 +110,8 @@ export class Steward {
    *  its share is bought with USDC on NEAR and delivered as ETH, which it wraps. If delivery isn't
    *  confirmed within `maxWaitMs`, it tops up from its own WETH (it must hold enough anyway). */
   intents?: { maxWaitMs: number };
+  /** The late buy-back grace after a claim's window before this steward settles (seconds). */
+  graceS: number;
   /** Every Intents outcome, for the run's evidence (the solver's delivery is not from our addresses). */
   public onIntents?: (d: Delivery) => void;
 
@@ -123,6 +141,7 @@ export class Steward {
     // real NEAR Intents capital for a winning share (mainnet WETH only): STEWARD_<NAME>_INTENTS_WAIT_S
     // seconds to wait for delivery before topping up from its own WETH
     this.intents = intentsFrom(pick(`STEWARD_${N}_INTENTS_WAIT_S`, "STEWARD_INTENTS_WAIT_S"));
+    this.graceS = settleGraceS(pick(`STEWARD_${N}_SETTLE_GRACE_S`, "STEWARD_SETTLE_GRACE_S"), cfg.evm);
     this.lastAi = lastAiAsk(name);
     const own = process.env.STEWARD_SETTINGS;
     this.settings = own ? clamp(JSON.parse(own), DEFAULTS[name]) : { ...DEFAULTS[name] };
@@ -494,18 +513,20 @@ export class Steward {
     const nh = await view<[string, string, string] | null>("get_net_health", { position_id: r.position_id });
     const early = nh != null && BigInt(nh[1]) < BigInt(params.early_settle_hf_bps) * 10n ** 14n;
     if (!expired && !early) return;
-    // Starting commits this steward to repay part of the debt. One that can't fund it would stall
-    // the settlement for the takeover delay, lose its premium to whoever takes over, and close the
-    // borrower's buy-back (a proven payment still buys the claims back until a settlement starts).
+    // Starting commits this steward to repay part of the debt and closes the borrower's buy-back
+    // (a proven payment still buys the claims back until a settlement starts): wait out the grace
+    // unless the claims are at risk.
+    const graceEndNs = BigInt(claim.expires_at) + BigInt(this.graceS) * 1_000_000_000n;
+    const graceLeftS = Math.max(0, Number(graceEndNs - nowNs()) / 1e9);
     const a = await marketAssets();
     const claims = await Promise.all(r.members.filter((x) => x.claim_id).map((x) => view<Claim>("get_claim", { token_id: x.claim_id })));
     const owed = claims.filter((x) => x.status === "open").reduce((s, x) => s + BigInt(x.owed_units), 0n);
     const h = pos.health;
     const need = expectedRepayUnits({ collBase: BigInt(h.collateral_base), debtBase: BigInt(h.debt_base), owedUnits: owed, collPriceBase: BigInt(h.collateral_price_base), debtPriceBase: BigInt(h.debt_price_base), collDec: a.cDec, debtDec: a.dDec, ltBps: BigInt(a.ltBps), targetBps: BigInt(params.target_hf_bps) });
-    const go = settleDecision({ have: await balance(a.debt, this.evm.address), need, canSource: canSourceDebt(), early });
-    if (!go.go) return this.note(r.id, `claim ${claim.token_id}: ${go.why} (${fmt(need, a.dDec)} ${a.dSym} needed)`);
+    const go = settleDecision({ have: await balance(a.debt, this.evm.address), need, canSource: canSourceDebt(), early, graceLeftS });
+    if (!go.go) return this.note(r.id, `claim ${claim.token_id}: ${go.why} (until ${new Date(Number(graceEndNs / 1_000_000n)).toISOString().slice(11, 19)} UTC; a late buy-back still commits)`);
     const c = await call(this.account, "start_settlement", { rescue_id: r.id });
-    log(this.name, `claim ${claim.token_id} ${expired ? "expired" : "net HF below early level"} → start_settlement ${short(c.hash)}`);
+    log(this.name, `claim ${claim.token_id} ${early ? "net HF below early level" : "expired"}: ${go.why} (${fmt(need, a.dDec)} ${a.dSym} expected) → start_settlement ${short(c.hash)}`);
     this.onAction?.("start_settlement", c.hash);
   }
 
@@ -519,7 +540,7 @@ export class Steward {
       // taking over without the repay amount would only stall it again
       const a = await marketAssets();
       const need = BigInt(s.repay_units);
-      const go = settleDecision({ have: await balance(a.debt, this.evm.address), need, canSource: canSourceDebt(), early: false });
+      const go = takeoverDecision({ have: await balance(a.debt, this.evm.address), need, canSource: canSourceDebt() });
       if (!go.go) return this.note(r.id, `settlement ${r.id} stalled, not taking over: ${go.why} (${fmt(need, a.dDec)} ${a.dSym} needed)`);
       const c = await call(this.account, "take_over_settlement", { rescue_id: r.id });
       log(this.name, `settlement ${r.id} stalled → took it over ${short(c.hash)}`);
