@@ -89,6 +89,9 @@ export class Steward {
     this.evm = wallet(key as Hex);
     const cap = pick(`STEWARD_${N}_CAPACITY`, "STEWARD_CAPACITY");
     if (cap) this.capacity = Number(cap); // turned into units once the market's decimals are known
+    // real NEAR Intents capital for a winning share (mainnet WETH only): STEWARD_<NAME>_INTENTS_WAIT_S
+    // seconds to wait for delivery before topping up from its own WETH
+    this.intents = intentsFrom(pick(`STEWARD_${N}_INTENTS_WAIT_S`, "STEWARD_INTENTS_WAIT_S"));
     this.lastAi = lastAiAsk(name);
     const own = process.env.STEWARD_SETTINGS;
     this.settings = own ? clamp(JSON.parse(own), DEFAULTS[name]) : { ...DEFAULTS[name] };
@@ -533,4 +536,12 @@ export const NEAR_BOND = NEAR / 10n;
 export function bidCapacity(configured: bigint | undefined, walletUnits: bigint | undefined): bigint | undefined {
   if (walletUnits === undefined) return configured;
   return configured === undefined || walletUnits < configured ? walletUnits : configured;
+}
+
+/** The NEAR Intents setting from the environment: seconds to wait for a delivery (unset, empty, zero
+ *  or not a number: off; never more than 10 minutes, a top-up window is only a few). */
+export function intentsFrom(v: string | undefined): { maxWaitMs: number } | undefined {
+  const s = Number(v);
+  if (!v || !Number.isFinite(s) || s <= 0) return undefined;
+  return { maxWaitMs: Math.min(600, s) * 1000 };
 }

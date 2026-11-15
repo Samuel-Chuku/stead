@@ -53,6 +53,7 @@ export interface Move {
   ok?: boolean;
   intents?: boolean; // part of the NEAR Intents leg
   note?: string; // for a step with no transaction of its own: where it comes from ("contract record")
+  links?: { href: string; label: string }[]; // every explorer link for the step (a recorded rescue's transactions)
   figure?: { value: string; unit: string };
 }
 

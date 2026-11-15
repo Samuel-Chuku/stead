@@ -326,6 +326,11 @@ share, bid timing). It's off unless an API key is set. Any OpenAI-compatible cha
 
 ## Honest limits
 
+- **Gas spikes on mainnet.** The mainnet market caps the fee of every contract-signed transaction at
+  1 gwei, so a position can never spend much on gas, and a market's caps can't be raised after it is
+  added. While Ethereum's base fee is above the cap, the position's transactions (repays, payouts,
+  settlement legs) wait, and the keeper broadcasts them again until the fee falls back under it. A
+  production market would set the cap with that trade-off in mind.
 - **What is still trusted.** On Sepolia, health factors, top-ups, buy-back balances and settlement
   repays (from the drop in the position's scaled debt) are verified. A **temporary reporter** still
   confirms transaction nonces. On the local fork,

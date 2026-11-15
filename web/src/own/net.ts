@@ -300,6 +300,8 @@ export type FlowStep = {
   link?: { href: string; ref: string; kind: "tx" | "block" | "address" };
   /** the contract has queued it but not yet seen it land */
   pending?: boolean;
+  /** the transactions a recording of the rescue names for this step (own/flowlinks.ts) */
+  txs?: { href: string; label: "NearBlocks" | "Etherscan"; ref: string }[];
 };
 export type FlowOpts = {
   coll: Token;

@@ -8,6 +8,7 @@ import { CODE } from "../board/model";
 import { icon } from "../icons";
 import { chainRuns, claimIdsOf, proofBlocks, readFrom, trailRescueIds, type ChainRow } from "./chainruns";
 import { dialogHtml, flowSeq } from "./runs";
+import { attachRecorded, recordingNow } from "../own/flowlinks";
 
 const net = NETS.mainnet;
 const C = net.collateral;
@@ -185,6 +186,7 @@ function listHtml(showFailed: boolean): string {
 }
 
 type FlowMovesFn = (typeof import("../own/dashlogic"))["flowMoves"];
+let onRecording = () => {};
 function flowBody(id: number, flowMoves: FlowMovesFn, trail: { run: number; rescue: number } | undefined): string {
   const x = held.get(id);
   if (!x) return `<p class="st-dash-prot-note">Rescue ${id} is not in the contract's list.</p>`;
@@ -192,7 +194,8 @@ function flowBody(id: number, flowMoves: FlowMovesFn, trail: { run: number; resc
   const row = chainRuns([r]);
   const one = row.real[0] ?? row.failed[0];
   const owed = x.claims.reduce((t, c) => t + BigInt(c.owed_units), 0n);
-  const flow = rescueFlow(r, x.claims, { coll: C, evmName: net.evmName, ...flowOpts() });
+  // a recorded rescue's steps link to their transactions; the recording arrives once, then redraws
+  const flow = attachRecorded(rescueFlow(r, x.claims, { coll: C, evmName: net.evmName, ...flowOpts() }), recordingNow(net.contract, id, onRecording), net.contract);
   const win = one ? one.winners.map((w) => `<span class="st-dash-prot-w">${tile(w.steward)}<span>${esc(w.name)}</span></span>`).join("") : "";
   const bps = one ? one.winners.map((w) => `${w.bps} bps`).join(", ") : "";
   const outcome = one?.outcome ?? "no_bids";
@@ -218,6 +221,7 @@ export function mountChainRuns(root: HTMLElement, signal: AbortSignal, trails: {
   let opener: HTMLElement | null = null;
   let flowMoves: FlowMovesFn | null = null;
   const logic = import("../own/dashlogic").then((m) => (flowMoves = m.flowMoves));
+  onRecording = () => openId !== null && dlg.open && fillDialog(openId);
 
   const draw = () => {
     if (signal.aborted) return;

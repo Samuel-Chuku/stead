@@ -35,6 +35,7 @@ export function chooseNet(n: ListNet) {
   else u.searchParams.delete("net");
   history.replaceState(null, "", u);
   for (const el of document.querySelectorAll<HTMLElement>('[data-status="network"]')) el.textContent = n === "mainnet" ? "Ethereum" : "Sepolia";
+  dispatchEvent(new CustomEvent("stead:net", { detail: n })); // the sidebar's readings and stewards follow
 }
 
 /** Token symbols for the mainnet market, from the app's verified addresses (no extra chain read). */

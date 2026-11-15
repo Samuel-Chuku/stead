@@ -280,7 +280,15 @@ export class Keeper {
       }
       this.sent.set(k, hash);
     }
-    const rc = await pub.waitForTransactionReceipt({ hash });
+    let rc;
+    try {
+      rc = await pub.waitForTransactionReceipt({ hash });
+    } catch (e) {
+      // not mined in time: a node may have dropped it (e.g. its fee cap was under the base fee
+      // during a gas spike). Forget the send so the next pass broadcasts the same signed bytes again.
+      this.sent.delete(k);
+      throw e;
+    }
     const p = this.positions.get(pid)!;
     // A load-balanced RPC can answer from a node a block behind the receipt: wait until the
     // nonce reflects this tx before confirming it

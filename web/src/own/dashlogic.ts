@@ -743,6 +743,25 @@ export function flowMoves(flow: FlowStep[], chain: NonNullable<Move["chain"]> = 
   const iso = (ms: number) => new Date(ms).toISOString();
   return flow.map((f): Move => {
     const onChain = f.link && f.link.kind !== "address";
+    if (f.txs?.length) {
+      // a recorded rescue: every transaction of the step, and the proof's block when it names one
+      const links: { href: string; label: string }[] = f.txs.map((t) => ({ href: t.href, label: t.label }));
+      if (f.link?.kind === "block" && !links.some((l) => l.href === f.link!.href)) links.push({ href: f.link.href, label: `Etherscan, ${f.link.ref}` });
+      return {
+        kind: MOVE_KIND[f.kind],
+        title: f.title,
+        detail: f.text,
+        actor: f.actor,
+        ...(f.exactMs !== null ? { at: iso(f.exactMs) } : { after: iso(f.afterMs) }),
+        chain: f.txs[0].label === "NearBlocks" ? (f.txs[0].href.includes("//testnet.") ? "near-testnet" : "near-mainnet") : f.txs[0].href.includes("//sepolia.") ? "sepolia" : "ethereum",
+        tx: f.txs[0].ref,
+        link: f.txs[0].href,
+        links,
+        confirmed: true,
+        ok: true,
+        ...(f.figure ? { figure: f.figure } : {}),
+      };
+    }
     return {
       kind: MOVE_KIND[f.kind],
       title: f.title,

@@ -6,6 +6,8 @@ import { mountLive } from "./board/live";
 import type { BoardMode } from "./board/view";
 import type { Recording } from "./board/controls";
 import { mountProofs, mountRescue } from "./rescue/page";
+import { chooseNet, listNet, MAINNET_NOTE, readStoredNet } from "./lists/mainnet";
+import { netSwitch } from "./lists/pages";
 import { mountHome } from "./home/page";
 import { loadRecords, mountList } from "./lists/pages";
 import { mountMainnet } from "./mainnet/page";
@@ -270,7 +272,22 @@ function fill(r: Route) {
   } else if (r === "mainnet") {
     unmount = mountMainnet(content);
   } else if (r === "proofs") {
-    void mountProofs(content, TESTNET_REPLAYS);
+    // Proofs: the testnet recordings by default, the mainnet ones (rescues 81 and 78) on the switch
+    const drawProofs = () => {
+      const net = listNet(location.search, readStoredNet());
+      const bar = `<div class="st-net-bar">${netSwitch(net)}${net === "mainnet" ? `<p class="st-net-note">${MAINNET_NOTE}</p>` : ""}</div>`;
+      const reps = REPLAYS.filter((x) => x.net === net);
+      void mountProofs(content, reps, { net, bar }).then(() => {
+        content.querySelectorAll<HTMLButtonElement>("[data-net]").forEach((b) =>
+          b.addEventListener("click", () => {
+            if (b.dataset.net === net) return;
+            chooseNet(b.dataset.net as "testnet" | "mainnet");
+            drawProofs();
+          }),
+        );
+      });
+    };
+    drawProofs();
   } else content.innerHTML = page(r);
 }
 
@@ -295,7 +312,28 @@ function render() {
 }
 
 /** The sidebar's status card, from the contracts' records: how Sepolia readings are proven and how many stewards are registered. */
-function fillStatus() {
+function fillStatus(force?: "mainnet" | "testnet") {
+  const isMain = force ? force === "mainnet" : networkName(route()) === "Ethereum";
+  if (isMain) {
+    // mainnet: the stewards registered on app.usestead.near and how its positions' readings are proven
+    const put = (k: string, v: string) => document.querySelectorAll<HTMLElement>(`[data-status="${k}"]`).forEach((el) => (el.textContent = v));
+    const sig = new AbortController().signal;
+    void import("./mainnet/chainlist").then(async ({ view }) => {
+      const roles = await view<[string, string[], string[], boolean]>("get_roles", {}, sig).catch(() => null);
+      if (roles) put("stewards", `${roles[2].length} registered`);
+      let proven = 0, read = 0;
+      for (let i = 0; i < 50; i++) {
+        const p = await view<{ health?: { source?: string } } | null>("get_position", { position_id: i }, sig).catch(() => null);
+        if (!p) break;
+        if (p.health) {
+          read++;
+          if (p.health.source === "verified") proven++;
+        }
+      }
+      put("readings", read ? `${proven}/${read} proven` : "—");
+    });
+    return;
+  }
   loadRecords().then(
     ({ rec }) => {
       const sep = rec.positions.filter((p) => p.chain === "Sepolia" && p.hfSource);
@@ -306,6 +344,8 @@ function fillStatus() {
     () => {},
   );
 }
+
+addEventListener("stead:net", (e) => fillStatus((e as CustomEvent<"mainnet" | "testnet">).detail));
 
 function onRoute() {
   if ((isHome() ? "home" : "app") !== layout) return render();

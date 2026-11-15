@@ -271,7 +271,7 @@ export function render(log: RescueLog, path: CostPath | null): string {
           <tbody>
             ${rows
               .map(
-                (r) => `<tr data-kind="${r.kind}" data-chain="${chainOf(r.ev)}"><td class="st-mono">${clock(log, r.t)}</td><td class="st-proof-step">${esc(r.step)}</td><td class="st-mono">${esc(shortId(r.ev.tx))}${r.ev.block ? ` · block ${r.ev.block.toLocaleString("en-US")}` : ""}</td><td><a class="st-textlink st-extlink" href="${r.ev.url}" target="_blank" rel="noopener" aria-label="${r.ev.chain === "sepolia" ? "Etherscan" : "NearBlocks"}: ${esc(r.step)} (opens in a new tab)">${r.ev.chain === "sepolia" ? "Etherscan" : "NearBlocks"}${icon("external", 14)}</a></td><td>${chip(r.ev)}</td></tr>`,
+                (r) => `<tr data-kind="${r.kind}" data-chain="${chainOf(r.ev)}"><td class="st-mono">${clock(log, r.t)}</td><td class="st-proof-step">${esc(r.step)}</td><td class="st-mono">${esc(shortId(r.ev.tx))}${r.ev.block ? ` · block ${r.ev.block.toLocaleString("en-US")}` : ""}</td><td><a class="st-textlink st-extlink" href="${r.ev.url}" target="_blank" rel="noopener" aria-label="${r.ev.chain === "sepolia" || r.ev.chain === "ethereum" ? "Etherscan" : "NearBlocks"}: ${esc(r.step)} (opens in a new tab)">${r.ev.chain === "sepolia" || r.ev.chain === "ethereum" ? "Etherscan" : "NearBlocks"}${icon("external", 14)}</a></td><td>${chip(r.ev)}</td></tr>`,
               )
               .join("")}
             <tr class="st-proof-empty" data-proof-empty hidden><td colspan="5">No record of this kind on this chain for this rescue.</td></tr>
@@ -367,8 +367,11 @@ function wireProofs(root: HTMLElement) {
 
 /** The Proofs page: every record behind every published recording, newest first, one table with
  *  the same filters and paging as a rescue page, plus the rescue each record belongs to. */
-export async function mountProofs(root: HTMLElement, replays: { id: string; url: string }[]) {
-  root.innerHTML = `<section class="st-panel st-page"><div class="st-label">PROOFS</div><p class="st-empty">Loading the recorded rescues…</p></section>`;
+export async function mountProofs(root: HTMLElement, replays: { id: string; url: string }[], o: { net?: "testnet" | "mainnet"; bar?: string } = {}) {
+  const main = o.net === "mainnet";
+  const bar = o.bar ?? "";
+  const evm = main ? "Ethereum" : "Sepolia";
+  root.innerHTML = `${bar}<section class="st-panel st-page"><div class="st-label">PROOFS</div><p class="st-empty">Loading the recorded rescues…</p></section>`;
   let logs: RescueLog[];
   try {
     logs = await Promise.all(replays.map(async (r) => {
@@ -389,11 +392,11 @@ export async function mountProofs(root: HTMLElement, replays: { id: string; url:
   ];
   const count = (k: string) => (k === "all" ? rows.length : rows.filter((r) => r.kind === k).length);
   const chainOf = (ev: Evidence) => (ev.chain === "sepolia" || ev.chain === "ethereum" ? "evm" : "near");
-  root.innerHTML = `
+  root.innerHTML = `${bar}
     <section class="st-panel st-sect" aria-labelledby="proofs-h" data-proofs>
       <div class="st-sect-head">
         <div><div class="st-label">PROOFS</div><h1 class="st-page-title" id="proofs-h">Every step, linked to its record</h1>
-        <p class="st-list-sub">Each verified reading, bid, top-up, claim and payment behind the ${logs.length} recorded rescues, newest first. A PROVEN reading is an OutLayer proof that several Sepolia RPCs agreed on the block.</p></div>
+        <p class="st-list-sub">Each verified reading, bid, top-up, claim and payment behind the ${logs.length} recorded rescues, newest first. ${main ? "Real funds on Ethereum mainnet, contract app.usestead.near. " : ""}A PROVEN reading is an OutLayer proof that several ${evm} RPCs agreed on the block.</p></div>
         <p class="st-proof-count" data-proof-count aria-live="polite"></p>
       </div>
       <div class="st-list-tools st-proof-tools">
@@ -401,7 +404,7 @@ export async function mountProofs(root: HTMLElement, replays: { id: string; url:
           ${kinds.filter((k) => count(k.id) > 0).map((k) => `<option value="${k.id}">${k.id === "all" ? "Every record" : k.label.charAt(0) + k.label.slice(1).toLowerCase()} (${count(k.id)})</option>`).join("")}
         </select></label>
         <label class="st-select"><span class="st-select-label">Chain</span><select data-chain-select>
-          <option value="all">Both chains</option><option value="near">NEAR</option><option value="evm">Sepolia</option>
+          <option value="all">Both chains</option><option value="near">NEAR</option><option value="evm">${evm}</option>
         </select></label>
       </div>
       <div class="st-table-wrap">
@@ -410,7 +413,7 @@ export async function mountProofs(root: HTMLElement, replays: { id: string; url:
           <tbody>
             ${rows
               .map(
-                (r) => `<tr data-kind="${r.kind}" data-chain="${chainOf(r.ev)}"><td class="st-mono">${new Date(r.at).toISOString().slice(5, 19).replace("T", " ")}</td><td><a class="st-textlink" href="?rescue=${r.page}#/rescues">#${r.log.rescueId}</a></td><td class="st-proof-step">${esc(r.step)}</td><td class="st-mono">${esc(shortId(r.ev.tx))}${r.ev.block ? ` · block ${r.ev.block.toLocaleString("en-US")}` : ""}</td><td><a class="st-textlink st-extlink" href="${r.ev.url}" target="_blank" rel="noopener" aria-label="${r.ev.chain === "sepolia" ? "Etherscan" : "NearBlocks"}: ${esc(r.step)} (opens in a new tab)">${r.ev.chain === "sepolia" ? "Etherscan" : "NearBlocks"}${icon("external", 14)}</a></td><td>${chip(r.ev)}</td></tr>`,
+                (r) => `<tr data-kind="${r.kind}" data-chain="${chainOf(r.ev)}"><td class="st-mono">${new Date(r.at).toISOString().slice(5, 19).replace("T", " ")}</td><td><a class="st-textlink" href="${main ? `?replay=${r.page}#/live` : `?rescue=${r.page}#/rescues`}">#${r.log.rescueId}</a></td><td class="st-proof-step">${esc(r.step)}</td><td class="st-mono">${esc(shortId(r.ev.tx))}${r.ev.block ? ` · block ${r.ev.block.toLocaleString("en-US")}` : ""}</td><td><a class="st-textlink st-extlink" href="${r.ev.url}" target="_blank" rel="noopener" aria-label="${r.ev.chain === "sepolia" || r.ev.chain === "ethereum" ? "Etherscan" : "NearBlocks"}: ${esc(r.step)} (opens in a new tab)">${r.ev.chain === "sepolia" || r.ev.chain === "ethereum" ? "Etherscan" : "NearBlocks"}${icon("external", 14)}</a></td><td>${chip(r.ev)}</td></tr>`,
               )
               .join("")}
             <tr class="st-proof-empty" data-proof-empty hidden><td colspan="6">No record of this kind on this chain.</td></tr>

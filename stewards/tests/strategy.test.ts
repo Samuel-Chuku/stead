@@ -88,3 +88,15 @@ describe("gas for a steward's Ethereum write", () => {
     expect(withHeadroom(146_549n) > 146_549n).toBe(true);
   });
 });
+
+import { intentsFrom } from "../src/steward.js";
+describe("a steward's NEAR Intents setting from the environment", () => {
+  it("is off unless a positive number of seconds is set, and never waits past 10 minutes", () => {
+    expect(intentsFrom(undefined)).toBeUndefined();
+    expect(intentsFrom("")).toBeUndefined();
+    expect(intentsFrom("0")).toBeUndefined();
+    expect(intentsFrom("abc")).toBeUndefined();
+    expect(intentsFrom("120")).toEqual({ maxWaitMs: 120_000 });
+    expect(intentsFrom("9999")).toEqual({ maxWaitMs: 600_000 });
+  });
+});

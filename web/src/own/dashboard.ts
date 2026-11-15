@@ -13,6 +13,7 @@ import { createPublicClient, createWalletClient, custom, fallback, getAddress as
 import { mainnet } from "viem/chains";
 import { icon } from "../icons";
 import { tokenMark } from "./tokenmarks";
+import { attachRecorded, recordingNow } from "./flowlinks";
 import { crown, bindCrowns } from "../crown";
 import { CODE } from "../board/model";
 import { dialogHtml as svDialogHtml, showSteward, stewardPanel, flowSeq } from "../mainnet/runs";
@@ -1742,7 +1743,8 @@ export function mountDash(root: HTMLElement): () => void {
       const r = x.rescue;
       const row = protectionRows([r]).rows[0] ?? protectionRows([r]).noBids[0];
       const owed = x.claims.reduce((t, c) => t + BigInt(c.owed_units), 0n);
-      const flow = rescueFlow(r, x.claims, { coll: C, evmName: net.evmName, ...flowOpts() });
+      // a recorded rescue's steps link to their transactions (the recording redraws the dialog once it lands)
+      const flow = attachRecorded(rescueFlow(r, x.claims, { coll: C, evmName: net.evmName, ...flowOpts() }), recordingNow(net.contract, id, () => render()), net.contract);
       const win = row.winners.map((w) => `<span class="st-dash-prot-w">${protTile(w.steward)}<span>${esc(w.name)}</span></span>`).join("");
       const bps = row.winners.map((w) => `${w.bps} bps`).join(", ");
       return `<p class="st-dash-protback"><button type="button" class="st-dash-linkbtn" data-prot-back>${glyph("M10 3.5 5.5 8l4.5 4.5", 14)}All protections</button></p>

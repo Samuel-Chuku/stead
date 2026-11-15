@@ -8,6 +8,7 @@ import type { StewardId } from "../../../stewards/src/rescuelog";
 import { CODE, fmtAmt, RISK, RISK_WORD, STEWARD_ORDER } from "../board/model";
 import { crown } from "../crown";
 import { icon } from "../icons";
+import { posFlowDialogHtml, protectionsHtml, wireProtections } from "./posflow";
 import { chooseNet, listNet, loadMainnetRecords, MAINNET_NOTE, readStoredNet, type ListNet } from "./mainnet";
 
 export type ListRoute = "overview" | "positions" | "rescues" | "claims" | "stewards";
@@ -102,11 +103,12 @@ const counts = (rows: { chain: string }[]) => ({ real: byChain(rows, "real").len
 /** One item: a summary line of cells that opens to a details list. */
 /** `group` is what the page's dropdown filters on ("real" / "fork" by default, from the chain). */
 /** `href`: clicking the row opens this page (the caret still opens the details). */
-export type Item = { chain: string; group?: string; cells: string[]; details: [string, string][]; href?: string };
+/** `extra`: more inside the opened item, after its details (a position's protections). */
+export type Item = { chain: string; group?: string; cells: string[]; details: [string, string][]; href?: string; extra?: string };
 const itemHtml = (it: Item) => `
     <li data-chain="${it.group ?? (it.chain === "local fork" ? "fork" : "real")}"${it.href ? ` data-href="${it.href}"` : ""}><details class="st-item">
       <summary>${it.cells.map((c) => `<span class="st-item-cell">${c}</span>`).join("")}<span class="st-item-caret" aria-hidden="true"></span></summary>
-      <dl class="st-item-details">${it.details.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
+      <dl class="st-item-details">${it.details.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>${it.extra ?? ""}
     </details></li>`;
 export const list = (cls: string, cols: string[], items: Item[], empty: string, paged = true) => `
     <div class="st-items-head ${cls}" aria-hidden="true">${cols.map((c) => `<span>${c}</span>`).join("")}<span></span></div>
@@ -121,8 +123,9 @@ function hfShort(p: PositionRow) {
   return `<span class="st-num st-item-big${p.hf < 1.15 ? " is-below" : ""}">${p.hf.toFixed(2)}</span>`;
 }
 const markOf = (p: PositionRow) => (p.chain === "local fork" ? "reported, local fork (unverified)" : p.hfSource === "verified" ? "proven (OutLayer)" : `reported by ${esc(p.hfSource ?? "")}`);
-const positionItem = (p: PositionRow): Item => ({
+const positionItem = (p: PositionRow, rescues: RescueRow[]): Item => ({
   chain: p.chain,
+  extra: protectionsHtml(rescues, p),
   cells: [`<span class="st-num">#${p.id}</span>`, `<span class="st-item-main">${esc(p.pair)}</span><span class="st-item-sub">${esc(p.owner)}</span>`, hfShort(p), state(p.status)],
   details: [
     ["Health factor", p.hf === null ? (p.status === "no reading" ? "no reading yet" : "no debt at the last reading") : `${p.hf.toFixed(4)}, ${markOf(p)}`],
@@ -138,8 +141,8 @@ function positionsPage(rec: Records, live: boolean) {
   return `<section class="st-panel st-sect st-list" data-list>
     ${head("POSITIONS", "Protected positions", "Every position registered with a Stead contract and its last health reading. An auction opens when a proven reading falls below 1.15.", live, rec.generated)}
     <div class="st-list-tools">${chainSelect(counts(rec.positions))}</div>
-    ${list("st-items--positions", ["POSITION", "MARKET", "HEALTH", "STATUS"], rec.positions.map(positionItem), "No position on this chain.")}
-  </section>`;
+    ${list("st-items--positions", ["POSITION", "MARKET", "HEALTH", "STATUS"], rec.positions.map((p) => positionItem(p, rec.rescues)), "No position on this chain.")}
+  </section>${posFlowDialogHtml()}`;
 }
 
 // ── rescues ──
@@ -376,6 +379,7 @@ export function mountList(root: HTMLElement, route: ListRoute, recorded: Recorde
           (route === "positions" ? positionsPage(rec, live) : route === "rescues" ? rescuesPage(rec, live, recorded) : route === "claims" ? claimsPage(rec, live) : route === "stewards" ? stewardsPage(rec, live) : overviewPage(rec, live, recorded));
         bind();
         wire(root, signal);
+        if (route === "positions") wireProtections(root, rec.rescues, signal);
       },
       (e) => {
         if (gone || signal.aborted) return;

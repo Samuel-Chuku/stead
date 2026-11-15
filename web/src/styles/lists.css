@@ -47,6 +47,13 @@
 .st-item-details { margin: 0; padding: 4px 4px 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 24px; }
 .st-item-details dt { font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); text-transform: uppercase; }
 .st-item-details dd { margin: 2px 0 0; line-height: 1.5; overflow-wrap: anywhere; }
+/* a position's protections, inside its opened row */
+.st-pos-prot { padding: 0 4px 16px; display: grid; gap: 8px; }
+.st-pos-prot .st-dash-prow { grid-template-columns: 92px auto minmax(0, 1fr) auto auto 14px; column-gap: 14px; min-height: 44px; }
+.st-pos-prot .st-dash-jmore { justify-self: start; color: var(--st-ink); }
+@media (max-width: 720px) {
+  .st-pos-prot .st-dash-prow { grid-template-columns: auto auto minmax(0, 1fr) 14px; padding: 6px 10px; }
+}
 .st-item-details .st-tile { vertical-align: -5px; }
 .st-list .st-pager { margin-top: 4px; }
 
@@ -272,6 +279,7 @@
 .st-sv-body p { margin: 0; font-size: 14px; line-height: 1.5; }
 .st-sv-meta { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin-top: 2px; font-size: 13px; }
 .st-sv-meta .st-textlink { font-size: 13px; }
+.st-sv-links { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; }
 .st-sv-meta .st-evidence { padding: 3px 7px; font-size: 10px; }
 .st-sv-by { display: inline-flex; align-items: center; gap: 6px; font-family: var(--st-font-head); font-weight: 700; font-size: 13px; }
 .st-sv-by--other { font-weight: 600; color: var(--st-quiet); }

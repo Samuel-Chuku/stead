@@ -121,6 +121,7 @@ function evidence(m: Move): string {
   return `<span class="st-evidence st-evidence--proven"><span class="st-evidence-mark" aria-hidden="true"></span>${m.ok === false ? "REFUSED, AS RECORDED" : "ON CHAIN"}</span>`;
 }
 function where(m: Move): string {
+  if (m.links?.length) return `<span class="st-sv-links">${m.links.map((l) => ext(l.href, esc(l.label))).join("")}</span>`;
   if (!m.tx && m.link) return ext(m.link, "Etherscan"); // a step the contract records without a transaction: where to see it
   if (!m.tx || !m.chain) return "";
   const hash = `<span class="st-mono">${esc(shortTx(m.tx))}</span>`;

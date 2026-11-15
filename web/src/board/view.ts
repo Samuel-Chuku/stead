@@ -54,6 +54,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
   // the stewards that run on the recording's network: mainnet runs three of the five
   const roster = log.evmChain === "ethereum" ? STEWARD_ORDER.filter((x) => x === "patient" || x === "deep" || x === "swift") : STEWARD_ORDER;
   for (const el of document.querySelectorAll<HTMLElement>('[data-status="network"]')) el.textContent = log.evmChain === "ethereum" ? "Ethereum" : "Sepolia";
+  dispatchEvent(new CustomEvent("stead:net", { detail: log.evmChain === "ethereum" ? "mainnet" : "testnet" }));
   root.innerHTML = `
   <div class="st-board">
     <header class="st-annunciator" aria-label="Status" data-panel>
