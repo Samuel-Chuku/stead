@@ -20,6 +20,7 @@ const liveFeedUrl = () => (import.meta as any).env?.VITE_LIVE_FEED ?? (/^(localh
 const REPLAY_URL = "/replays/sepolia-demo-rescue-8.json";
 /** Recorded rescues the live board can replay (?replay=<id>). */
 const REPLAYS: Recording[] = [
+  { id: "mainnet-82", label: "Rescue 82 · pooled, settled", url: "/replays/mainnet-rescue-82.json", net: "mainnet" },
   { id: "mainnet-81", label: "Rescue 81 · bought back", url: "/replays/mainnet-rescue-81.json", net: "mainnet" },
   { id: "mainnet-78", label: "Rescue 78 · settled", url: "/replays/mainnet-rescue-78.json", net: "mainnet" },
   { id: "8", label: "Rescue 8", url: "/replays/sepolia-demo-rescue-8.json", net: "testnet" },

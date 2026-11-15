@@ -13,6 +13,7 @@ export type Recording = { contract: string; rescueId: number; events: RecEvent[]
 
 /** The published recordings: which contract and rescue each one is. */
 export const RECORDINGS: { contract: string; rescueId: number; file: string }[] = [
+  { contract: "app.usestead.near", rescueId: 82, file: "mainnet-rescue-82.json" },
   { contract: "app.usestead.near", rescueId: 81, file: "mainnet-rescue-81.json" },
   { contract: "app.usestead.near", rescueId: 78, file: "mainnet-rescue-78.json" },
   { contract: "sepolia-demo.steadfi.testnet", rescueId: 8, file: "sepolia-demo-rescue-8.json" },

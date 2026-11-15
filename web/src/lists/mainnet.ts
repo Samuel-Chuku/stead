@@ -46,7 +46,7 @@ export function symbolOf(address: string): string {
 }
 
 /** The board's recordings of mainnet rescues: their events give the lists their explorer links. */
-export const MAINNET_RECORDINGS = [81, 78];
+export const MAINNET_RECORDINGS = [82, 81, 78];
 
 let cache: { rec: Records; at: number } | null = null;
 export async function loadMainnetRecords(signal: AbortSignal): Promise<Records> {

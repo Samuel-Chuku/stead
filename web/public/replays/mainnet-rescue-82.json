@@ -1,0 +1,628 @@
+{
+ "version": 1,
+ "title": "Rescue 82 · position 3",
+ "label": "Real funds, recorded on NEAR mainnet and Ethereum mainnet, 2026-11-15",
+ "contract": "app.usestead.near",
+ "nearNetwork": "mainnet",
+ "evmChain": "ethereum",
+ "rescueId": 82,
+ "positionId": 3,
+ "borrower": "borrower.usestead.near",
+ "market": {
+  "id": 0,
+  "collateral": "WETH",
+  "debt": "USDC",
+  "collateralDecimals": 18,
+  "debtDecimals": 6,
+  "ltBps": 8400,
+  "liqBonusBps": 500
+ },
+ "openedAtMs": 1794729060127,
+ "atOpen": {
+  "collateral": "0.030000002608525757",
+  "collateralUsd": 53.34277864999999,
+  "debtUsd": 39.49067292001205,
+  "priceUsd": 1778.09246706
+ },
+ "params": {
+  "triggerHf": 1.15,
+  "targetHf": 1.5,
+  "auctionS": 120,
+  "topupS": 180,
+  "buybackS": 180
+ },
+ "outcome": "settled",
+ "events": [
+  {
+   "t": 0,
+   "kind": "TRIGGER",
+   "position": 3,
+   "hf": 1.134646,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "64ze63GMUNSSF15zPDBziEu73ehZGUmW7Q3jAWC7vnMD",
+    "url": "https://nearblocks.io/txns/64ze63GMUNSSF15zPDBziEu73ehZGUmW7Q3jAWC7vnMD",
+    "block": 26419015,
+    "rpcs": 12
+   }
+  },
+  {
+   "t": 0,
+   "kind": "AUCTION_OPEN",
+   "position": 3,
+   "durationS": 120,
+   "topUp": {
+    "asset": "WETH",
+    "amount": "0.009659920852372862",
+    "usd": 17.1762325
+   },
+   "capBps": 574,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "64ze63GMUNSSF15zPDBziEu73ehZGUmW7Q3jAWC7vnMD",
+    "url": "https://nearblocks.io/txns/64ze63GMUNSSF15zPDBziEu73ehZGUmW7Q3jAWC7vnMD",
+    "block": 26419015,
+    "rpcs": 12
+   }
+  },
+  {
+   "t": 2.05,
+   "kind": "BIDDING",
+   "steward": "swift",
+   "derived": true
+  },
+  {
+   "t": 3.45,
+   "kind": "BID",
+   "steward": "swift",
+   "bps": 400,
+   "amount": "0.006",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "APgfgGRTXhprq5W1EMFdigSnLtvxhenWpg2CWQ65k1MN",
+    "url": "https://nearblocks.io/txns/APgfgGRTXhprq5W1EMFdigSnLtvxhenWpg2CWQ65k1MN"
+   }
+  },
+  {
+   "t": 33.223,
+   "kind": "READING",
+   "hf": 1.134646,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "7jYu6HDn3Tb3tJLfWm41R94nzh3sJgr3unhz2mJqFoLB",
+    "url": "https://nearblocks.io/txns/7jYu6HDn3Tb3tJLfWm41R94nzh3sJgr3unhz2mJqFoLB",
+    "block": 26419018,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 35.264,
+   "kind": "BIDDING",
+   "steward": "patient",
+   "derived": true
+  },
+  {
+   "t": 36.664,
+   "kind": "BID",
+   "steward": "patient",
+   "bps": 282,
+   "amount": "0.006",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "BALZfW4LvzTw5qauvhvuqPHTXKDSdABbHjwDBAmbogRA",
+    "url": "https://nearblocks.io/txns/BALZfW4LvzTw5qauvhvuqPHTXKDSdABbHjwDBAmbogRA"
+   }
+  },
+  {
+   "t": 39.106,
+   "kind": "BIDDING",
+   "steward": "swift",
+   "derived": true
+  },
+  {
+   "t": 40.506,
+   "kind": "BID",
+   "steward": "swift",
+   "bps": 280,
+   "amount": "0.006",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "Gc42TSH9PpuL6kKZpPpsAApjoiEVmbLx4mfGL7oXPMtC",
+    "url": "https://nearblocks.io/txns/Gc42TSH9PpuL6kKZpPpsAApjoiEVmbLx4mfGL7oXPMtC"
+   }
+  },
+  {
+   "t": 69.315,
+   "kind": "READING",
+   "hf": 1.134646,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "8mzYKoArKtp2tGDT6KQ5h29UEQU6nuq7Fd9VTjVSNWxd",
+    "url": "https://nearblocks.io/txns/8mzYKoArKtp2tGDT6KQ5h29UEQU6nuq7Fd9VTjVSNWxd",
+    "block": 26419020,
+    "rpcs": 12
+   }
+  },
+  {
+   "t": 97.97,
+   "kind": "READING",
+   "hf": 1.134646,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "9hpV72ZGpoXMRYoztQEDP3KstuWsYvNGE2boRMy7UmnH",
+    "url": "https://nearblocks.io/txns/9hpV72ZGpoXMRYoztQEDP3KstuWsYvNGE2boRMy7UmnH",
+    "block": 26419023,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 122.841,
+   "kind": "AUCTION_CLOSE",
+   "winners": [
+    {
+     "steward": "swift",
+     "bps": 280,
+     "amount": "0.006"
+    },
+    {
+     "steward": "patient",
+     "bps": 282,
+     "amount": "0.003659920852372862"
+    }
+   ],
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "97CZJBG9EVANocYy3XE4ZyPXfermownxRvzb47P8R9X9",
+    "url": "https://nearblocks.io/txns/97CZJBG9EVANocYy3XE4ZyPXfermownxRvzb47P8R9X9"
+   }
+  },
+  {
+   "t": 130.017,
+   "kind": "READING",
+   "hf": 1.134646,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "QNwRMXPNh5s3JZgoZRZ1YZjjULeQFsh8394FuxRaHrU",
+    "url": "https://nearblocks.io/txns/QNwRMXPNh5s3JZgoZRZ1YZjjULeQFsh8394FuxRaHrU",
+    "block": 26419026,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 154.872,
+   "kind": "TOPUP_SENT",
+   "steward": "patient",
+   "amount": "0.003659920852372862",
+   "asset": "WETH",
+   "evidence": {
+    "mark": "proven",
+    "chain": "ethereum",
+    "tx": "0xad817fcdb3c6f0a74ca0f72bd11697e343f2f11b94026e695b06a874c93c37da",
+    "url": "https://etherscan.io/tx/0xad817fcdb3c6f0a74ca0f72bd11697e343f2f11b94026e695b06a874c93c37da",
+    "block": 26419032
+   }
+  },
+  {
+   "t": 154.872,
+   "kind": "TOPUP_SENT",
+   "steward": "swift",
+   "amount": "0.006",
+   "asset": "WETH",
+   "evidence": {
+    "mark": "proven",
+    "chain": "ethereum",
+    "tx": "0xece49402d5571c91315036e6c21bce6fc3e02a51990efbe590247ec6112ff921",
+    "url": "https://etherscan.io/tx/0xece49402d5571c91315036e6c21bce6fc3e02a51990efbe590247ec6112ff921",
+    "block": 26419032
+   }
+  },
+  {
+   "t": 162.611,
+   "kind": "READING",
+   "hf": 1.134646,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "6fhnVbUkZCJoaQBeQptJPJdAdf8PQ5Rs2kSpC4BRus1j",
+    "url": "https://nearblocks.io/txns/6fhnVbUkZCJoaQBeQptJPJdAdf8PQ5Rs2kSpC4BRus1j",
+    "block": 26419028,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 193.707,
+   "kind": "READING",
+   "hf": 1.134646,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "7AHJ7vVsrdkZFZ87cZAg76gQess1eKZRjeYAMUFB46zL",
+    "url": "https://nearblocks.io/txns/7AHJ7vVsrdkZFZ87cZAg76gQess1eKZRjeYAMUFB46zL",
+    "block": 26419031,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 210.911,
+   "kind": "READING",
+   "hf": 1.499999,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "HCYvQffxkTCqieGD9wpZLMQrhtZBaKkNj3tPhhfps1vV",
+    "url": "https://nearblocks.io/txns/HCYvQffxkTCqieGD9wpZLMQrhtZBaKkNj3tPhhfps1vV",
+    "block": 26419032,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 210.911,
+   "kind": "TOPUP_CONFIRMED",
+   "steward": null,
+   "collateral": "0.039659926239156832",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "HCYvQffxkTCqieGD9wpZLMQrhtZBaKkNj3tPhhfps1vV",
+    "url": "https://nearblocks.io/txns/HCYvQffxkTCqieGD9wpZLMQrhtZBaKkNj3tPhhfps1vV",
+    "block": 26419032
+   }
+  },
+  {
+   "t": 210.911,
+   "kind": "CLAIM_MINTED",
+   "claim": "3-0-0",
+   "holder": "swift",
+   "owed": "0.006",
+   "premium": "0.000168",
+   "asset": "WETH",
+   "windowEndsT": 390.911,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "HCYvQffxkTCqieGD9wpZLMQrhtZBaKkNj3tPhhfps1vV",
+    "url": "https://nearblocks.io/txns/HCYvQffxkTCqieGD9wpZLMQrhtZBaKkNj3tPhhfps1vV"
+   }
+  },
+  {
+   "t": 210.911,
+   "kind": "CLAIM_MINTED",
+   "claim": "3-0-1",
+   "holder": "patient",
+   "owed": "0.003659920852372862",
+   "premium": "0.000103209768036914",
+   "asset": "WETH",
+   "windowEndsT": 390.911,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "HCYvQffxkTCqieGD9wpZLMQrhtZBaKkNj3tPhhfps1vV",
+    "url": "https://nearblocks.io/txns/HCYvQffxkTCqieGD9wpZLMQrhtZBaKkNj3tPhhfps1vV"
+   }
+  },
+  {
+   "t": 243.698,
+   "kind": "READING",
+   "hf": 1.499999,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "CjGBr3mQQxf44ubMjhfGsygdnXg2fkdGtKCcaKyoK1Ea",
+    "url": "https://nearblocks.io/txns/CjGBr3mQQxf44ubMjhfGsygdnXg2fkdGtKCcaKyoK1Ea",
+    "block": 26419035,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 277.463,
+   "kind": "READING",
+   "hf": 1.499999,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "33X5MC6Mkrba1wCjsy1tcsQYm4kPzsX9mrRoyTHZdQFq",
+    "url": "https://nearblocks.io/txns/33X5MC6Mkrba1wCjsy1tcsQYm4kPzsX9mrRoyTHZdQFq",
+    "block": 26419038,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 309.676,
+   "kind": "READING",
+   "hf": 1.499999,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "FowHGGPCg6UpgoZZUiWeqbuXQcnZ95NU97Y8iFibD32a",
+    "url": "https://nearblocks.io/txns/FowHGGPCg6UpgoZZUiWeqbuXQcnZ95NU97Y8iFibD32a",
+    "block": 26419041,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 344.465,
+   "kind": "READING",
+   "hf": 1.499999,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "J2hvt65CxkbdFQC7UHgxKuZb93qrfwQormjaHeGYNnUv",
+    "url": "https://nearblocks.io/txns/J2hvt65CxkbdFQC7UHgxKuZb93qrfwQormjaHeGYNnUv",
+    "block": 26419044,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 370.872,
+   "kind": "PAYMENT_IN",
+   "amount": "0.009931130620409776",
+   "asset": "WETH",
+   "evidence": {
+    "mark": "proven",
+    "chain": "ethereum",
+    "tx": "0x56d7eb4ba94cfce52eba67b93a5f9cf4fc00d590b0e1cb6fcd22aba245dd3d32",
+    "url": "https://etherscan.io/tx/0x56d7eb4ba94cfce52eba67b93a5f9cf4fc00d590b0e1cb6fcd22aba245dd3d32",
+    "block": 26419050
+   }
+  },
+  {
+   "t": 377.017,
+   "kind": "READING",
+   "hf": 1.499999,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "58Js12F92JZ4ijD2JzepZFkRH656ygJKWjf9vrc9zaxe",
+    "url": "https://nearblocks.io/txns/58Js12F92JZ4ijD2JzepZFkRH656ygJKWjf9vrc9zaxe",
+    "block": 26419046,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 392.197,
+   "kind": "SETTLE_START",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "vZgy8XavehocSmZ2EhMLtp5A3XK1kDVhoWTjKhHVeDq",
+    "url": "https://nearblocks.io/txns/vZgy8XavehocSmZ2EhMLtp5A3XK1kDVhoWTjKhHVeDq"
+   }
+  },
+  {
+   "t": 410.01,
+   "kind": "READING",
+   "hf": 1.499999,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "8jVAXYiN2vZEd45Gi9y4poozHZ3ZuKaomMNXfEBw6KRi",
+    "url": "https://nearblocks.io/txns/8jVAXYiN2vZEd45Gi9y4poozHZ3ZuKaomMNXfEBw6KRi",
+    "block": 26419049,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 442.661,
+   "kind": "READING",
+   "hf": 1.499999,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "BmvAaofyfhKWHjiMPw7wTXNtMbquybPo8DzhuioWsvSM",
+    "url": "https://nearblocks.io/txns/BmvAaofyfhKWHjiMPw7wTXNtMbquybPo8DzhuioWsvSM",
+    "block": 26419052,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 442.661,
+   "kind": "ESCROW_PROVEN",
+   "debtUnits": "0",
+   "asset": "USDC",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "BmvAaofyfhKWHjiMPw7wTXNtMbquybPo8DzhuioWsvSM",
+    "url": "https://nearblocks.io/txns/BmvAaofyfhKWHjiMPw7wTXNtMbquybPo8DzhuioWsvSM",
+    "block": 26419052
+   }
+  },
+  {
+   "t": 481.432,
+   "kind": "READING",
+   "hf": 1.499999,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "BuhNDQeLuyNfS5gUjSHxA55JfzukrFQ9dTjcpQHL7pDT",
+    "url": "https://nearblocks.io/txns/BuhNDQeLuyNfS5gUjSHxA55JfzukrFQ9dTjcpQHL7pDT",
+    "block": 26419055,
+    "rpcs": 12
+   }
+  },
+  {
+   "t": 508.267,
+   "kind": "READING",
+   "hf": 1.499998,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "9FbrhootYA9Tyi35NVYmsfRegptJ2aR9bohgsBRYJ4no",
+    "url": "https://nearblocks.io/txns/9FbrhootYA9Tyi35NVYmsfRegptJ2aR9bohgsBRYJ4no",
+    "block": 26419057,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 540.726,
+   "kind": "READING",
+   "hf": 1.499998,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "HL5QPyi7UpVcX2JieZZk7PtizKXUT4JL4PfFmnr3zQS5",
+    "url": "https://nearblocks.io/txns/HL5QPyi7UpVcX2JieZZk7PtizKXUT4JL4PfFmnr3zQS5",
+    "block": 26419060,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 574.844,
+   "kind": "READING",
+   "hf": 1.499998,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "5hXoq9Rt8EaBcbB6yza3n66LDXKs5pW8NU75YoShSoWn",
+    "url": "https://nearblocks.io/txns/5hXoq9Rt8EaBcbB6yza3n66LDXKs5pW8NU75YoShSoWn",
+    "block": 26419063,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 607.605,
+   "kind": "READING",
+   "hf": 1.499998,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "BDVFmrGZqmUnJWeKxdFpQwmK5UmMaapK1cJhTxn7ZXRB",
+    "url": "https://nearblocks.io/txns/BDVFmrGZqmUnJWeKxdFpQwmK5UmMaapK1cJhTxn7ZXRB",
+    "block": 26419066,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 641.232,
+   "kind": "READING",
+   "hf": 3.481608,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "7Kjo2KRGg13Hgd33UyUrPH5gkY8vkgKPVF6F9DCMgMxH",
+    "url": "https://nearblocks.io/txns/7Kjo2KRGg13Hgd33UyUrPH5gkY8vkgKPVF6F9DCMgMxH",
+    "block": 26419068,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 710.14,
+   "kind": "READING",
+   "hf": 2.954889,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "2Vem4LtVP98RP6pUauULSHAc1MAWtzgW5m2DRwmrtvWP",
+    "url": "https://nearblocks.io/txns/2Vem4LtVP98RP6pUauULSHAc1MAWtzgW5m2DRwmrtvWP",
+    "block": 26419074,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 783.022,
+   "kind": "READING",
+   "hf": 2.633597,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "EakA9zUDj3JqRAwDy7DwCLKBCuyQK3YW7BvF3UpCYNy6",
+    "url": "https://nearblocks.io/txns/EakA9zUDj3JqRAwDy7DwCLKBCuyQK3YW7BvF3UpCYNy6",
+    "block": 26419080,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 854.322,
+   "kind": "READING",
+   "hf": 1.524006,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "H4kwXdNBJW6STW3sFstSSNBy17xcACEtLLGPtV3kjSwK",
+    "url": "https://nearblocks.io/txns/H4kwXdNBJW6STW3sFstSSNBy17xcACEtLLGPtV3kjSwK",
+    "block": 26419086,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 923.018,
+   "kind": "READING",
+   "hf": 1.509258,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "5pE6zc8hhKEUXMUD1ewAde9hxSvnaFK8rnRCZwe6P3Qq",
+    "url": "https://nearblocks.io/txns/5pE6zc8hhKEUXMUD1ewAde9hxSvnaFK8rnRCZwe6P3Qq",
+    "block": 26419092,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 951.875,
+   "kind": "SETTLED",
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "92nqMeu5Ve5Jtr4eQmZAB9uBTb3nCuPiNBuH8t46wgxZ",
+    "url": "https://nearblocks.io/txns/92nqMeu5Ve5Jtr4eQmZAB9uBTb3nCuPiNBuH8t46wgxZ"
+   }
+  },
+  {
+   "t": 986.779,
+   "kind": "PAYOUT",
+   "purpose": "refund",
+   "amount": "0.009931130620409776",
+   "asset": "WETH",
+   "claim": null,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "2kHLPFD3KJU9NLuBdWnRKPm2o9ibYsUUosdmarnhmu3W",
+    "url": "https://nearblocks.io/txns/2kHLPFD3KJU9NLuBdWnRKPm2o9ibYsUUosdmarnhmu3W"
+   },
+   "transfer": {
+    "mark": "proven",
+    "chain": "ethereum",
+    "tx": "0x75a813b1a3fbe91892a8456eb23e46bcaecf0197992558ab8f1605764f4f3ef3",
+    "url": "https://etherscan.io/tx/0x75a813b1a3fbe91892a8456eb23e46bcaecf0197992558ab8f1605764f4f3ef3",
+    "block": 26419101
+   }
+  },
+  {
+   "t": 1046.533,
+   "kind": "READING",
+   "hf": 1.500197,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "DsUgs1Tzk14dFSCVZUtGHCY2w3wf3CgTRwk1uukK4ux5",
+    "url": "https://nearblocks.io/txns/DsUgs1Tzk14dFSCVZUtGHCY2w3wf3CgTRwk1uukK4ux5",
+    "block": 26419102,
+    "rpcs": 11
+   }
+  },
+  {
+   "t": 2850.588,
+   "kind": "READING",
+   "hf": 1.523005,
+   "evidence": {
+    "mark": "proven",
+    "chain": "near-mainnet",
+    "tx": "3P1rzPWYKQbNVaqGS3R6PUrwYPzvXijpyES8j1NWQi5U",
+    "url": "https://nearblocks.io/txns/3P1rzPWYKQbNVaqGS3R6PUrwYPzvXijpyES8j1NWQi5U",
+    "block": 26419252,
+    "rpcs": 11
+   }
+  }
+ ]
+}
