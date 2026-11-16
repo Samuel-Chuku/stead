@@ -187,3 +187,25 @@ export function archivable(contract: string, r: { state: string; bids?: unknown[
   if (!(TERMINAL as string[]).includes(r.state)) return false;
   return !contract.endsWith(".near") || !!(r.bids?.length || r.members?.length);
 }
+
+/** A recording made right after a rescue ends can miss steps the explorers haven't indexed yet. It is
+ *  complete when it ends the way the contract says it did and every step the contract records has
+ *  its transaction: a settlement's repay and each paid leg, a buy-back's payouts each with its
+ *  Ethereum transfer. Until then it isn't written (tried again next round), up to `WAIT_COMPLETE_MS`
+ *  after the end; after that it is written with what the chains show. */
+export const WAIT_COMPLETE_MS = 30 * 60_000;
+type ArchRescue = { state: string; settlement?: { repay_units?: string; legs?: { amount: unknown; done?: boolean }[] } | null };
+export function complete(log: RescueLog, r: ArchRescue): boolean {
+  const ev = log.events as any[];
+  const has = (k: string) => ev.some((e) => e.kind === k);
+  if (r.state === "settled") {
+    const st = r.settlement;
+    if (!has("SETTLED")) return false;
+    if (!st) return true;
+    if (st.repay_units && st.repay_units !== "0" && !has("SETTLE_REPAY")) return false;
+    const paid = (st.legs ?? []).filter((l) => l.done && !(typeof l.amount === "object" && l.amount && (l.amount as any).exact === "0")).length;
+    return new Set(ev.filter((e) => e.kind === "SETTLE_LEG").map((e) => e.leg)).size >= paid;
+  }
+  if (r.state === "bought_back") return has("BOUGHT_BACK") && ev.filter((e) => e.kind === "PAYOUT").every((e) => !!e.transfer);
+  return true;
+}

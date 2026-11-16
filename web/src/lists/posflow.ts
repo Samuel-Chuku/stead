@@ -5,6 +5,7 @@
 import type { PositionRow, RescueRow } from "../../../stewards/src/records";
 import { NETS, OUTCOME_WORD, rescueFlow, type ClaimView, type Outcome, type RescueView, type Token } from "../own/net";
 import { attachRecorded, loadRecording, replayLink } from "../own/flowlinks";
+import { contractSnapshot } from "../own/snapshot";
 import { dialogHtml, flowSeq } from "../mainnet/runs";
 import { CODE, fmtAmt } from "../board/model";
 
@@ -89,6 +90,13 @@ function readStory(contract: string, id: number, signal: AbortSignal): Promise<S
   if (!stories.has(k)) {
     const rpcs = contract.endsWith(".near") ? NETS.mainnet.nearRpcs : NETS.testnet.nearRpcs;
     const p = (async () => {
+      // a mainnet rescue from the live feed's copy of the contract, when it holds it
+      const snap = contract.endsWith(".near") ? await contractSnapshot(contract) : null;
+      const held = snap?.raw.rescues.find((r) => r.id === id) as unknown as RescueView | undefined;
+      if (held) {
+        const ids = new Set(held.members.map((m) => m.claim_id).filter(Boolean));
+        return { rescue: held, claims: snap!.raw.claims.filter((c) => ids.has(c.token_id)) as unknown as ClaimView[] };
+      }
       const page = await nearView<RescueView[]>(rpcs, contract, "get_rescues", { from: id, limit: 1 }, signal);
       const rescue = page.find((r) => r.id === id);
       if (!rescue) throw new Error(`rescue ${id} not found`);

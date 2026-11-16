@@ -6,6 +6,7 @@ import { buildRecords, fetchContract, linkRecords, type Records } from "../../..
 import { NETS } from "../own/net";
 import { view } from "../mainnet/chainlist";
 import { feedRecordings, loadRecording } from "../own/flowlinks";
+import { contractSnapshot } from "../own/snapshot";
 
 export type ListNet = "testnet" | "mainnet";
 export const NET_KEY = "stead.lists.net";
@@ -50,21 +51,23 @@ export function symbolOf(address: string): string {
  *  feed records every mainnet rescue a few minutes after it ends. */
 export const MAINNET_RECORDINGS = [82, 81, 78];
 
-let cache: { rec: Records; at: number } | null = null;
+let cache: { rec: Records; at: number; keepMs: number } | null = null;
 export async function loadMainnetRecords(signal: AbortSignal): Promise<Records> {
-  if (cache && Date.now() - cache.at < 5 * 60_000) return cache.rec;
+  if (cache && Date.now() - cache.at < cache.keepMs) return cache.rec;
   const contract = NETS.mainnet.contract;
+  // the live feed's copy of the contract (one request); the chain itself only when the feed can't answer
+  const snap = await contractSnapshot(contract);
   const gentle = async <T>(_c: string, method: string, args: object): Promise<T> => {
     await new Promise((r) => setTimeout(r, 350));
     return view<T>(method, args, signal);
   };
-  const raw = await fetchContract(contract, gentle, async (a) => symbolOf(a));
+  const raw = snap?.raw ?? (await fetchContract(contract, gentle, async (a) => symbolOf(a)));
   const logs = new Map<string, { events: any[] }>();
   const fromFeed = (await feedRecordings()).filter((x) => x.contract === contract).map((x) => x.rescueId);
   await Promise.all(
     [...new Set([...fromFeed, ...MAINNET_RECORDINGS])].map((id) => loadRecording(contract, id).then((j) => j && logs.set(`${contract}#${id}`, j as any), () => {})),
   );
   const rec = linkRecords(buildRecords([raw]), logs);
-  cache = { rec, at: Date.now() };
+  cache = { rec, at: Date.now(), keepMs: snap ? 20_000 : 5 * 60_000 };
   return rec;
 }

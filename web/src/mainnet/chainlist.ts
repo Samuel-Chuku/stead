@@ -9,6 +9,7 @@ import { icon } from "../icons";
 import { chainRuns, claimIdsOf, proofBlocks, readFrom, trailRescueIds, type ChainRow } from "./chainruns";
 import { dialogHtml, flowSeq } from "./runs";
 import { attachRecorded, recordingNow, replayLink } from "../own/flowlinks";
+import { contractSnapshot } from "../own/snapshot";
 
 const net = NETS.mainnet;
 const C = net.collateral;
@@ -77,6 +78,18 @@ export async function view<T>(method: string, args: object, signal: AbortSignal)
 /** Every rescue, 50 a page from the first one not yet known to be finished, then the claims the
  *  winners were minted (only those not held), one read at a time. */
 async function readRescues(signal: AbortSignal): Promise<void> {
+  // the live feed's copy of the contract and its proof blocks' times (one request, no chain calls)
+  const snap = await contractSnapshot(net.contract);
+  if (snap) {
+    const claims = snap.raw.claims as unknown as ClaimView[];
+    for (const r of snap.raw.rescues as unknown as RescueView[]) {
+      const ids = claimIdsOf(r);
+      held.set(r.id, { rescue: r, claims: claims.filter((c) => ids.includes(c.token_id)) });
+    }
+    for (const [n, ms] of Object.entries(snap.blockMs)) blockMsCache.set(Number(n), ms);
+    save();
+    return;
+  }
   let from = readFrom(new Map([...held].map(([k, v]) => [k, v.rescue])));
   for (let pages = 0; pages < 100; pages++) {
     const page = await view<RescueView[]>("get_rescues", { from, limit: 50 }, signal);

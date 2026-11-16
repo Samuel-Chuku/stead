@@ -228,3 +228,27 @@ describe("the recordings archive", async () => {
     expect(archivable("app.usestead.near", { state: "open", bids: [{}], members: [{}] })).toBe(false);
   });
 });
+
+describe("a recording is written only once it is complete (or 30 minutes after the end)", async () => {
+  const { complete } = await import("../src/livefeed.js");
+  const raw: Inputs = JSON.parse(readFileSync(new URL("./fixtures/mainnet-rescue-82-chain.json", import.meta.url), "utf8"));
+  const full = buildLog(raw);
+  const rec = { state: "settled", settlement: raw.rescue.settlement };
+  it("a settlement with its repay and every paid leg is complete", () => {
+    expect(complete(full, rec)).toBe(true);
+  });
+  it("a leg the explorer hasn't indexed yet makes it incomplete", () => {
+    const lastLeg = raw.sent!.find((x) => x.tx.startsWith("0x35f0561a2a"))!;
+    expect(complete(buildLog({ ...raw, sent: raw.sent!.filter((x) => x !== lastLeg) }), rec)).toBe(false);
+  });
+  it("a repay not indexed yet, or the end not seen yet, makes it incomplete", () => {
+    expect(complete({ ...full, events: full.events.filter((e) => e.kind !== "SETTLE_REPAY") }, rec)).toBe(false);
+    expect(complete({ ...full, events: full.events.filter((e) => e.kind !== "SETTLED") }, rec)).toBe(false);
+  });
+  it("a buy-back is complete once every payout has its Ethereum transfer", () => {
+    const b = buildLog(JSON.parse(readFileSync(new URL("./fixtures/rescue-8-chain.json", import.meta.url), "utf8")));
+    expect(complete(b, { state: "bought_back" })).toBe(true);
+    const noTransfer = { ...b, events: b.events.map((e: any) => (e.kind === "PAYOUT" ? { ...e, transfer: undefined } : e)) };
+    expect(complete(noTransfer, { state: "bought_back" })).toBe(false);
+  });
+});

@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFile
 import { join } from "node:path";
 import { BLOCKSCOUT_ETHEREUM, contractTxs, evmTransfers, NEARDATA, reader, scrub, sleep, tokenSymbol, txLogs, type Reader } from "../src/chainread.js";
 import {
-  allPages, archivable, blockLogs, feedRescue, followable, HOLD_ENDED_MS, isStale, modeFor, nextRead, POLL_MS, publishable, shardOf, TERMINAL, txStatusLogs,
+  allPages, archivable, blockLogs, complete, endedAt, WAIT_COMPLETE_MS, feedRescue, followable, HOLD_ENDED_MS, isStale, modeFor, nextRead, POLL_MS, publishable, shardOf, TERMINAL, txStatusLogs,
   type FeedRescue, type LiveFeed, type LiveLog, type Mode, type NdBlock, type RescueState,
 } from "../src/livefeed.js";
 
@@ -525,6 +525,12 @@ async function archiveLoop() {
           }
           try {
             const log = await recordRescue(rdc, c, r.id, nowNs);
+            // just ended and a step not indexed yet: not written, tried again next round
+            const end = endedAt(log, r.state) ?? Date.now();
+            if (!complete(log, r) && Date.now() - end < WAIT_COMPLETE_MS) {
+              console.log(`${new Date().toISOString()} ${c}#${r.id}: ended, waiting for the explorers to show every step`);
+              continue;
+            }
             const f = archiveFile(c, r.id);
             writeFileSync(`${f}.tmp`, JSON.stringify(log));
             renameSync(`${f}.tmp`, f);
@@ -542,10 +548,50 @@ async function archiveLoop() {
     } catch (e) {
       console.error(`${new Date().toISOString()} archive round failed: ${scrub((e as Error).message)}`);
     }
-    await sleep(120_000);
+    await sleep(60_000);
   }
 }
 if (port && !once) void archiveLoop();
+
+/** A mainnet contract's records as one file: every rescue, position, claim, market and steward,
+ *  re-read every minute (about 15 calls, spaced), plus the times of the Ethereum blocks the proofs
+ *  name (read once each). The site builds its mainnet lists and rescue flows from this file, so a
+ *  visitor's page never calls the chain; the last good copy keeps being served if a read fails. */
+const snapshots = new Map<string, string>();
+const blockMs = new Map<number, number>();
+async function snapshotLoop() {
+  if (!archiveOnly.length) return;
+  for (;;) {
+    for (const c of archiveOnly) {
+      try {
+        const r = readerFor(c);
+        const gentle = async <T>(ct: string, m: string, a: object): Promise<T> => {
+          await sleep(250);
+          return r.view(ct, m, a as Record<string, unknown>) as Promise<T>;
+        };
+        const raw = await fetchContract(c, gentle, (a) => tokenSymbol(r, a));
+        // proof blocks: "verified@N" on a top-up, "escrow@N" on a buy-back payment
+        const blocks = new Set<number>();
+        for (const x of [...raw.rescues.flatMap((y: any) => (y.members ?? []).map((m: any) => m.evm_tx)), ...raw.claims.map((y: any) => y.paid_by_tx)]) {
+          const m = /@(\d+)$/.exec(String(x ?? ""));
+          if (m) blocks.add(Number(m[1]));
+        }
+        for (const n of blocks) {
+          if (blockMs.has(n)) continue;
+          const b = await r.get(`${r.blockscout ?? ""}/blocks/${n}`).catch(() => null);
+          if (b?.timestamp) blockMs.set(n, Date.parse(b.timestamp));
+          await sleep(300);
+        }
+        const mine = Object.fromEntries([...blocks].filter((n) => blockMs.has(n)).map((n) => [n, blockMs.get(n)]));
+        snapshots.set(c, JSON.stringify({ version: 1, generated: new Date().toISOString(), contract: c, raw, blockMs: mine }));
+      } catch (e) {
+        console.error(`${new Date().toISOString()} snapshot of ${c} failed: ${scrub((e as Error).message)}`);
+      }
+    }
+    await sleep(60_000);
+  }
+}
+if (port && !once) void snapshotLoop();
 
 /** Winners' wallets, read once per contract and steward (payouts change rarely). */
 const walletCache = new Map<string, Record<string, string>>();
@@ -613,7 +659,14 @@ if (port) {
         const [contract, id] = k.split("#");
         return { contract, rescueId: Number(id), outcome: v.outcome ?? "", openedAtMs: v.openedAtMs ?? 0, winners: new Set((v.events ?? []).filter((e: any) => e.kind === "TOPUP_SENT").map((e: any) => e.steward)).size, events: v.events?.length ?? 0 };
       });
-      return void res.writeHead(200, { ...headers, "cache-control": "public, max-age=60" }).end(JSON.stringify({ version: 1, recordings: list.sort((a, b) => b.openedAtMs - a.openedAtMs) }));
+      return void res.writeHead(200, { ...headers, "cache-control": "public, max-age=20" }).end(JSON.stringify({ version: 1, recordings: list.sort((a, b) => b.openedAtMs - a.openedAtMs) }));
+    }
+    // a mainnet contract's records in one file (the site's mainnet lists and rescue flows)
+    const sn = path?.match(/^\/contract\/([a-z0-9._-]+)\.json$/);
+    if (sn) {
+      const body = snapshots.get(sn[1]);
+      if (!body) return void res.writeHead(archiveOnly.includes(sn[1]) ? 503 : 404, headers).end(JSON.stringify({ error: archiveOnly.includes(sn[1]) ? "first read still running" : "not followed" }));
+      return void res.writeHead(200, { ...headers, "cache-control": "public, max-age=15" }).end(body);
     }
     if (path === "/records.json") {
       if (!records) return void res.writeHead(503, headers).end(JSON.stringify({ error: "first read still running" }));

@@ -352,7 +352,18 @@ function fillStatus(force?: "mainnet" | "testnet") {
     // mainnet: the stewards registered on app.usestead.near and how its positions' readings are proven
     const put = (k: string, v: string) => document.querySelectorAll<HTMLElement>(`[data-status="${k}"]`).forEach((el) => (el.textContent = v));
     const sig = new AbortController().signal;
-    void import("./mainnet/chainlist").then(async ({ view }) => {
+    const showRead = (positions: { health?: { source?: string } | null }[]) => {
+      const read = positions.filter((p) => p.health);
+      put("readings", read.length ? `${read.filter((p) => p.health!.source === "verified").length}/${read.length} proven` : "—");
+    };
+    void import("./own/snapshot").then(async ({ contractSnapshot }) => {
+      // the live feed's copy of the contract first; the chain only when the feed can't answer
+      const snap = await contractSnapshot(MAINNET_CONTRACT);
+      if (snap) {
+        put("stewards", `${snap.raw.stewards.length} registered`);
+        return showRead(snap.raw.positions as { health?: { source?: string } | null }[]);
+      }
+      const { view } = await import("./mainnet/chainlist");
       const roles = await view<[string, string[], string[], boolean]>("get_roles", {}, sig).catch(() => null);
       if (roles) put("stewards", `${roles[2].length} registered`);
       let proven = 0, read = 0;

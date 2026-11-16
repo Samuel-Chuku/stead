@@ -34,11 +34,11 @@ export const feedBase = (): string | null =>
 export type RecordingEntry = { contract: string; rescueId: number; outcome: string; openedAtMs: number; winners: number };
 let indexAt = 0;
 let indexP: Promise<RecordingEntry[]> | null = null;
-/** Every recording the feed holds (re-read after 5 minutes); empty when the feed can't be reached. */
+/** Every recording the feed holds (re-read after a minute); empty when the feed can't be reached. */
 export function feedRecordings(fetcher: typeof fetch = fetch): Promise<RecordingEntry[]> {
   const base = feedBase();
   if (!base) return Promise.resolve([]);
-  if (!indexP || Date.now() - indexAt > 5 * 60_000) {
+  if (!indexP || Date.now() - indexAt > 60_000) {
     indexAt = Date.now();
     indexP = fetcher(`${base}/recordings.json`, { signal: AbortSignal.timeout(8000) })
       .then((r) => (r.ok ? r.json() : null))
