@@ -2,7 +2,7 @@
 // few positions/widths that animate (CSS transitions do the motion). No timers in here.
 import type { RescueLog, StewardId } from "../../../stewards/src/rescuelog";
 import { CODE, consequence, fmtAmt, isPooled, RISK, RISK_WORD, RULE, STEWARD_ORDER, type Board, type LampId } from "./model";
-import { poolMarkup, updatePool } from "./pool";
+import { poolMarkup, settleKey, settleStrip, updatePool } from "./pool";
 import { crown } from "../crown";
 import { powerOn } from "../ambience/stead-ambience.js";
 import { clockDigits, marketChip, replayGroups } from "./controls";
@@ -175,7 +175,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
     const id = (e.target as HTMLSelectElement).value;
     if (id !== controls.current) controls.onPick?.(id);
   });
-  const poolState = { fell: new Map<string, number>(), tagKey: "" };
+  const poolState = { fell: new Map<string, number>(), tagKey: "", settleKey: "" };
   const open = log.events.find((e) => e.kind === "AUCTION_OPEN") as any;
   q("[data-topup]").textContent = open ? `${fmtAmt(open.topUp.amount)} ${open.topUp.asset}` : "—";
 
@@ -300,24 +300,24 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
       }
 
       // claim (lockout tag)
-      const key = b.claim ? `${b.claim.id}|${b.claim.closed}|${b.claim.windowLeft}` : "";
+      const key = b.claim ? `${b.claim.id}|${b.claim.closed}|${b.claim.windowLeft}|${settleKey(b.settlement)}` : "";
       if (key !== lastClaim) {
         const slot = q("[data-claim]");
         const wasOpen = lastClaim.includes("|false|");
         lastClaim = key;
         if (!b.claim) slot.innerHTML = "";
         else if (b.claim.closed) {
-          slot.innerHTML = `<p class="st-claim-closed">Claim <span class="st-mono">${esc(b.claim.id)}</span> ${b.claim.closedText}. Withdrawals unlocked.</p>`;
+          slot.innerHTML = `<p class="st-claim-closed">Claim <span class="st-mono">${esc(b.claim.id)}</span> ${b.claim.closedText}. Withdrawals unlocked.</p>${b.settlement && !pooled ? settleStrip(b.settlement) : ""}`;
         } else {
           const mm = String(Math.floor(b.claim.windowLeft / 60)).padStart(2, "0");
           const ss = String(b.claim.windowLeft % 60).padStart(2, "0");
           const tag = slot.querySelector(".st-tag");
           const html = `
               <div class="st-tag-top">${tile(b.claim.holder, 22)}<span class="st-tag-title">LOCKED OUT · CLAIM <span class="st-mono">${esc(b.claim.id)}</span></span></div>
-              <div class="st-tag-lines">Owed to ${b.claim.holder}: ${b.claim.owed} ${b.claim.asset} + ${b.claim.premium} ${b.claim.asset} premium<br>Withdrawals locked on position ${log.positionId} until buy-back</div>
-              <div class="st-tag-window"><span>BUY-BACK WINDOW</span><span class="st-tag-count">${mm}:${ss}</span></div>`;
-          if (tag && wasOpen) tag.innerHTML = html;
-          else slot.innerHTML = `<div class="st-tag st-cut st-cut--l">${html}</div>`;
+              <div class="st-tag-lines">Owed to ${b.claim.holder}: ${b.claim.owed} ${b.claim.asset} + ${b.claim.premium} ${b.claim.asset} premium<br>${b.settlement ? "Settling at the oracle price" : `Withdrawals locked on position ${log.positionId} until buy-back`}${b.window?.paidIn ? `<br>Borrower paid ${b.window.paidIn} in${b.window.proven ? ", proven" : " · waiting for its proof"}` : ""}</div>
+              ${b.settlement ? "" : `<div class="st-tag-window"><span>BUY-BACK WINDOW</span><span class="st-tag-count">${mm}:${ss}</span></div>`}`;
+          if (tag && wasOpen && !b.settlement) tag.innerHTML = html;
+          else slot.innerHTML = `<div class="st-tag st-cut st-cut--l${wasOpen ? " no-drop" : ""}">${html}</div>${b.settlement && !pooled ? settleStrip(b.settlement) : ""}`;
         }
       }
 

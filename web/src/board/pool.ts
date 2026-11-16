@@ -1,11 +1,22 @@
 // The pooled rescue section (components.md §15, option B "fill the gap"). Built once; update()
 // moves blocks, toggles states and fills text. Motion is CSS reacting to classes set from events.
 import type { RescueLog, StewardId } from "../../../stewards/src/rescuelog";
-import { CODE, STEWARD_ORDER, type Board } from "./model";
+import { CODE, STEWARD_ORDER, fmtAmt, type Board, type Settlement } from "./model";
 
 const tile = (s: StewardId, size: number) => `<span class="st-tile st-tile--${size}" style="--sc: var(--st-steward-${s})" aria-hidden="true">${CODE[s]}</span>`;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const pct = (hf: number) => Math.max(0, Math.min(100, ((hf - 0.9) / 0.8) * 100));
+
+const clock = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+/** The settlement's steps as a strip: done in ink, the current one outlined, the rest quiet.
+ *  Shared by the pooled section and the single claim's slot. */
+export function settleStrip(st: Settlement): string {
+  return `<ol class="st-settle" aria-label="Settlement steps">${st.steps
+    .map((x) => `<li class="st-settle-step" data-state="${x.state}"><span class="st-settle-mark" aria-hidden="true"></span><span class="st-settle-label">${x.label}</span><span class="st-settle-detail">${esc(x.detail)}</span></li>`)
+    .join("")}</ol>`;
+}
+export const settleKey = (st: Settlement | null) => (st ? st.steps.map((x) => `${x.key}:${x.state}:${x.detail}`).join("|") : "");
 
 export function poolMarkup(log: RescueLog): string {
   return `
@@ -42,12 +53,13 @@ export function poolMarkup(log: RescueLog): string {
       </div>
     </div>
     <div class="st-pool-counter"><span data-pcount></span><span class="st-quiet" data-pnote></span></div>
+    <div class="st-pool-settle" data-psettle></div>
     <div class="st-pool-tags" data-ptags></div>
     <p class="st-note">Each block is that steward's share of the gap, filled from the lowest premium up. Each claim is held by its own steward and paid back exactly, from the same buy-back.</p>
   </section>`;
 }
 
-export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: { fell: Map<string, number>; tagKey: string }) {
+export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: { fell: Map<string, number>; tagKey: string; settleKey: string }) {
   const p = b.pool;
   const sect = root.querySelector<HTMLElement>("[data-pool]");
   if (!p || !sect) return;
@@ -60,8 +72,10 @@ export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: {
       ? `Who fills ${p.gapText}?`
       : !p.final
         ? `Who fills ${p.gapText}?`
-        : p.claimsOpen
-          ? `${n} claims open · buy-back window running`
+        : p.claimsOpen && b.settlement
+          ? `Settling ${n} claims at the oracle price`
+          : p.claimsOpen && b.window
+            ? b.window.left > 0 ? `${n} claims open · buy-back window ${clock(b.window.left)}` : `${n} claims open · buy-back window closed`
           : p.closedText
             ? `${n} claims ${p.closedText}`
             : p.confirmed
@@ -70,7 +84,24 @@ export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: {
                 ? `${n} stewards supplying ${p.gapText}`
                 : `Funded by ${n} stewards`;
   q("[data-ptitle]").textContent = title;
-  q("[data-psub]").textContent = !p.final ? (n ? `If the auction closed now: ${n} steward${n > 1 ? "s" : ""}, lowest premium first` : "Stewards offer an amount and a premium; the lowest premiums fill the gap") : "Filled from the lowest premium up; the last offer trimmed to fit";
+  const st = b.settlement;
+  const sub = p.claimsOpen && st
+    ? st.steps.find((x) => x.state === "active")?.key === "legs"
+      ? `Debt repaid · the position pays each claim its supplied units and premium, one transfer each`
+      : `The window closed before a buy-back was proven: ${st.settler ?? "a steward"} repays the debt on Aave, then each claim is paid`
+    : p.claimsOpen && b.window
+      ? b.window.paidIn
+        ? b.window.proven ? `The borrower paid ${b.window.paidIn} into the position; proven` : `The borrower paid ${b.window.paidIn} into the position · waiting for its proof`
+        : b.window.left > 0 ? `The borrower can buy every claim back before the window closes` : `No buy-back proven in time · the claims will be settled`
+      : null;
+  q("[data-psub]").textContent = sub ?? (!p.final ? (n ? `If the auction closed now: ${n} steward${n > 1 ? "s" : ""}, lowest premium first` : "Stewards offer an amount and a premium; the lowest premiums fill the gap") : "Filled from the lowest premium up; the last offer trimmed to fit");
+
+  // the settlement's steps, from its start (kept up after it ends)
+  const sk = settleKey(st);
+  if (sk !== state.settleKey) {
+    state.settleKey = sk;
+    q("[data-psettle]").innerHTML = st ? settleStrip(st) : "";
+  }
 
   for (const c of p.cards) {
     const el = q(`[data-pcard="${c.steward}"]`);
@@ -133,12 +164,12 @@ export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: {
     q("[data-ptank]").setAttribute("aria-label", `Position health factor ${b.hf.toFixed(2)}`);
   }
 
-  q("[data-pcount]").textContent = `${p.committed.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of ${p.gapText} ${p.final ? "committed" : "offered"} · ${committedPct}%`;
+  q("[data-pcount]").textContent = `${fmtAmt(p.committed)} of ${p.gapText} ${p.final ? "committed" : "offered"} · ${committedPct}%`;
   const bpsList = p.blocks.map((x) => x.bps);
   q("[data-pnote]").textContent = bpsList.length ? `premiums ${[...new Set(bpsList)].join(", ")} bps, each paid on its own share` : "";
 
   // lockout tags: amber while the claims are open; each shows its own exact payout as it lands
-  const key = p.tags.map((t) => `${t.claim}:${t.buyback ?? ""}:${t.paid ?? ""}`).join("|") + `|${p.claimsOpen}|${p.closedText}`;
+  const key = p.tags.map((t) => `${t.claim}:${t.buyback ?? ""}:${t.paid ?? ""}:${t.settledLines.length}`).join("|") + `|${p.claimsOpen}|${p.closedText}|${!!st}`;
   if (key !== state.tagKey) {
     const wasCount = (state.tagKey.match(/:/g) ?? []).length / 2;
     state.tagKey = key;
@@ -146,8 +177,9 @@ export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: {
       .map((t, i) => {
         const lines = [
           `Owed ${t.owed} ${t.asset} + ${t.premium} ${t.asset} premium`,
-          p.claimsOpen ? `Locked on position ${log.positionId} until buy-back` : `Claim ${p.closedText}`,
+          p.claimsOpen ? (st ? `Settling at the oracle price` : `Locked on position ${log.positionId} until buy-back`) : `Claim ${p.closedText}`,
           t.buyback ? (t.paid ? `Paid exactly ${t.paid}` : `Buy-back committed: ${t.buyback} owed`) : "",
+          ...t.settledLines,
         ].filter(Boolean);
         const drop = wasCount === 0 && p.tags.length > 0 ? ` style="animation-delay:${i * 200}ms"` : "";
         return `<div class="st-tag st-cut st-cut--l st-pool-tag${p.claimsOpen ? "" : " is-closed"}${wasCount === 0 ? "" : " no-drop"}"${drop}>

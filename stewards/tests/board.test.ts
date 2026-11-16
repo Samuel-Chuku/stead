@@ -131,3 +131,46 @@ describe("settling warning", () => {
     expect(boardAt(log, 1e6).warning).toBeNull(); // a bought-back rescue never shows it
   });
 });
+
+// Rescue 82 (pooled, settled on Ethereum mainnet), rebuilt from its chain data: between the
+// window closing and SETTLED the board shows each settlement step as it lands, not a jump.
+describe("live board through a settlement", async () => {
+  const { buildLog } = await import("../src/rescuelog.js");
+  const raw = JSON.parse(readFileSync(new URL("./fixtures/mainnet-rescue-82-chain.json", import.meta.url), "utf8"));
+  const s82 = buildLog(raw) as RescueLog;
+  const at = (k: string) => s82.events.find((e) => e.kind === k)!.t;
+  const state = (t: number) => Object.fromEntries(boardAt(s82, t).settlement!.steps.map((x) => [x.key, x.state]));
+
+  it("counts the buy-back window down and shows the borrower's payment before the settlement", () => {
+    const b = boardAt(s82, at("PAYMENT_IN") + 1);
+    expect(b.settlement).toBeNull();
+    expect(b.window!.left).toBeGreaterThan(0);
+    expect(b.window!.paidIn).toMatch(/WETH$/);
+    expect(b.window!.proven).toBe(false);
+  });
+
+  it("moves through start, takeover, repay, payouts and settled in order", () => {
+    expect(state(at("SETTLE_START"))).toMatchObject({ start: "done", takeover: "active", repay: "pending", legs: "pending", settled: "pending" });
+    expect(state(at("SETTLE_TAKEOVER"))).toMatchObject({ takeover: "done", repay: "active" });
+    expect(state(at("SETTLE_REPAY"))).toMatchObject({ repay: "done", legs: "active" });
+    const firstLeg = at("SETTLE_LEG");
+    expect(boardAt(s82, firstLeg).settlement!.steps.find((x) => x.key === "legs")!.detail).toMatch(/^1 of 5 · last /);
+    expect(state(at("SETTLED"))).toMatchObject({ legs: "done", settled: "done", refund: "active" });
+    expect(state(duration(s82))).toMatchObject({ refund: "done" });
+  });
+
+  it("names who did what on the steward cards and pays each claim's tag", () => {
+    const b = boardAt(s82, at("SETTLED") - 0.01);
+    const status = Object.fromEntries(b.stewards.map((c) => [c.steward, c.status]));
+    expect(status.deep).toMatch(/repaid 22\.48 USDC/);
+    expect(status.patient).toMatch(/handed the settlement over/);
+    const swiftTag = b.pool!.tags.find((t) => t.holder === "swift")!;
+    expect(swiftTag.settledLines).toEqual(["Paid 0.006 WETH: supplied units", "Paid 0.000168 WETH: premium"]);
+  });
+
+  it("shows small pooled amounts in full, never 0.00", () => {
+    const p = boardAt(s82, at("SETTLE_START")).pool!;
+    expect(p.blocks.map((x) => x.amountText).join(" ")).not.toMatch(/\b0\.00 /);
+    expect(p.gapText).not.toBe("0.01 WETH");
+  });
+});

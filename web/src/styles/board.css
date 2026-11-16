@@ -281,6 +281,24 @@
 .st-pool-tag.no-drop { animation: none; }
 .st-tag.is-closed { --fill: var(--st-panel); color: var(--st-ink); }
 .st-pool-tag .st-tag-id { font-family: var(--st-font-mono); font-size: 11px; opacity: .75; }
+.st-tag.no-drop { animation: none; }
+
+/* ---------- settlement steps: done in ink, the current one outlined, the rest quiet ---------- */
+.st-pool-settle:empty { display: none; }
+.st-settle { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); border: var(--st-border); }
+.st-settle-step { display: grid; grid-template-columns: 10px 1fr; gap: 4px 8px; align-content: start; padding: 10px 12px; border-right: var(--st-hairline); }
+.st-settle-step:last-child { border-right: 0; }
+.st-settle-mark { width: 10px; height: 10px; margin-top: 3px; border: 1.5px solid var(--st-hair); }
+.st-settle-label { font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); }
+.st-settle-detail { grid-column: 2; font-size: 13px; line-height: 1.4; color: var(--st-quiet); }
+.st-settle-step[data-state="done"] .st-settle-mark { background: var(--st-ink); border-color: var(--st-ink); }
+.st-settle-step[data-state="done"] .st-settle-label, .st-settle-step[data-state="done"] .st-settle-detail { color: var(--st-ink); }
+.st-settle-step[data-state="active"] { outline: 1.5px solid var(--st-ink); outline-offset: -1.5px; }
+.st-settle-step[data-state="active"] .st-settle-mark { border-color: var(--st-ink); }
+.st-settle-step[data-state="active"] .st-settle-label { color: var(--st-ink); }
+.st-claim-slot .st-settle { margin-top: var(--st-space-10); grid-template-columns: 1fr; }
+.st-claim-slot .st-settle-step { border-right: 0; border-bottom: var(--st-hairline); }
+.st-claim-slot .st-settle-step:last-child { border-bottom: 0; }
 
 /* ---------- small screens: panels stack in reading order; the ladder folds ---------- */
 @media (max-width: 899.98px) {
