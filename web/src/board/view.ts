@@ -300,14 +300,16 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
       }
 
       // claim (lockout tag)
-      const key = b.claim ? `${b.claim.id}|${b.claim.closed}|${b.claim.windowLeft}|${settleKey(b.settlement)}` : "";
+      const strip = pooled ? null : (b.settlement ?? b.buyback);
+      const stripHtml = strip ? settleStrip(strip, b.t, b.settlement ? "Settlement steps" : "Buy-back steps") : "";
+      const key = b.claim ? `${b.claim.id}|${b.claim.closed}|${b.claim.windowLeft}|${settleKey(strip)}` : "";
       if (key !== lastClaim) {
         const slot = q("[data-claim]");
         const wasOpen = lastClaim.includes("|false|");
         lastClaim = key;
         if (!b.claim) slot.innerHTML = "";
         else if (b.claim.closed) {
-          slot.innerHTML = `<p class="st-claim-closed">Claim <span class="st-mono">${esc(b.claim.id)}</span> ${b.claim.closedText}. Withdrawals unlocked.</p>${b.settlement && !pooled ? settleStrip(b.settlement) : ""}`;
+          slot.innerHTML = `<p class="st-claim-closed">Claim <span class="st-mono">${esc(b.claim.id)}</span> ${b.claim.closedText}. Withdrawals unlocked.</p>${stripHtml}`;
         } else {
           const mm = String(Math.floor(b.claim.windowLeft / 60)).padStart(2, "0");
           const ss = String(b.claim.windowLeft % 60).padStart(2, "0");
@@ -316,8 +318,8 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
               <div class="st-tag-top">${tile(b.claim.holder, 22)}<span class="st-tag-title">LOCKED OUT · CLAIM <span class="st-mono">${esc(b.claim.id)}</span></span></div>
               <div class="st-tag-lines">Owed to ${b.claim.holder}: ${b.claim.owed} ${b.claim.asset} + ${b.claim.premium} ${b.claim.asset} premium<br>${b.settlement ? "Settling at the oracle price" : `Withdrawals locked on position ${log.positionId} until buy-back`}${b.window?.paidIn ? `<br>Borrower paid ${b.window.paidIn} in${b.window.proven ? ", proven" : " · waiting for its proof"}` : ""}</div>
               ${b.settlement ? "" : `<div class="st-tag-window"><span>BUY-BACK WINDOW</span><span class="st-tag-count">${mm}:${ss}</span></div>`}`;
-          if (tag && wasOpen && !b.settlement) tag.innerHTML = html;
-          else slot.innerHTML = `<div class="st-tag st-cut st-cut--l${wasOpen ? " no-drop" : ""}">${html}</div>${b.settlement && !pooled ? settleStrip(b.settlement) : ""}`;
+          if (tag && wasOpen && !strip) tag.innerHTML = html;
+          else slot.innerHTML = `<div class="st-tag st-cut st-cut--l${wasOpen ? " no-drop" : ""}">${html}</div>${stripHtml}`;
         }
       }
 

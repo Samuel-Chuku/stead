@@ -174,3 +174,33 @@ describe("live board through a settlement", async () => {
     expect(p.gapText).not.toBe("0.01 WETH");
   });
 });
+
+// Rescue 81 (bought back on Ethereum mainnet): the board shows the buy-back's steps as they land,
+// from the borrower's payment to the holder's payout, instead of jumping to "bought back".
+describe("live board through a buy-back", () => {
+  const s81: RescueLog = JSON.parse(readFileSync(new URL("../../web/public/replays/mainnet-rescue-81.json", import.meta.url), "utf8"));
+  const at = (k: string) => s81.events.find((e) => e.kind === k)!.t;
+  const state = (t: number) => Object.fromEntries((boardAt(s81, t).buyback?.steps ?? []).map((x) => [x.key, x.state]));
+
+  it("has no buy-back steps before the borrower pays", () => {
+    expect(boardAt(s81, at("PAYMENT_IN") - 1).buyback).toBeNull();
+  });
+
+  it("moves through paid in, proven, bought back and the holder's payout in order", () => {
+    expect(state(at("PAYMENT_IN"))).toEqual({ paid: "done", proven: "active", bought: "pending", payout: "pending" });
+    expect(state(at("BOUGHT_BACK"))).toEqual({ paid: "done", proven: "done", bought: "done", payout: "active" });
+    const end = boardAt(s81, at("PAYOUT"));
+    expect(end.buyback!.done).toBe(true);
+    const payout = end.buyback!.steps.find((x) => x.key === "payout")!;
+    expect(payout.label).toBe("PAID TO DEEP");
+    expect(payout.detail).toMatch(/^exactly 0\.00940684 WETH$/);
+    expect(end.stewards.find((c) => c.steward === "deep")!.status).toBe("won · 150 bps · paid back 0.00940684 WETH");
+  });
+
+  it("gives way to the settlement when one starts first", () => {
+    const log: RescueLog = { ...s81, events: [...s81.events.filter((e) => e.t <= at("PAYMENT_IN")), { t: at("PAYMENT_IN") + 1, kind: "SETTLE_START", evidence: s81.events[0].evidence } as any] };
+    const b = boardAt(log, at("PAYMENT_IN") + 2);
+    expect(b.buyback).toBeNull();
+    expect(b.settlement).not.toBeNull();
+  });
+});

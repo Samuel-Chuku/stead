@@ -1,7 +1,7 @@
 // The pooled rescue section (components.md §15, option B "fill the gap"). Built once; update()
 // moves blocks, toggles states and fills text. Motion is CSS reacting to classes set from events.
 import type { RescueLog, StewardId } from "../../../stewards/src/rescuelog";
-import { CODE, STEWARD_ORDER, fmtAmt, type Board, type Settlement } from "./model";
+import { CODE, STEWARD_ORDER, fmtAmt, type Board, type SettleStep } from "./model";
 
 const tile = (s: StewardId, size: number) => `<span class="st-tile st-tile--${size}" style="--sc: var(--st-steward-${s})" aria-hidden="true">${CODE[s]}</span>`;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -11,12 +11,12 @@ const clock = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${S
 
 /** The settlement's steps as a strip: done in ink, the current one outlined, the rest quiet.
  *  Shared by the pooled section and the single claim's slot. */
-export function settleStrip(st: Settlement): string {
-  return `<ol class="st-settle" aria-label="Settlement steps">${st.steps
-    .map((x) => `<li class="st-settle-step" data-state="${x.state}"><span class="st-settle-mark" aria-hidden="true"></span><span class="st-settle-label">${x.label}</span><span class="st-settle-detail">${esc(x.detail)}</span></li>`)
+export function settleStrip(st: { steps: SettleStep[] }, t: number, label = "Settlement steps"): string {
+  return `<ol class="st-settle" aria-label="${label}">${st.steps
+    .map((x) => `<li class="st-settle-step${x.state === "done" && x.t !== null && t - x.t >= 0 && t - x.t < 1.2 ? " is-fresh" : ""}" data-state="${x.state}"><span class="st-settle-mark" aria-hidden="true"></span><span class="st-settle-label">${x.label}</span><span class="st-settle-detail">${esc(x.detail)}</span></li>`)
     .join("")}</ol>`;
 }
-export const settleKey = (st: Settlement | null) => (st ? st.steps.map((x) => `${x.key}:${x.state}:${x.detail}`).join("|") : "");
+export const settleKey = (st: { steps: SettleStep[] } | null) => (st ? st.steps.map((x) => `${x.key}:${x.state}:${x.detail}`).join("|") : "");
 
 export function poolMarkup(log: RescueLog): string {
   return `
@@ -97,10 +97,11 @@ export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: {
   q("[data-psub]").textContent = sub ?? (!p.final ? (n ? `If the auction closed now: ${n} steward${n > 1 ? "s" : ""}, lowest premium first` : "Stewards offer an amount and a premium; the lowest premiums fill the gap") : "Filled from the lowest premium up; the last offer trimmed to fit");
 
   // the settlement's steps, from its start (kept up after it ends)
-  const sk = settleKey(st);
+  const strip = st ?? b.buyback;
+  const sk = (st ? "s" : "b") + settleKey(strip);
   if (sk !== state.settleKey) {
     state.settleKey = sk;
-    q("[data-psettle]").innerHTML = st ? settleStrip(st) : "";
+    q("[data-psettle]").innerHTML = strip ? settleStrip(strip, b.t, st ? "Settlement steps" : "Buy-back steps") : "";
   }
 
   for (const c of p.cards) {

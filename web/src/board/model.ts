@@ -55,10 +55,14 @@ export type Board = {
   warning: string | null;
   /** From the settlement's start: its steps as they happen (null before it starts). */
   settlement: Settlement | null;
+  /** From the borrower's payment (or its proof) to the claim holders' payouts; null once a settlement starts. */
+  buyback: Buyback | null;
   /** While the claims are open: the buy-back window and any payment the borrower has made into the position. */
   window: null | { left: number; paidIn: string | null; proven: boolean };
 };
-export type SettleStep = { key: "start" | "takeover" | "repay" | "legs" | "settled" | "refund"; label: string; detail: string; state: "done" | "active" | "pending"; t: number | null };
+export type SettleStep = { key: string; label: string; detail: string; state: "done" | "active" | "pending"; t: number | null };
+/** A buy-back from the borrower's payment to the holders' payouts, in the same step form. */
+export type Buyback = { steps: SettleStep[]; done: boolean };
 export type Settlement = { startedBy: StewardId | null; settler: StewardId | null; steps: SettleStep[]; done: boolean; legsPaid: { steward: StewardId | null; purpose: string; amount: string; asset: string }[] };
 /** Shown while a rescue settles (the README's honest limits promise it). */
 export const SETTLING_WARNING = "Settlement running: don't repay this position on Aave directly until it ends. The settlement's repay is proven from the drop in the position's debt, so a direct repay would be counted toward the settler's.";
@@ -214,6 +218,7 @@ export function boardAt(log: RescueLog, t: number): Board {
     pool: poolAt(log, seen, t, phase),
     warning: has("SETTLE_START") && !(settled || liquidated) ? SETTLING_WARNING : null,
     settlement: settlementAt(log, seen),
+    buyback: buybackAt(log, seen),
     window: windowAt(seen, t, phase),
     ended: t >= duration(log),
   };
@@ -266,10 +271,57 @@ export function settlementAt(log: RescueLog, seen: RescueEvent[]): Settlement | 
   return { startedBy: by, settler, steps: out, done: !!end, legsPaid: legs.map((l) => ({ steward: l.steward, purpose: l.purpose, amount: l.amount, asset: l.asset })) };
 }
 
+/** Steps in order: every step whose event has been seen is done; the first other one is active. */
+function walk(steps: (Omit<SettleStep, "state"> & { done: boolean })[]): SettleStep[] {
+  let active = false;
+  return steps.map(({ done, ...x }) => {
+    if (done) return { ...x, state: "done" as const };
+    if (!active) { active = true; return { ...x, state: "active" as const }; }
+    return { ...x, state: "pending" as const };
+  });
+}
+
+/** The buy-back's steps: the borrower pays into the position, the contract proves the balance,
+ *  commits the buy-back (claims closed), pays each holder exactly what it is owed, refunds any
+ *  excess. Shown from the payment (or the proof) on; a settlement that starts first replaces it. */
+export function buybackAt(log: RescueLog, seen: RescueEvent[]): Buyback | null {
+  const mints = all(log.events, "CLAIM_MINTED");
+  if (!mints.length || find(seen, "SETTLE_START")) return null;
+  const T = Math.min(...mints.map((m) => m.t));
+  const evs = log.events;
+  const payAll = all(evs, "PAYMENT_IN", T), pay = all(seen, "PAYMENT_IN", T);
+  const provenAll = find(evs, "ESCROW_PROVEN", T), proven = find(seen, "ESCROW_PROVEN", T);
+  if (!pay.length && !proven) return null;
+  const bbAll = all(evs, "BUYBACK", T), bb = all(seen, "BUYBACK", T);
+  const closed = find(seen, "BOUGHT_BACK", T);
+  const outAll = (evs.filter((e) => e.kind === "PAYOUT" && e.t >= T && e.purpose === "buyback") as Ev<"PAYOUT">[]);
+  const out = outAll.filter((e) => seen.includes(e));
+  const refundAll = evs.find((e) => e.kind === "PAYOUT" && e.t >= T && e.purpose === "refund") as Ev<"PAYOUT"> | undefined;
+  const refund = refundAll && seen.includes(refundAll) ? refundAll : undefined;
+  const holder = (claim: string | null) => mints.find((m) => m.claim === claim)?.holder ?? "the holder";
+  const sum = (xs: { amount: string }[]) => xs.reduce((a, x) => a + Number(x.amount), 0);
+  const n = mints.length;
+  const total = bbAll.length || n;
+  const steps = [
+    ...(payAll.length ? [{ key: "paid", label: "PAID IN", detail: `${fmtAmt(sum(payAll))} ${payAll[0].asset} by the borrower, into the position`, t: pay[pay.length - 1]?.t ?? null, done: pay.length === payAll.length }] : []),
+    { key: "proven", label: "PROVEN", detail: provenAll?.evidence.block ? `the position's balance, at block ${provenAll.evidence.block.toLocaleString("en-US")}` : "the position's balance, on chain", t: proven?.t ?? null, done: !!proven },
+    { key: "bought", label: "BOUGHT BACK", detail: bbAll.length ? `${fmtAmt(sum(bbAll))} ${bbAll[0].asset} owed to ${n > 1 ? `${n} holders` : holder(bbAll[0].claim)} · withdrawals unlocked` : "claims closed, withdrawals unlocked", t: closed?.t ?? null, done: !!closed },
+    { key: "payout", label: n > 1 ? "HOLDERS PAID" : `PAID TO ${holder(mints[0].claim).toUpperCase()}`, detail: out.length ? `${n > 1 ? `${out.length} of ${total} · ` : ""}exactly ${fmtAmt(sum(out))} ${out[0].asset}` : "exactly what each claim is owed", t: out[out.length - 1]?.t ?? null, done: outAll.length > 0 && out.length === outAll.length && out.length >= total },
+    ...(refundAll ? [{ key: "refund", label: "REFUNDED", detail: `${fmtAmt(refundAll.amount)} ${refundAll.asset} excess back to the borrower`, t: refund?.t ?? null, done: !!refund }] : []),
+  ];
+  const s = walk(steps);
+  return { steps: s, done: s.every((x) => x.state === "done") };
+}
+
 /** A steward's part in a running or finished settlement, for its card. */
 function settleRole(seen: RescueEvent[], s: StewardId): string {
   const start = find(seen, "SETTLE_START");
-  if (!start) return "";
+  if (!start) {
+    // bought back: the holder's exact payout
+    const mine = new Set(all(seen, "CLAIM_MINTED").filter((m) => m.holder === s).map((m) => m.claim));
+    const paid = (seen.filter((e) => e.kind === "PAYOUT" && e.purpose === "buyback" && e.claim !== null && mine.has(e.claim)) as Ev<"PAYOUT">[]);
+    return paid.length ? `paid back ${fmtAmt(paid.reduce((a, x) => a + Number(x.amount), 0))} ${paid[0].asset}` : "";
+  }
   const tk = find(seen, "SETTLE_TAKEOVER", start.t);
   const rep = find(seen, "SETTLE_REPAY", start.t);
   if (rep?.steward === s) return `repaid ${fmtAmt(rep.amount)} ${rep.asset}`;

@@ -296,6 +296,9 @@
 .st-settle-step[data-state="active"] { outline: 1.5px solid var(--st-ink); outline-offset: -1.5px; }
 .st-settle-step[data-state="active"] .st-settle-mark { border-color: var(--st-ink); }
 .st-settle-step[data-state="active"] .st-settle-label { color: var(--st-ink); }
+/* a step that just landed rings once (the event flash), then rests */
+.st-settle-step.is-fresh { animation: st-flash var(--st-dur-flash) ease-out; }
+@media (prefers-reduced-motion: reduce) { .st-settle-step.is-fresh { animation: none; } }
 .st-claim-slot .st-settle { margin-top: var(--st-space-10); grid-template-columns: 1fr; }
 .st-claim-slot .st-settle-step { border-right: 0; border-bottom: var(--st-hairline); }
 .st-claim-slot .st-settle-step:last-child { border-bottom: 0; }
