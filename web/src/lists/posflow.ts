@@ -4,7 +4,7 @@
 // transactions when the rescue was recorded. The flow is read from the contract on demand.
 import type { PositionRow, RescueRow } from "../../../stewards/src/records";
 import { NETS, OUTCOME_WORD, rescueFlow, type ClaimView, type Outcome, type RescueView, type Token } from "../own/net";
-import { attachRecorded, loadRecording } from "../own/flowlinks";
+import { attachRecorded, loadRecording, replayLink } from "../own/flowlinks";
 import { dialogHtml, flowSeq } from "../mainnet/runs";
 import { CODE, fmtAmt } from "../board/model";
 
@@ -133,6 +133,7 @@ function flowBody(row: RescueRow, x: Story, flowMoves: (typeof import("../own/da
       <div><dt>TOPPED UP</dt><dd>${row.winners.length ? `<span class="st-num">${u(x.rescue.members.reduce((t, m) => t + BigInt(m.share_units), 0n))}</span> <span class="st-sv-u">${esc(coll.symbol)}</span>` : `<span class="st-kpi-word">nothing</span>`}</dd><dd class="st-kpi-sub">${u(x.rescue.topup_units)} ${esc(coll.symbol)} needed</dd></div>
       ${owed > 0n ? `<div><dt>CLAIM OWED</dt><dd><span class="st-num">${u(owed)}</span> <span class="st-sv-u">${esc(coll.symbol)}</span></dd><dd class="st-kpi-sub">${x.claims.map((c) => esc(c.token_id)).join(", ")}</dd></div>` : ""}
     </dl>
+    ${replayLink(row.contract, x.rescue.id, rec)}
     ${flowSeq(flowMoves(flow, mainnet ? "ethereum" : "sepolia"))}`;
 }
 

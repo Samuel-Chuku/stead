@@ -135,3 +135,40 @@ describe("a position's protections on the Positions page", () => {
     expect(positionProtections([row({ state: "top_up_pending" })], { contract: "c", id: 2 }).rows[0].chip).toBe("topping up");
   });
 });
+
+describe("a recorded settlement on the timeline (rescue 82, mainnet)", async () => {
+  const { buildLog } = await import("../src/rescuelog.js");
+  const raw = JSON.parse(readFileSync(new URL("./fixtures/mainnet-rescue-82-chain.json", import.meta.url), "utf8"));
+  const rec = buildLog(raw) as unknown as Recording;
+  const claims: ClaimView[] = raw.claims.map((c: any) => ({ ...c, status: "settled" }));
+  const flow = attachRecorded(rescueFlow({ ...raw.rescue, state: "settled" } as RescueView, claims, { coll: M.collateral, debt: M.debt, evmName: M.evmName, evmTx: M.evmTx, evmBlock: M.evmBlock, evmAddress: M.evmAddress }), rec, "app.usestead.near");
+  const at = (key: string) => flow.find((s) => s.key === key)!;
+  it("links each leg to its own withdraw on Etherscan, at its recorded time", () => {
+    const legs = flow.filter((s) => s.kind === "leg");
+    expect(legs).toHaveLength(5);
+    for (const l of legs) {
+      expect(l.txs?.[0]?.label).toBe("Etherscan");
+      expect(l.exactMs).not.toBeNull();
+    }
+    expect(at("leg:82:0").txs![0].ref).toMatch(/^0xe55d0e35e6/);
+    expect(new Set(legs.map((l) => l.txs![0].ref)).size).toBe(5);
+  });
+  it("names the fee leg's real recipient (the steward that took over)", () => {
+    expect(at("leg:82:4").title).toBe("WETH paid to deep");
+    expect(at("leg:82:4").text).toContain("takeover fee, from patient's premium");
+  });
+  it("links the repay to Ethereum and NEAR, and shows the takeover as its own step after the start", () => {
+    expect(at("repay:82").txs!.map((t) => t.label)).toEqual(["Etherscan", "NearBlocks"]);
+    const i = flow.findIndex((s) => s.kind === "settle");
+    expect(flow[i + 1]).toMatchObject({ kind: "takeover", actor: "deep", title: "Settlement taken over" });
+    expect(flow[i + 1].txs![0].label).toBe("NearBlocks");
+  });
+  it("names who started the settlement and what each steward was really paid", () => {
+    expect(at("settle:82").actor).toBe("patient");
+    expect(at("settled:82").text).toBe("Every leg landed: swift paid 0.006168 WETH in all, patient paid 0.00366 WETH in all, deep paid 0.012743 WETH in all. The claim is closed.");
+  });
+  it("every step of the settlement is on chain in the timeline (no contract-record step left)", () => {
+    const moves = flowMoves(flow.filter((s) => ["settle", "takeover", "repay", "leg", "settled"].includes(s.kind)));
+    expect(moves.filter((m) => m.note === "contract record")).toEqual([]);
+  });
+});

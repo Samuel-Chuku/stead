@@ -17,9 +17,9 @@ import { buildRecords, fetchContract, linkRecords, type Records } from "../src/r
 import { recordRescue, walletsOf, windowEnd } from "../src/recorder.js";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { contractTxs, evmTransfers, NEARDATA, reader, scrub, sleep, tokenSymbol, txLogs } from "../src/chainread.js";
+import { BLOCKSCOUT_ETHEREUM, contractTxs, evmTransfers, NEARDATA, reader, scrub, sleep, tokenSymbol, txLogs, type Reader } from "../src/chainread.js";
 import {
-  blockLogs, feedRescue, followable, HOLD_ENDED_MS, isStale, modeFor, nextRead, POLL_MS, publishable, shardOf, TERMINAL, txStatusLogs,
+  allPages, archivable, blockLogs, feedRescue, followable, HOLD_ENDED_MS, isStale, modeFor, nextRead, POLL_MS, publishable, shardOf, TERMINAL, txStatusLogs,
   type FeedRescue, type LiveFeed, type LiveLog, type Mode, type NdBlock, type RescueState,
 } from "../src/livefeed.js";
 
@@ -29,6 +29,8 @@ const contracts = args("--contract").length ? args("--contract") : ["sepolia-dem
 const port = args("--serve")[0];
 const host = args("--host")[0] ?? "127.0.0.1";
 const once = argv.includes("--once");
+// recorded once each rescue ends, never followed live (e.g. the mainnet contract): `--archive c`
+const archiveOnly = args("--archive");
 const SEPOLIA = 11155111;
 const TRANSFERS_MS: Record<Mode, number> = { idle: 30_000, dense: 10_000, sparse: 30_000 };
 const RECENT_OPEN_MS = 2 * 60_000; // older openings are rebuilt through the recorder path instead
@@ -474,7 +476,9 @@ async function passMainnet(res: ServerResponse, headers: Record<string, string>)
 }
 
 /** Every finished rescue, recorded once from the chains and kept on disk (ARCHIVE_DIR), newest
- *  first, one at a time; a failed recording is retried on a later round. */
+ *  first, one at a time; a failed recording is retried on a later round. A `.near` contract is read
+ *  on NEAR mainnet and Ethereum mainnet (public nodes, NearBlocks, Blockscout), and only its rescues
+ *  that got a bid are recorded (an opening nobody bid on has nothing to replay). */
 const ARCHIVE = process.env.ARCHIVE_DIR ?? "";
 const archiveFile = (contract: string, id: number) => join(ARCHIVE, `${contract}--${id}.json`);
 let archiveIndex = new Map<string, { events: any[] }>();
@@ -495,6 +499,9 @@ function loadArchive() {
   archiveIndex = m;
 }
 const ENDED = new Set(["bought_back", "settled", "failed"]);
+const mainnetRd = reader("stead-live-feed", {}, { net: "mainnet", blockscout: BLOCKSCOUT_ETHEREUM });
+const readerFor = (c: string): Reader => (c.endsWith(".near") ? mainnetRd : rd);
+const allRescues = (r: Reader, c: string) => allPages<any>((from, limit) => r.view(c, "get_rescues", { from, limit }));
 async function archiveLoop() {
   if (!ARCHIVE) return;
   mkdirSync(ARCHIVE, { recursive: true });
@@ -502,20 +509,22 @@ async function archiveLoop() {
   for (;;) {
     try {
       const nowNs = BigInt(Date.now()) * 1_000_000n;
-      for (const c of contracts) {
-        const params = await rd.view(c, "get_params", {});
-        const list: any[] = await rd.view(c, "get_rescues", { from: 0, limit: 500 });
+      for (const c of [...contracts, ...archiveOnly]) {
+        const rdc = readerFor(c);
+        try {
+        const params = await rdc.view(c, "get_params", {});
+        const list = await allRescues(rdc, c);
         for (const r of list.sort((a, b) => b.id - a.id)) {
-          if (!ENDED.has(r.state) || existsSync(archiveFile(c, r.id))) continue;
+          if (!archivable(c, r) || existsSync(archiveFile(c, r.id))) continue;
           // its last events may still come: wait out the margin, unless the position is already quiet
           // (no payout queued, no transaction in flight): an ended rescue's story is then complete
           if (windowEnd(r, params.buyback_window_ns, nowNs) >= nowNs) {
-            const [pos, books] = await Promise.all([rd.view(c, "get_position", { position_id: r.position_id }), rd.view(c, "get_books", { position_id: r.position_id })]);
+            const [pos, books] = await Promise.all([rdc.view(c, "get_position", { position_id: r.position_id }), rdc.view(c, "get_books", { position_id: r.position_id })]);
             const quiet = pos && pos.pending === null && books && books.outflows.length === 0 && !(pos.open_rescues ?? []).includes(r.id);
             if (!quiet) continue;
           }
           try {
-            const log = await recordRescue(rd, c, r.id, nowNs);
+            const log = await recordRescue(rdc, c, r.id, nowNs);
             const f = archiveFile(c, r.id);
             writeFileSync(`${f}.tmp`, JSON.stringify(log));
             renameSync(`${f}.tmp`, f);
@@ -524,6 +533,10 @@ async function archiveLoop() {
           } catch (e) {
             console.error(`${new Date().toISOString()} recording ${c}#${r.id} failed: ${scrub((e as Error).message)}`);
           }
+        }
+        } catch (e) {
+          // one contract's failed round never holds up the others
+          console.error(`${new Date().toISOString()} archive round for ${c} failed: ${scrub((e as Error).message)}`);
         }
       }
     } catch (e) {
@@ -569,7 +582,7 @@ async function recordsLoop() {
 }
 if (port && !once) void recordsLoop();
 
-console.log(`READ-ONLY · live feed · ${contracts.join(", ")} · ${own.length ? "own testnet node first" : "public nodes only"}${port ? ` · serving http://${host}:${port}/live.json` : ""}`);
+console.log(`READ-ONLY · live feed · ${contracts.join(", ")}${archiveOnly.length ? ` · recorded after they end: ${archiveOnly.join(", ")}` : ""} · ${own.length ? "own testnet node first" : "public nodes only"}${port ? ` · serving http://${host}:${port}/live.json` : ""}`);
 if (port) {
   createServer((req, res) => {
     const headers = { "access-control-allow-origin": "*", "content-type": "application/json", "cache-control": "public, max-age=1" };
@@ -593,6 +606,14 @@ if (port) {
       const live = snapshot()?.rescues.find((x) => x.key === key);
       if (live) return void res.writeHead(200, headers).end(JSON.stringify(live));
       return void res.writeHead(404, headers).end(JSON.stringify({ error: "not recorded yet", pending: true }));
+    }
+    // every recording on disk: which contract and rescue, how it ended (the site's replay lists)
+    if (path === "/recordings.json") {
+      const list = [...archived()].map(([k, v]: [string, any]) => {
+        const [contract, id] = k.split("#");
+        return { contract, rescueId: Number(id), outcome: v.outcome ?? "", openedAtMs: v.openedAtMs ?? 0, winners: new Set((v.events ?? []).filter((e: any) => e.kind === "TOPUP_SENT").map((e: any) => e.steward)).size, events: v.events?.length ?? 0 };
+      });
+      return void res.writeHead(200, { ...headers, "cache-control": "public, max-age=60" }).end(JSON.stringify({ version: 1, recordings: list.sort((a, b) => b.openedAtMs - a.openedAtMs) }));
     }
     if (path === "/records.json") {
       if (!records) return void res.writeHead(503, headers).end(JSON.stringify({ error: "first read still running" }));

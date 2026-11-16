@@ -277,7 +277,7 @@ export function evmRef(s: string | null | undefined): EvmRef | null {
   return /^0x[0-9a-fA-F]+$/.test(s) ? { tx: s } : null;
 }
 
-export type FlowKind = "open" | "bid" | "close" | "topup" | "proven" | "failed" | "claim" | "escrow" | "payout" | "bought" | "lapsed" | "settle" | "repay" | "leg" | "settled";
+export type FlowKind = "open" | "bid" | "close" | "topup" | "proven" | "failed" | "claim" | "escrow" | "payout" | "bought" | "lapsed" | "settle" | "repay" | "leg" | "settled" | "takeover";
 /** One step of a rescue, in the order the rescue runs. `exactMs` is a time the contract records for
  *  the step itself (or the time of the Ethereum block its proof read); a step with none sorts by its
  *  place in the flow, just after the step before it (`atMs`), and reads "after" `afterMs`, the last

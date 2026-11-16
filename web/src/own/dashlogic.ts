@@ -752,7 +752,7 @@ export function clockText(ms: number, nowMs: number): string {
   return `${new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })} ${d.slice(11, 16)}`;
 }
 
-const MOVE_KIND: Record<FlowStep["kind"], Move["kind"]> = { open: "bid", bid: "bid", close: "bid", topup: "supply", proven: "verified", failed: "settle-refused", claim: "claim", escrow: "escrow", payout: "payout", bought: "payout", lapsed: "claim", settle: "settle-start", repay: "settle-repay", leg: "settle-leg", settled: "settle-leg" };
+const MOVE_KIND: Record<FlowStep["kind"], Move["kind"]> = { open: "bid", bid: "bid", close: "bid", topup: "supply", proven: "verified", failed: "settle-refused", claim: "claim", escrow: "escrow", payout: "payout", bought: "payout", lapsed: "claim", settle: "settle-start", repay: "settle-repay", leg: "settle-leg", settled: "settle-leg", takeover: "settle-start" };
 /** A rescue's flow as timeline moves (the steward's view's shape): a step's own time when the
  *  contract records one, else the time it follows; where to see it on Ethereum; "contract record"
  *  for a step with no transaction of its own. */

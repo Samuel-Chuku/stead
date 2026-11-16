@@ -75,7 +75,8 @@ services:
     <<: *bot
     # its own image tag: building it never rebuilds the running keeper and stewards
     image: stead-live:local
-    command: ["scripts/live-feed.ts", "--serve", "8788", "--host", "0.0.0.0"]
+    # also records each mainnet rescue a few minutes after it ends (read-only, public nodes)
+    command: ["scripts/live-feed.ts", "--serve", "8788", "--host", "0.0.0.0", "--archive", "app.usestead.near"]
     environment:
       STEAD_EVM: sepolia
       DEMO_RUNNER_URL: http://demo-runner:8789

@@ -264,6 +264,17 @@ function journal(log: RescueLog, seen: RescueEvent[]): JournalLine[] {
       case "SETTLE_START":
         at("SETTLE", "plain", "Settlement started", e.evidence);
         break;
+      case "SETTLE_TAKEOVER":
+        at("SETTLE", "plain", `${e.to ?? "A steward"} takes over the settlement from ${e.from ?? "the settler"} · fee ${fmtAmt(e.fee)} ${e.asset}`, e.evidence);
+        break;
+      case "SETTLE_REPAY":
+        at("SETTLE", "plain", `${e.steward ?? "The settler"} repays ${fmtAmt(e.amount)} ${e.asset} of the position's debt on Aave${e.evidence.block ? ` · ${evmName(log.evmChain)} block ${fmtBlock(e.evidence.block)}` : ""}`, e.evidence);
+        break;
+      case "SETTLE_LEG": {
+        const what = { supplied: "the supplied amount", premium: "the premium", fee: "the takeover fee", repay: "the repay, at the oracle price", rest: "the rest of the collateral", batch: "everything owed, to the position" }[e.purpose];
+        at("PAYOUT", "plain", e.purpose === "batch" ? `${fmtAmt(e.amount)} ${e.asset} withdrawn from Aave to the position: ${what}` : `${fmtAmt(e.amount)} ${e.asset} paid to ${e.steward ?? "the borrower"}: ${what}`, e.evidence);
+        break;
+      }
       case "SETTLED":
         at("SETTLE", "plain", "Settled", e.evidence);
         break;

@@ -5,6 +5,7 @@
 import { buildRecords, fetchContract, linkRecords, type Records } from "../../../stewards/src/records";
 import { NETS } from "../own/net";
 import { view } from "../mainnet/chainlist";
+import { feedRecordings, loadRecording } from "../own/flowlinks";
 
 export type ListNet = "testnet" | "mainnet";
 export const NET_KEY = "stead.lists.net";
@@ -45,7 +46,8 @@ export function symbolOf(address: string): string {
   return address.slice(0, 8);
 }
 
-/** The board's recordings of mainnet rescues: their events give the lists their explorer links. */
+/** The mainnet recordings the site ships (the fallback when the live feed can't be reached); the
+ *  feed records every mainnet rescue a few minutes after it ends. */
 export const MAINNET_RECORDINGS = [82, 81, 78];
 
 let cache: { rec: Records; at: number } | null = null;
@@ -58,12 +60,9 @@ export async function loadMainnetRecords(signal: AbortSignal): Promise<Records> 
   };
   const raw = await fetchContract(contract, gentle, async (a) => symbolOf(a));
   const logs = new Map<string, { events: any[] }>();
+  const fromFeed = (await feedRecordings()).filter((x) => x.contract === contract).map((x) => x.rescueId);
   await Promise.all(
-    MAINNET_RECORDINGS.map((id) =>
-      fetch(`/replays/mainnet-rescue-${id}.json`, { signal })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((j) => j && logs.set(`${contract}#${id}`, j), () => {}),
-    ),
+    [...new Set([...fromFeed, ...MAINNET_RECORDINGS])].map((id) => loadRecording(contract, id).then((j) => j && logs.set(`${contract}#${id}`, j as any), () => {})),
   );
   const rec = linkRecords(buildRecords([raw]), logs);
   cache = { rec, at: Date.now() };

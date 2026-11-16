@@ -3,7 +3,7 @@
 // the position address's Sepolia token transfers. Read-only. The time window comes from the rescue's
 // own record (opened, claims opened, buy-back window, settlement), so nothing is scanned blindly.
 import { buildLog, type ClaimRecord, type Inputs, type RescueLog } from "./rescuelog.js";
-import { contractTxs, evmTransfers, tokenSymbol, txLogs, type Reader } from "./chainread.js";
+import { contractTxs, evmSentTxs, evmTransfers, tokenSymbol, txLogs, type Reader } from "./chainread.js";
 
 const MIN = 60_000_000_000n;
 
@@ -36,7 +36,8 @@ export function recordingChains(contract: string, chainId: number): { nearNetwor
   return { nearNetwork, evmChain: "fork", label: `Recorded on NEAR ${nearNetwork} and a local Sepolia fork (unverified)` };
 }
 
-export async function recordRescue(rd: Reader, contract: string, rid: number, nowNs = BigInt(Date.now()) * 1_000_000n): Promise<RescueLog> {
+/** `onInputs` sees the chain data the log is built from (for offline test fixtures). */
+export async function recordRescue(rd: Reader, contract: string, rid: number, nowNs = BigInt(Date.now()) * 1_000_000n, onInputs?: (i: Inputs) => void): Promise<RescueLog> {
   const view = (method: string, args: object, height?: number) => rd.view(contract, method, args, height);
   const rescue = await view("get_rescue", { rescue_id: rid });
   if (!rescue) throw new Error(`no rescue ${rid} on ${contract}`);
@@ -77,9 +78,13 @@ export async function recordRescue(rd: Reader, contract: string, rid: number, no
   const where = recordingChains(contract, market.chain_id);
   const sepolia = where.evmChain !== "fork";
   const transfers = sepolia ? await evmTransfers(rd, position.evm_address, Number(fromNs / 1_000_000n)) : [];
+  // the position's own transactions (a settlement's legs), only when there was a settlement
+  const sent = sepolia && rescue.settlement ? await evmSentTxs(rd, position.evm_address, Number(BigInt(rescue.settlement.started_at) / 1_000_000n) - 5 * 60_000) : undefined;
   const symbols = { collateral: await tokenSymbol(rd, market.collateral), debt: await tokenSymbol(rd, market.debt) };
-  const stewardWallets = await walletsOf(rd, contract, rescue.members.map((m: { steward: string }) => m.steward));
-  const inputs: Inputs = { contract, nearNetwork: where.nearNetwork, evmChain: where.evmChain, rescue, position, market, params, symbols, claims, logs, transfers, stewardWallets };
+  // the winners' wallets, and the settler's (a steward that took over a settlement may not be a winner)
+  const stewardWallets = await walletsOf(rd, contract, [...rescue.members.map((m: { steward: string }) => m.steward), ...(rescue.settlement?.settler ? [rescue.settlement.settler] : [])]);
+  const inputs: Inputs = { contract, nearNetwork: where.nearNetwork, evmChain: where.evmChain, rescue, position, market, params, symbols, claims, logs, transfers, sent, stewardWallets };
+  onInputs?.(inputs);
   const log = buildLog(inputs);
   const day = new Date(log.openedAtMs).toISOString().slice(0, 10);
   log.label = `${where.label}, ${day}`;

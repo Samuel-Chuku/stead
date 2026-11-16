@@ -2,7 +2,7 @@
 // NEAR: NearBlocks v3 (transaction lists), NEAR RPC (views, tx status, blocks), neardata (whole
 // blocks with receipt outcomes). Sepolia: Blockscout (token transfers, token symbols).
 // No keys. Every call has a timeout and backs off on 429/5xx. Errors never carry a URL.
-import type { ChainLog, EvmTransfer } from "./rescuelog.js";
+import type { ChainLog, EvmSent, EvmTransfer } from "./rescuelog.js";
 
 export const NEARBLOCKS = "https://api-testnet.nearblocks.io/v3";
 // public archival nodes, tried in turn (each rate-limits on its own)
@@ -173,6 +173,26 @@ export async function evmTransfers(rd: Reader, address: string, sinceMs: number,
   }
   for (const x of out) if (/^0x0{40}$/i.test(x.from) && x.to.toLowerCase() === address.toLowerCase() && Date.parse(new Date(x.ts * 1000).toISOString()) >= sinceMs) x.sender = await txSender(rd, x.tx);
   return out;
+}
+
+/** The transactions the address itself sent since `sinceMs` (newest pages first): a position's
+ *  contract-signed steps (settlement withdraws and payout transfers), with their raw input. */
+export async function evmSentTxs(rd: Reader, address: string, sinceMs: number, maxPages = 10): Promise<EvmSent[]> {
+  const out: EvmSent[] = [];
+  let page: any = undefined;
+  for (let i = 0; i < maxPages; i++) {
+    const q = new URLSearchParams({ filter: "from", ...(page ?? {}) });
+    const d = await rd.get(`${rd.blockscout ?? BLOCKSCOUT}/addresses/${address}/transactions?${q}`);
+    for (const x of d.items ?? []) {
+      if (String(x.from?.hash ?? "").toLowerCase() !== address.toLowerCase()) continue;
+      out.push({ block: Number(x.block_number ?? x.block), ts: Math.floor(Date.parse(x.timestamp) / 1000), tx: x.hash, nonce: Number(x.nonce), to: String(x.to?.hash ?? ""), input: String(x.raw_input ?? ""), ok: x.status === "ok" || x.result === "success" });
+    }
+    const oldest = Math.min(...(d.items ?? []).map((x: any) => Date.parse(x.timestamp)));
+    if (!d.next_page_params || oldest < sinceMs) break;
+    page = d.next_page_params;
+    await sleep(400);
+  }
+  return out.filter((x) => x.ts * 1000 >= sinceMs);
 }
 
 export async function tokenSymbol(rd: Reader, address: string): Promise<string> {

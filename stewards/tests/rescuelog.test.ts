@@ -87,3 +87,68 @@ describe("a pooled rescue bought back in the claim asset (real rescue 14, sepoli
     }
   });
 });
+
+// Rescue 82 on Ethereum mainnet (2026-11-15): pooled (swift and patient), not bought back in time;
+// patient started the settlement without the repay in hand, deep took over, repaid the debt and the
+// contract paid five legs, each an Aave withdraw the position signed. Public chain data only.
+describe("a settlement's takeover, repay and legs, each with its own transaction (rescue 82, mainnet)", () => {
+  const raw: Inputs = JSON.parse(readFileSync(new URL("./fixtures/mainnet-rescue-82-chain.json", import.meta.url), "utf8"));
+  const log = buildLog(raw);
+  const of = (k: string) => log.events.filter((e) => e.kind === k) as any[];
+  it("records the takeover: who stalled, who took over, the fee", () => {
+    expect(of("SETTLE_TAKEOVER")).toEqual([expect.objectContaining({ from: "patient", to: "deep", fee: "0.000103209768036914", asset: "WETH", evidence: expect.objectContaining({ chain: "near-mainnet" }) })]);
+  });
+  it("links the repay to the Ethereum transaction that burned the position's debt, and to the contract's record of it", () => {
+    const [r] = of("SETTLE_REPAY");
+    expect(r).toMatchObject({ steward: "deep", amount: "22.482001", asset: "USDC", evidence: { chain: "ethereum" } });
+    expect(r.evidence.tx).toMatch(/^0x6c4b07dd0e/);
+    expect(r.near.chain).toBe("near-mainnet");
+  });
+  it("links every leg to its own withdraw, paid to that leg's recipient (the fee leg pays the taker)", () => {
+    const legs = of("SETTLE_LEG");
+    expect(legs.map((l) => [l.leg, l.steward, l.purpose, l.amount])).toEqual([
+      [0, "swift", "supplied", "0.006"],
+      [1, "patient", "supplied", "0.003659920852372862"],
+      [2, "deep", "repay", "0.012639646641752305"],
+      [3, "swift", "premium", "0.000168"],
+      [4, "deep", "fee", "0.000103209768036914"],
+    ]);
+    expect(new Set(legs.map((l) => l.evidence.tx)).size).toBe(5);
+    expect(legs[0].evidence.tx).toMatch(/^0xe55d0e35e6/);
+    expect(legs.map((l) => l.to)).toEqual(raw.rescue.settlement!.legs.map((l) => l.to.toLowerCase()));
+  });
+  it("keeps the late buy-back's refund a payout, never a leg", () => {
+    expect(of("PAYOUT").some((p) => p.purpose === "refund" && p.transfer?.tx?.startsWith("0x75a813b1a3"))).toBe(true);
+    expect(of("SETTLE_LEG").some((l) => l.evidence.tx.startsWith("0x75a813b1a3"))).toBe(false);
+  });
+  it("never counts a failed transaction as a leg", () => {
+    const failed = { ...raw, sent: raw.sent!.map((x) => (x.tx.startsWith("0xa4cdad20c9") ? { ...x, ok: false } : x)) };
+    const legs = buildLog(failed).events.filter((e) => e.kind === "SETTLE_LEG") as any[];
+    expect(legs.map((l) => l.leg)).toEqual([0, 2, 3, 4]);
+  });
+  it("matches a withdraw to a leg by its recipient too: the same amount sent elsewhere is never a leg", () => {
+    const real = raw.sent!.find((x) => x.tx.startsWith("0xe55d0e35e6"))!;
+    const stranger = "000000000000000000000000" + "de".repeat(20);
+    const fake = { ...real, tx: "0x" + "ab".repeat(32), nonce: real.nonce - 1, block: real.block - 1, input: real.input.slice(0, 10 + 128) + stranger };
+    const legs = buildLog({ ...raw, sent: [fake, ...raw.sent!] }).events.filter((e) => e.kind === "SETTLE_LEG") as any[];
+    expect(legs.find((l) => l.leg === 0).evidence.tx).toBe(real.tx);
+    expect(legs.some((l) => l.evidence.tx === fake.tx)).toBe(false);
+  });
+  it("without the position's transactions, records no leg rather than guessing", () => {
+    expect(buildLog({ ...raw, sent: undefined }).events.some((e) => e.kind === "SETTLE_LEG")).toBe(false);
+  });
+});
+
+// A batched settlement on Sepolia (test contract, 2026-11-15): one Aave withdraw to the position,
+// then one transfer per payout covering all of that payout's legs.
+describe("a batched settlement: one withdraw, then one transfer per payout", () => {
+  const raw: Inputs = JSON.parse(readFileSync(new URL("./fixtures/batched-settlement-chain.json", import.meta.url), "utf8"));
+  const legs = buildLog(raw).events.filter((e) => e.kind === "SETTLE_LEG") as any[];
+  it("links the withdraw to the position as the batch, and each payout's legs to its one transfer", () => {
+    expect(legs.find((l) => l.leg === 0)).toMatchObject({ purpose: "batch", to: raw.position.evm_address.toLowerCase() });
+    const byTx = new Map<string, string[]>();
+    for (const l of legs.filter((x) => x.purpose !== "batch")) byTx.set(l.evidence.tx, [...(byTx.get(l.evidence.tx) ?? []), `${l.steward}:${l.purpose}`]);
+    expect([...byTx.values()].map((v) => v.sort())).toEqual([["patient:premium", "patient:supplied"], ["swift:premium", "swift:supplied"]]);
+    expect(legs).toHaveLength(raw.rescue.settlement!.legs.length);
+  });
+});

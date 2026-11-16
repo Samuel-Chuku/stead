@@ -36,6 +36,14 @@ export type RescueEvent = { t: number } & (
   | { kind: "BOUGHT_BACK"; evidence: Evidence }
   | { kind: "PAYOUT"; purpose: "buyback" | "refund" | "reimbursement" | string; amount: string; asset: string; claim: string | null; evidence: Evidence }
   | { kind: "SETTLE_START" | "SETTLED" | "LIQUIDATED"; evidence: Evidence }
+  /** a stalled settler's settlement taken over by another steward (the fee comes from the stalled one's leg) */
+  | { kind: "SETTLE_TAKEOVER"; from: StewardId | null; to: StewardId | null; fee: string; asset: string; evidence: Evidence }
+  /** the settler's repay of the position's debt on Aave: its EVM transaction (the debt burned from the
+   *  position), and `near` the contract's record of it */
+  | { kind: "SETTLE_REPAY"; steward: StewardId | null; amount: string; asset: string; evidence: Evidence; near?: Evidence }
+  /** one settlement leg (index `leg` in the contract's settlement) carried out by a transaction the
+   *  position sent: an Aave withdraw to the payout, or (batched markets) one transfer per payout */
+  | { kind: "SETTLE_LEG"; leg: number; to: string; steward: StewardId | null; purpose: "supplied" | "premium" | "fee" | "repay" | "rest" | "batch"; amount: string; asset: string; evidence: Evidence }
 );
 
 export type RescueLog = {
@@ -60,6 +68,9 @@ export type RescueLog = {
 
 export type ChainLog = { tsNs: string; tx: string; signer: string; method: string; event: string; data: any };
 /** `sender`: who sent the transaction (read for supplies into the position, to tell whose top-up it is). */
+/** A transaction the position itself sent (its contract-signed steps), with its raw input. */
+export type EvmSent = { block: number; ts: number; tx: string; nonce: number; to: string; input: string; ok: boolean };
+export type SettlementLeg = { to: string; amount: "max" | { exact: string } | string; claim_id?: string | null; done?: boolean };
 export type EvmTransfer = { block: number; ts: number; tx: string; token: string; from: string; to: string; value: string; decimals: number; sender?: string };
 export type RescueRecord = {
   id: number;
@@ -74,6 +85,8 @@ export type RescueRecord = {
   debt_price_base: string;
   /** The winners: each one's share, and the Sepolia transaction its top-up was proven by. */
   members: { steward: string; premium_bps: number; share_units?: string; amount_units?: string; evm_tx?: string | null }[];
+  /** the settlement as the contract records it (settler, repay, legs in order), when there is one */
+  settlement?: { settler: string; started_at: string; repay_units?: string; legs: SettlementLeg[] } | null;
 };
 export type ClaimRecord = { token_id: string; owner: string; share_units: string; premium_units: string; owed_units: string; expires_at: string; evm_topup_tx?: string | null; paid_by_tx?: string | null };
 
@@ -89,6 +102,8 @@ export type Inputs = {
   claims: ClaimRecord[];
   logs: ChainLog[];
   transfers: EvmTransfer[];
+  /** The transactions the position sent (settlement legs); absent where not read. */
+  sent?: EvmSent[];
   /** Each winner's Sepolia wallet (its registered payout), lowercased → steward account. */
   stewardWallets?: Record<string, string>;
 };
@@ -136,6 +151,7 @@ export function buildLog(inp: Inputs): RescueLog {
   const paidIn = new Map<string, "collateral" | "debt">(); // claim → the asset its buy-back was paid in
   let refundSide: "collateral" | "debt" = "debt";
   const ev: RescueEvent[] = [];
+  let repaidNear: { t: number; ev: Evidence } | undefined;
 
   const logs = [...inp.logs].sort((a, b) => (BigInt(a.tsNs) < BigInt(b.tsNs) ? -1 : BigInt(a.tsNs) > BigInt(b.tsNs) ? 1 : 0));
   // A reading belongs to this rescue only from the opening on (earlier ones are the position's history).
@@ -228,6 +244,12 @@ export function buildLog(inp: Inputs): RescueLog {
         ev.push({ t, kind: "PAYOUT", purpose: d.purpose, amount: units(d.amount, side === "collateral" ? cDec : dDec), asset: side === "collateral" ? C : D, claim: d.token_id ?? null, evidence: nearEv(net, l.tx) });
         break;
       }
+      case "settlement_taken_over":
+        if (d.rescue_id === rid) ev.push({ t, kind: "SETTLE_TAKEOVER", from: stewardOf(d.from ?? ""), to: stewardOf(d.to ?? ""), fee: units(d.fee_units ?? "0", cDec), asset: C, evidence: nearEv(net, l.tx) });
+        break;
+      case "settlement_repaid":
+        if (d.rescue_id === rid) repaidNear = { t, ev: nearEv(net, l.tx, d.block ? { block: d.block } : {}) };
+        break;
       case "settlement_started":
       case "settled":
       case "rescue_liquidated":
@@ -238,6 +260,62 @@ export function buildLog(inp: Inputs): RescueLog {
   }
   // Settlement start is a method call, not an event: take the call itself.
   for (const l of logs) if (l.method === "start_settlement" && l.event === "") ev.push({ t: tOf(l.tsNs), kind: "SETTLE_START", evidence: nearEv(net, l.tx) });
+
+  // The settlement's legs: each one carried out by a transaction the position sent after the
+  // settlement started (exact: the call's own recipient and amount, never an estimate).
+  const settleT = (ev.find((e) => e.kind === "SETTLE_START") as { t: number } | undefined)?.t;
+  const st = rescue.settlement;
+  const legTx = new Set<string>();
+  const sentTx = new Set((inp.sent ?? []).map((x) => x.tx.toLowerCase()));
+  if (st && settleT !== undefined && inp.sent?.length) {
+    const MAX = ((1n << 256n) - 1n).toString();
+    const owner = (cid?: string | null) => inp.claims.find((c) => c.token_id === cid)?.owner ?? null;
+    const seenClaim = new Set<string>();
+    const legs = st.legs.map((l, i) => {
+      const exact = typeof l.amount === "object" && l.amount && "exact" in l.amount ? String(l.amount.exact) : null;
+      const to = l.to.toLowerCase();
+      let purpose: "supplied" | "premium" | "fee" | "repay" | "rest" | "batch";
+      // who the leg pays: the steward whose payout it is (a takeover's fee leg carries the stalled
+      // claim's id but pays the steward that took over), else the claim's owner
+      const paidTo = inp.stewardWallets?.[to] ?? null;
+      const claimOwner = owner(l.claim_id);
+      if (l.claim_id) {
+        purpose = paidTo && claimOwner && paidTo !== claimOwner ? "fee" : seenClaim.has(l.claim_id) ? "premium" : "supplied";
+        if (purpose !== "fee") seenClaim.add(l.claim_id);
+      } else purpose = to === pos ? "batch" : exact ? "repay" : "rest";
+      const who = paidTo ?? (l.claim_id ? claimOwner : purpose === "repay" ? st.settler : null);
+      return { i, to, exact, purpose, steward: who ? stewardOf(who) : null, paid: false };
+    });
+    const batched = legs.some((l) => l.purpose === "batch");
+    const word = (input: string, k: number) => input.slice(10 + 64 * k, 10 + 64 * (k + 1));
+    const addr = (w: string) => `0x${w.slice(24)}`.toLowerCase();
+    const num = (w: string) => BigInt(`0x${w || "0"}`).toString();
+    for (const x of [...inp.sent].sort((a, b) => a.block - b.block || a.nonce - b.nonce)) {
+      const t = tOfS(x.ts);
+      if (!x.ok || t < settleT - 5) continue;
+      const sel = x.input.slice(0, 10).toLowerCase();
+      const push = (l: (typeof legs)[number], amount: string) => {
+        l.paid = true;
+        ev.push({ t, kind: "SETTLE_LEG", leg: l.i, to: l.to, steward: l.steward, purpose: l.purpose, amount, asset: C, evidence: evmEv(inp.evmChain, x.tx, x.block) });
+        legTx.add(x.tx.toLowerCase());
+      };
+      if (sel === "0x69328dec" && addr(word(x.input, 0)) === market.collateral.toLowerCase()) {
+        // Pool.withdraw(asset, amount, to): the leg paid to `to` (its exact amount, else "max")
+        const to = addr(word(x.input, 2));
+        const amt = num(word(x.input, 1));
+        const l = legs.find((y) => !y.paid && y.to === to && (y.exact === amt || (y.exact === null && amt === MAX))) ?? legs.find((y) => !y.paid && y.to === to);
+        if (!l) continue;
+        // a "max" leg's amount: what the withdraw burned from the position
+        const burned = inp.transfers.find((b) => b.tx.toLowerCase() === x.tx.toLowerCase() && b.from.toLowerCase() === pos && /^0x0{40}$/i.test(b.to));
+        push(l, units(l.exact ?? (amt !== MAX ? amt : burned?.value ?? "0"), cDec));
+      } else if (batched && sel === "0xa9059cbb" && x.to.toLowerCase() === market.collateral.toLowerCase()) {
+        // collateral.transfer(to, amount): every unpaid leg of that payout, in one transfer
+        const to = addr(word(x.input, 0));
+        for (const l of legs.filter((y) => !y.paid && y.purpose !== "batch" && y.to === to)) push(l, units(l.exact ?? num(word(x.input, 1)), cDec));
+      }
+    }
+  }
+  const repays: { t: number; value: string; ev: Evidence }[] = [];
 
   // EVM side: the winner's supply, money into the position, and the payouts' transfers.
   // Each winner's top-up is the transaction the contract recorded for it (members[].evm_tx); an amount
@@ -272,12 +350,20 @@ export function buildLog(inp: Inputs): RescueLog {
       // (after the buy-back commits, money the borrower sends in is a repay of its own, not part of the rescue)
       // the borrower's buy-back payment, in whichever asset it paid (the claim asset or the debt asset)
       ev.push({ t, kind: "PAYMENT_IN", amount: units(x.value, side === "collateral" ? cDec : dDec), asset: side === "collateral" ? C : D, evidence: evmEv(inp.evmChain, x.tx, x.block) });
-    } else if (from === pos && side && t > 0) {
+    } else if (from === pos && !side && /^0x0{40}$/.test(to) && settleT !== undefined && t >= settleT - 5 && !sentTx.has(x.tx.toLowerCase()) && (inp.sent || (x.decimals === dDec && dDec !== cDec))) {
+      // the position's debt burned in a transaction it didn't send itself: the settler's repay on Aave
+      repays.push({ t, value: x.value, ev: evmEv(inp.evmChain, x.tx, x.block) });
+    } else if (from === pos && side && t > 0 && !legTx.has(x.tx.toLowerCase())) {
       // attach the EVM transfer to the payout it carried out (same asset and amount, after it)
       const amt = units(x.value, side === "collateral" ? cDec : dDec);
       const p = ev.find((e) => e.kind === "PAYOUT" && e.asset === (side === "collateral" ? C : D) && e.amount === amt && !(e as any).transfer);
       if (p) (p as any).transfer = evmEv(inp.evmChain, x.tx, x.block);
     }
+  }
+  if (st) {
+    const settler = stewardOf(st.settler);
+    for (const r of repays) ev.push({ t: r.t, kind: "SETTLE_REPAY", steward: settler, amount: units(r.value, dDec), asset: D, evidence: r.ev, ...(repaidNear ? { near: repaidNear.ev } : {}) });
+    if (!repays.length && repaidNear && st.repay_units && st.repay_units !== "0") ev.push({ t: repaidNear.t, kind: "SETTLE_REPAY", steward: settler, amount: units(st.repay_units, dDec), asset: D, evidence: repaidNear.ev });
   }
   ev.sort((a, b) => a.t - b.t || order(a.kind) - order(b.kind));
   // a single winner tops up: name it on the confirmation too
@@ -323,5 +409,5 @@ export function buildLog(inp: Inputs): RescueLog {
   };
 }
 
-const ORDER = ["TRIGGER", "AUCTION_OPEN", "READING", "BIDDING", "BID", "AUCTION_CLOSE", "TOPUP_SENT", "TOPUP_CONFIRMED", "TOPUP_EXPIRED", "CLAIM_MINTED", "PAYMENT_IN", "ESCROW_PROVEN", "BUYBACK", "BOUGHT_BACK", "PAYOUT", "SETTLE_START", "SETTLED", "LIQUIDATED"];
+const ORDER = ["TRIGGER", "AUCTION_OPEN", "READING", "BIDDING", "BID", "AUCTION_CLOSE", "TOPUP_SENT", "TOPUP_CONFIRMED", "TOPUP_EXPIRED", "CLAIM_MINTED", "PAYMENT_IN", "ESCROW_PROVEN", "BUYBACK", "BOUGHT_BACK", "PAYOUT", "SETTLE_START", "SETTLE_TAKEOVER", "SETTLE_REPAY", "SETTLE_LEG", "SETTLED", "LIQUIDATED"];
 const order = (k: string) => ORDER.indexOf(k);

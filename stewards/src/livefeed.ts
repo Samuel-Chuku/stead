@@ -169,3 +169,21 @@ export function txStatusLogs(st: any, contracts: Set<string>): { receiptId: stri
   }
   return out;
 }
+
+/** The contract returns at most this many rescues a call (asking for more still gets 50). */
+export const RESCUES_PAGE = 50;
+/** Every page of a paged view, `RESCUES_PAGE` at a time, until a short page. */
+export async function allPages<T>(page: (from: number, limit: number) => Promise<T[]>): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += RESCUES_PAGE) {
+    const p = await page(from, RESCUES_PAGE);
+    out.push(...p);
+    if (p.length < RESCUES_PAGE) return out;
+  }
+}
+/** Which ended rescues get a recording: every one on testnet; on mainnet (a `.near` contract) only
+ *  those that got a bid (an opening nobody bid on has nothing to replay). */
+export function archivable(contract: string, r: { state: string; bids?: unknown[]; members?: unknown[] }): boolean {
+  if (!(TERMINAL as string[]).includes(r.state)) return false;
+  return !contract.endsWith(".near") || !!(r.bids?.length || r.members?.length);
+}

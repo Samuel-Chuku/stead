@@ -207,3 +207,24 @@ describe("live feed: the project's own node (chunks + transaction status)", () =
     expect(x.map((e) => [e.receiptId, e.blockHash, e.log.event])).toEqual([["R1#call", "B5", ""]]);
   });
 });
+
+describe("the recordings archive", async () => {
+  const { allPages, archivable, RESCUES_PAGE } = await import("../src/livefeed.js");
+  it("reads every rescue, past the contract's 50 per call", async () => {
+    const all = Array.from({ length: 133 }, (_, i) => i);
+    const asked: number[] = [];
+    const got = await allPages((from, limit) => {
+      asked.push(from);
+      return Promise.resolve(all.slice(from, from + Math.min(limit, RESCUES_PAGE)));
+    });
+    expect(got).toEqual(all);
+    expect(asked).toEqual([0, 50, 100]);
+  });
+  it("records every ended testnet rescue, and mainnet ones only when they got a bid", () => {
+    expect(archivable("sepolia-demo.steadfi.testnet", { state: "failed", bids: [] })).toBe(true);
+    expect(archivable("app.usestead.near", { state: "failed", bids: [], members: [] })).toBe(false);
+    expect(archivable("app.usestead.near", { state: "failed", bids: [{}], members: [] })).toBe(true);
+    expect(archivable("app.usestead.near", { state: "settled", bids: [{}], members: [{}] })).toBe(true);
+    expect(archivable("app.usestead.near", { state: "open", bids: [{}], members: [{}] })).toBe(false);
+  });
+});

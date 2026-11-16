@@ -13,7 +13,7 @@ import { createPublicClient, createWalletClient, custom, fallback, getAddress as
 import { mainnet } from "viem/chains";
 import { icon } from "../icons";
 import { tokenMark } from "./tokenmarks";
-import { attachRecorded, recordingNow } from "./flowlinks";
+import { attachRecorded, recordingNow, replayLink } from "./flowlinks";
 import { crown, bindCrowns } from "../crown";
 import { CODE } from "../board/model";
 import { dialogHtml as svDialogHtml, showSteward, stewardPanel, flowSeq } from "../mainnet/runs";
@@ -1769,7 +1769,8 @@ export function mountDash(root: HTMLElement): () => void {
       const row = protectionRows([r]).rows[0] ?? protectionRows([r]).noBids[0];
       const owed = x.claims.reduce((t, c) => t + BigInt(c.owed_units), 0n);
       // a recorded rescue's steps link to their transactions (the recording redraws the dialog once it lands)
-      const flow = attachRecorded(rescueFlow(r, x.claims, { coll: C, evmName: net.evmName, ...flowOpts() }), recordingNow(net.contract, id, () => render()), net.contract);
+      const rec = recordingNow(net.contract, id, () => render());
+      const flow = attachRecorded(rescueFlow(r, x.claims, { coll: C, evmName: net.evmName, ...flowOpts() }), rec, net.contract);
       const win = row.winners.map((w) => `<span class="st-dash-prot-w">${protTile(w.steward)}<span>${esc(w.name)}</span></span>`).join("");
       const bps = row.winners.map((w) => `${w.bps} bps`).join(", ");
       return `<p class="st-dash-protback"><button type="button" class="st-dash-linkbtn" data-prot-back>${glyph("M10 3.5 5.5 8l4.5 4.5", 14)}All protections</button></p>
@@ -1779,6 +1780,7 @@ export function mountDash(root: HTMLElement): () => void {
           <div><dt>TOPPED UP</dt><dd>${row.winners.length ? `<span class="st-num">${fmt(BigInt(row.topupUnits), C.decimals, 6)}</span> <span class="st-sv-u">${C.symbol}</span>` : `<span class="st-kpi-word">nothing</span>`}</dd><dd class="st-kpi-sub">${fmt(BigInt(r.topup_units), C.decimals, 6)} ${C.symbol} needed</dd></div>
           ${owed > 0n ? `<div><dt>CLAIM OWED</dt><dd><span class="st-num">${fmt(owed, C.decimals, 6)}</span> <span class="st-sv-u">${C.symbol}</span></dd><dd class="st-kpi-sub">${x.claims.map((c) => esc(c.token_id)).join(", ")}</dd></div>` : ""}
         </dl>
+        ${replayLink(net.contract, id, rec)}
         ${flowSeq(flowMoves(flow))}
         <p class="st-list-note st-sv-note">${esc(PROT_NOTE)}</p>`;
     };

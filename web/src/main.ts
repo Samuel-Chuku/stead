@@ -13,6 +13,7 @@ import { loadRecords, mountList } from "./lists/pages";
 import { mountMainnet } from "./mainnet/page";
 import { mountHow } from "./how/page";
 import { bindCrowns } from "./crown";
+import { feedRecordings } from "./own/flowlinks";
 /** The live feed (and its recordings): the local one when the app runs locally. */
 const liveFeedUrl = () => (import.meta as any).env?.VITE_LIVE_FEED ?? (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? "http://127.0.0.1:8788" : "https://live.usestead.xyz");
 
@@ -32,10 +33,38 @@ const REPLAYS: Recording[] = [
 const TESTNET_REPLAYS = REPLAYS.filter((x) => x.net === "testnet");
 const DEFAULT_REPLAY = "8";
 let replayNote = ""; // shown once on the replay that opened because nothing was live
+const MAINNET_CONTRACT = "app.usestead.near";
+/** Any recorded rescue by id, read from the live feed (recorded there a few minutes after it ends):
+ *  "mainnet-<id>" on app.usestead.near, "sepolia-demo:<id>" / "steadfi:<id>" on testnet. */
+function feedReplay(r: string | null): Recording | null {
+  let m = r ? /^mainnet-(\d+)$/.exec(r) : null;
+  if (m) return { id: r!, label: `Rescue ${m[1]}`, url: `${liveFeedUrl()}/rescue/${MAINNET_CONTRACT}/${m[1]}.json`, net: "mainnet" };
+  m = r ? /^(sepolia-demo|steadfi):(\d+)$/.exec(r) : null;
+  if (m) return { id: r!, label: `Rescue ${m[2]}${m[1] === "steadfi" ? " · steadfi.testnet" : ""}`, url: `${liveFeedUrl()}/rescue/${m[1] === "steadfi" ? "steadfi.testnet" : "sepolia-demo.steadfi.testnet"}/${m[2]}.json`, net: "testnet" };
+  return null;
+}
 const replayId = () => {
   const r = new URLSearchParams(location.search).get("replay");
-  return REPLAYS.some((x) => x.id === r) ? r! : DEFAULT_REPLAY;
+  if (REPLAYS.some((x) => x.id === r)) return r!;
+  const d = feedReplay(r);
+  if (d) REPLAYS.push(d);
+  return d ? d.id : DEFAULT_REPLAY;
 };
+// every mainnet rescue the feed has recorded joins the replay picker (newest first); the feed's copy
+// replaces a shipped file (it carries the settlement's steps too)
+const replaysReady = feedRecordings().then((list) => {
+  for (const x of list.filter((y) => y.contract === MAINNET_CONTRACT)) {
+    const id = `mainnet-${x.rescueId}`;
+    const entry: Recording = { id, label: `Rescue ${x.rescueId} · ${x.winners > 1 ? "pooled, " : ""}${x.outcome}`, url: `${liveFeedUrl()}/rescue/${MAINNET_CONTRACT}/${x.rescueId}.json`, net: "mainnet" };
+    const i = REPLAYS.findIndex((y) => y.id === id);
+    if (i >= 0) REPLAYS[i] = entry;
+    else REPLAYS.push(entry);
+  }
+  const n = (x: Recording) => Number(x.id.replace("mainnet-", ""));
+  const main = REPLAYS.filter((x) => x.net === "mainnet").sort((a, b) => n(b) - n(a));
+  const rest = REPLAYS.filter((x) => x.net !== "mainnet");
+  REPLAYS.splice(0, REPLAYS.length, ...main, ...rest);
+});
 /** #/live opens on LIVE; ?replay=<id> (or the REPLAY switch) opens a recorded rescue; ?demo opens DEMO. */
 const boardMode = (): BoardMode => {
   const q = new URLSearchParams(location.search);
@@ -230,22 +259,26 @@ function fill(r: Route) {
     let stop = () => {};
     let gone = false;
     unmount = () => { gone = true; stop(); };
-    const cur = replayId();
     const note = replayNote;
     replayNote = "";
-    void mountReplay(content, REPLAYS.find((x) => x.id === cur)!.url, {
-      replays: REPLAYS,
-      current: cur,
-      note,
-      onMode: setBoardMode,
-      onPick(id) {
-        const u = new URL(location.href);
-        u.searchParams.set("replay", id);
-        u.searchParams.delete("t");
-        history.replaceState(null, "", u);
-        fill("live");
-      },
-    }).then((s) => (gone ? s() : (stop = s)));
+    // the feed's list first (its recordings carry the settlement's steps), the shipped files if it's slow
+    void replaysReady.then(() => {
+      if (gone) return;
+      const cur = replayId();
+      void mountReplay(content, REPLAYS.find((x) => x.id === cur)!.url, {
+        replays: REPLAYS,
+        current: cur,
+        note,
+        onMode: setBoardMode,
+        onPick(id) {
+          const u = new URL(location.href);
+          u.searchParams.set("replay", id);
+          u.searchParams.delete("t");
+          history.replaceState(null, "", u);
+          fill("live");
+        },
+      }).then((s) => (gone ? s() : (stop = s)));
+    });
   } else if (r === "rescues" && new URLSearchParams(location.search).has("rescue")) {
     // a recorded rescue's own page (?rescue=<id>)
     // ?rescue=<contract>:<id> ("sepolia-demo:14", "steadfi:20") or a bare id on the demo contract

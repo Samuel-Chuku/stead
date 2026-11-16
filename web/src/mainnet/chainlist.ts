@@ -8,7 +8,7 @@ import { CODE } from "../board/model";
 import { icon } from "../icons";
 import { chainRuns, claimIdsOf, proofBlocks, readFrom, trailRescueIds, type ChainRow } from "./chainruns";
 import { dialogHtml, flowSeq } from "./runs";
-import { attachRecorded, recordingNow } from "../own/flowlinks";
+import { attachRecorded, recordingNow, replayLink } from "../own/flowlinks";
 
 const net = NETS.mainnet;
 const C = net.collateral;
@@ -195,7 +195,8 @@ function flowBody(id: number, flowMoves: FlowMovesFn, trail: { run: number; resc
   const one = row.real[0] ?? row.failed[0];
   const owed = x.claims.reduce((t, c) => t + BigInt(c.owed_units), 0n);
   // a recorded rescue's steps link to their transactions; the recording arrives once, then redraws
-  const flow = attachRecorded(rescueFlow(r, x.claims, { coll: C, evmName: net.evmName, ...flowOpts() }), recordingNow(net.contract, id, onRecording), net.contract);
+  const rec = recordingNow(net.contract, id, onRecording);
+  const flow = attachRecorded(rescueFlow(r, x.claims, { coll: C, evmName: net.evmName, ...flowOpts() }), rec, net.contract);
   const win = one ? one.winners.map((w) => `<span class="st-dash-prot-w">${tile(w.steward)}<span>${esc(w.name)}</span></span>`).join("") : "";
   const bps = one ? one.winners.map((w) => `${w.bps} bps`).join(", ") : "";
   const outcome = one?.outcome ?? "no_bids";
@@ -205,6 +206,7 @@ function flowBody(id: number, flowMoves: FlowMovesFn, trail: { run: number; resc
       <div><dt>TOPPED UP</dt><dd>${one?.winners.length ? `<span class="st-num">${weth(one.topupUnits)}</span> <span class="st-sv-u">${C.symbol}</span>` : `<span class="st-kpi-word">nothing</span>`}</dd><dd class="st-kpi-sub">${weth(r.topup_units)} ${C.symbol} needed</dd></div>
       ${owed > 0n ? `<div><dt>CLAIM OWED</dt><dd><span class="st-num">${weth(owed)}</span> <span class="st-sv-u">${C.symbol}</span></dd><dd class="st-kpi-sub">${x.claims.map((c) => esc(c.token_id)).join(", ")}</dd></div>` : ""}
     </dl>
+    ${replayLink(net.contract, id, rec)}
     ${trail ? `<p class="st-mn-flow-trail"><button type="button" class="st-secondary st-cut" data-flow-trail="${trail.run}.${trail.rescue}.0">The recorded run: every transaction re-checked</button></p>` : ""}
     ${flowSeq(flowMoves(flow))}`;
 }
