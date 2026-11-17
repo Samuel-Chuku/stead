@@ -2,7 +2,7 @@
 // The board is redrawn from (log, t) every frame; nothing animates on its own timer.
 import type { RescueLog } from "../../../stewards/src/rescuelog";
 import { boardAt, duration, type Board } from "./model";
-import { settleStrip, txLink } from "./pool";
+import { flowList, flowOf, txLink } from "./closing";
 import { icon } from "../icons";
 import { mountBoard, type BoardMode, type ReplayChoice } from "./view";
 
@@ -108,15 +108,14 @@ function endDialog(root: HTMLElement, onAgain: () => void) {
   return Object.assign(d, {
     fill(log: RescueLog, b: Board) {
       const last = b.journal.find((l) => l.kind !== "READING");
-      const strip = b.settlement ?? b.buyback;
+
       const outcome = b.settlement?.done ? "settled" : b.buyback ? "bought back" : b.claim?.closedText || b.pool?.closedText || "ended";
       d.innerHTML = `
         <div class="st-end-top">
           <div><div class="st-label">REPLAY FINISHED · RESCUE ${log.rescueId ?? ""}</div><h2 class="st-panel-title" id="st-end-title">Position ${log.positionId}: ${esc(outcome)}</h2></div>
           <button type="button" class="st-icon-btn" data-end-close aria-label="Close and stay on the final state">${icon("close", 16)}</button>
         </div>
-        ${last ? `<div class="st-end-last"><div class="st-label">LAST ACTION</div><p>${esc(last.text)}</p>${last.evidence?.url ? txLink(last.evidence) : ""}</div>` : ""}
-        ${strip ? settleStrip(strip, -1, b.settlement ? "Settlement steps" : "Buy-back steps") : ""}
+        ${flowOf(b) ? `<div class="st-label">EVERY TRANSACTION, IN ORDER</div>${flowList(log, b)}` : last ? `<div class="st-end-last"><div class="st-label">LAST ACTION</div><p>${esc(last.text)}</p>${last.evidence?.url ? txLink(last.evidence) : ""}</div>` : ""}
         <div class="st-end-actions"><button type="button" class="st-push st-cut" data-end-again>WATCH AGAIN</button></div>`;
     },
   });

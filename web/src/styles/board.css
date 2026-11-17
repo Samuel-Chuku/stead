@@ -282,6 +282,7 @@
 .st-tag.is-closed { --fill: var(--st-panel); color: var(--st-ink); }
 .st-pool-tag .st-tag-id { font-family: var(--st-font-mono); font-size: 11px; opacity: .75; }
 .st-tag.no-drop { animation: none; }
+.st-tag.no-drop { animation: none; }
 
 /* ---------- settlement steps: done in ink, the current one outlined, the rest quiet ---------- */
 .st-pool-settle:empty { display: none; }
@@ -506,3 +507,72 @@
 .st-end-dialog .st-settle-step { border-right: 0; border-bottom: var(--st-hairline); }
 .st-end-dialog .st-settle-step:last-child { border-bottom: 0; }
 .st-end-actions { display: flex; justify-content: flex-end; }
+
+/* ---------- end of a replay: stays on the final state until WATCH AGAIN or a reload ---------- */
+.st-end-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 20px; background: var(--st-panel); color: var(--st-ink); border: var(--st-border); border-radius: 0; display: none; }
+.st-end-dialog[open] { display: flex; flex-direction: column; gap: 16px; }
+.st-end-dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.st-end-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.st-end-last { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; border-top: var(--st-hairline); padding-top: 12px; }
+.st-end-last p { margin: 0; font-size: 14px; line-height: 1.5; }
+.st-end-actions { display: flex; justify-content: flex-end; }
+
+/* ---------- how the claims close: steps left to right, joined by arrows ---------- */
+.st-close { display: flex; flex-direction: column; gap: 12px; }
+.st-close[hidden] { display: none; }
+.st-close-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; }
+.st-close-now { font-family: var(--st-font-head); font-weight: 600; font-size: 13px; color: var(--st-quiet); }
+.st-close-flow { list-style: none; margin: 0; padding: 0; display: flex; align-items: stretch; }
+.st-close-step { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1.5px dashed var(--st-hair); }
+.st-close-step[data-state="done"] { border: 1.5px solid var(--st-ink); }
+.st-close-step[data-state="active"] { border: 1.5px solid var(--st-ink); background: var(--st-inset); }
+.st-close-label { display: flex; align-items: center; gap: 6px; font-family: var(--st-font-head); font-weight: 600; font-size: var(--st-text-11); letter-spacing: var(--st-tracking-label); color: var(--st-quiet); }
+.st-close-mark { flex: none; width: 8px; height: 8px; border: 1.5px solid var(--st-hair); }
+.st-close-detail { font-size: 12px; line-height: 1.4; color: var(--st-quiet); overflow-wrap: anywhere; }
+.st-close-step[data-state="done"] .st-close-label, .st-close-step[data-state="done"] .st-close-detail,
+.st-close-step[data-state="active"] .st-close-label { color: var(--st-ink); }
+.st-close-step[data-state="done"] .st-close-mark { background: var(--st-ink); border-color: var(--st-ink); }
+.st-close-step[data-state="active"] .st-close-mark { border-color: var(--st-ink); }
+.st-close-step.is-fresh { animation: st-flash var(--st-dur-flash) ease-out; }
+.st-close-tx { align-self: flex-start; max-width: 100%; margin-top: auto; padding: 3px 7px; font-size: 12px; }
+.st-close-flow .st-txlink-where { display: none; } /* narrow steps: the explorer's name and the arrow */
+
+/* the arrow into a step: quiet while still to come, flowing while its transaction is awaited, solid once it landed */
+.st-close-arrow { flex: 0 0 26px; display: flex; align-items: center; position: relative; }
+.st-close-arrow > span { position: relative; flex: 1; height: 2px; margin-right: 6px; background: repeating-linear-gradient(90deg, var(--st-hair) 0 4px, transparent 4px 7px); }
+.st-close-arrow > span::after { content: ""; position: absolute; right: -6px; top: -4px; border-left: 7px solid var(--st-hair); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.st-close-arrow[data-state="done"] > span { background: var(--st-ink); }
+.st-close-arrow[data-state="done"] > span::after, .st-close-arrow[data-state="moving"] > span::after { border-left-color: var(--st-ink); }
+.st-close-arrow[data-state="moving"] > span { background: repeating-linear-gradient(90deg, var(--st-ink) 0 4px, transparent 4px 8px); background-size: 8px 2px; animation: st-close-flow .8s steps(4) infinite; }
+.st-close-arrow[data-fresh] > span { transform-origin: left; animation: st-close-fill .4s steps(5) both; }
+@keyframes st-close-flow { from { background-position: 0 0; } to { background-position: 8px 0; } }
+@keyframes st-close-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (max-width: 760px) {
+  .st-close-flow { flex-direction: column; }
+  .st-close-arrow { flex: 0 0 22px; justify-content: flex-start; padding-left: 14px; }
+  .st-close-arrow > span { flex: none; width: 2px; height: 14px; margin: 0 0 6px; background: repeating-linear-gradient(180deg, var(--st-hair) 0 4px, transparent 4px 7px); }
+  .st-close-arrow > span::after { right: auto; left: -4px; top: auto; bottom: -6px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--st-hair); border-bottom: 0; }
+  .st-close-arrow[data-state="done"] > span::after, .st-close-arrow[data-state="moving"] > span::after { border-left-color: transparent; border-top-color: var(--st-ink); }
+  .st-close-arrow[data-state="moving"] > span { background: repeating-linear-gradient(180deg, var(--st-ink) 0 4px, transparent 4px 8px); background-size: 2px 8px; animation-name: st-close-flow-v; }
+  .st-close-arrow[data-fresh] > span { transform-origin: top; animation-name: st-close-fill-v; }
+  .st-close-flow .st-txlink-where { display: inline; }
+}
+@keyframes st-close-flow-v { from { background-position: 0 0; } to { background-position: 0 8px; } }
+@keyframes st-close-fill-v { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .st-close-step.is-fresh, .st-close-arrow > span { animation: none !important; }
+}
+
+/* the end dialog: every transaction top to bottom, numbered, the last one marked */
+.st-close-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.st-close-item { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 10px 12px; border: 1.5px solid var(--st-hair); }
+.st-close-item[data-state="done"] { border-color: var(--st-ink); }
+.st-close-item.is-last { background: var(--st-inset); }
+.st-close-n { font-family: var(--st-font-display); font-weight: 700; font-size: 22px; line-height: 1; }
+.st-close-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.st-close-item .st-close-label { color: var(--st-ink); }
+.st-close-item .st-close-detail { font-size: 13px; color: var(--st-ink); }
+.st-close-lastflag { margin-left: 6px; padding: 1px 6px; background: var(--st-ink); color: var(--st-panel); }
+.st-close-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.st-close-time { font-family: var(--st-font-mono); font-size: 11px; color: var(--st-quiet); }
+.st-close-down { display: flex; padding: 3px 0 3px 18px; color: var(--st-ink); }

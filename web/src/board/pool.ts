@@ -1,27 +1,13 @@
 // The pooled rescue section (components.md §15, option B "fill the gap"). Built once; update()
 // moves blocks, toggles states and fills text. Motion is CSS reacting to classes set from events.
-import type { Evidence, RescueLog, StewardId } from "../../../stewards/src/rescuelog";
-import { icon } from "../icons";
-import { CODE, STEWARD_ORDER, fmtAmt, type Board, type SettleStep } from "./model";
+import type { RescueLog, StewardId } from "../../../stewards/src/rescuelog";
+import { CODE, STEWARD_ORDER, fmtAmt, type Board } from "./model";
 
 const tile = (s: StewardId, size: number) => `<span class="st-tile st-tile--${size}" style="--sc: var(--st-steward-${s})" aria-hidden="true">${CODE[s]}</span>`;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 const pct = (hf: number) => Math.max(0, Math.min(100, ((hf - 0.9) / 0.8) * 100));
 
-/** A step's transaction: where it is (Etherscan or NearBlocks) and the start of its hash. */
-export const txLink = (ev: Evidence) =>
-  `<a class="st-txlink st-settle-tx" href="${esc(ev.url)}" target="_blank" rel="noopener"><span>${ev.chain.startsWith("near") ? "NearBlocks" : "Etherscan"}</span><span class="st-txlink-where">${esc(ev.tx.slice(0, 10))}…</span>${icon("external", 12)}</a>`;
-
 const clock = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-
-/** The settlement's steps as a strip: done in ink, the current one outlined, the rest quiet.
- *  Shared by the pooled section and the single claim's slot. */
-export function settleStrip(st: { steps: SettleStep[] }, t: number, label = "Settlement steps"): string {
-  return `<ol class="st-settle" aria-label="${label}">${st.steps
-    .map((x) => `<li class="st-settle-step${x.state === "done" && x.t !== null && t - x.t >= 0 && t - x.t < 1.2 ? " is-fresh" : ""}" data-state="${x.state}"><span class="st-settle-mark" aria-hidden="true"></span><span class="st-settle-label">${x.label}</span><span class="st-settle-detail">${esc(x.detail)}</span>${x.state === "done" && x.link?.url ? txLink(x.link) : ""}</li>`)
-    .join("")}</ol>`;
-}
-export const settleKey = (st: { steps: SettleStep[] } | null) => (st ? st.steps.map((x) => `${x.key}:${x.state}:${x.detail}:${x.link?.tx ?? ""}`).join("|") : "");
 
 export function poolMarkup(log: RescueLog): string {
   return `
@@ -58,13 +44,12 @@ export function poolMarkup(log: RescueLog): string {
       </div>
     </div>
     <div class="st-pool-counter"><span data-pcount></span><span class="st-quiet" data-pnote></span></div>
-    <div class="st-pool-settle" data-psettle></div>
     <div class="st-pool-tags" data-ptags></div>
     <p class="st-note">Each block is that steward's share of the gap, filled from the lowest premium up. Each claim is held by its own steward and paid back exactly, from the same buy-back.</p>
   </section>`;
 }
 
-export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: { fell: Map<string, number>; tagKey: string; settleKey: string }) {
+export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: { fell: Map<string, number>; tagKey: string }) {
   const p = b.pool;
   const sect = root.querySelector<HTMLElement>("[data-pool]");
   if (!p || !sect) return;
@@ -101,13 +86,6 @@ export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: {
       : null;
   q("[data-psub]").textContent = sub ?? (!p.final ? (n ? `If the auction closed now: ${n} steward${n > 1 ? "s" : ""}, lowest premium first` : "Stewards offer an amount and a premium; the lowest premiums fill the gap") : "Filled from the lowest premium up; the last offer trimmed to fit");
 
-  // the settlement's steps, from its start (kept up after it ends)
-  const strip = st ?? b.buyback;
-  const sk = (st ? "s" : "b") + settleKey(strip);
-  if (sk !== state.settleKey) {
-    state.settleKey = sk;
-    q("[data-psettle]").innerHTML = strip ? settleStrip(strip, b.t, st ? "Settlement steps" : "Buy-back steps") : "";
-  }
 
   for (const c of p.cards) {
     const el = q(`[data-pcard="${c.steward}"]`);
