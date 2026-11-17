@@ -161,7 +161,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
 
     ${pooled ? poolMarkup(log) : ""}
     <section class="st-journal" aria-label="Journal" data-panel>
-      <div class="st-journal-head">${mode === "live" ? `JOURNAL · LIVE · ${controls.delayS ?? 6} S BEHIND THE CHAIN` : mode === "demo" ? `JOURNAL · DEMO · STARTED FROM THIS PAGE · ${controls.delayS ?? 6} S BEHIND THE CHAIN` : "JOURNAL · REPLAY OF A RECORDED RESCUE, ON LOOP"} · ${esc(log.label.toUpperCase())}</div>
+      <div class="st-journal-head">${mode === "live" ? `JOURNAL · LIVE · ${controls.delayS ?? 6} S BEHIND THE CHAIN` : mode === "demo" ? `JOURNAL · DEMO · STARTED FROM THIS PAGE · ${controls.delayS ?? 6} S BEHIND THE CHAIN` : "JOURNAL · REPLAY OF A RECORDED RESCUE"} · ${esc(log.label.toUpperCase())}</div>
       <div class="st-journal-lines" data-journal data-theme="dark"></div>
     </section>
   </div>`;

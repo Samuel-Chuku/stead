@@ -60,7 +60,7 @@ export type Board = {
   /** While the claims are open: the buy-back window and any payment the borrower has made into the position. */
   window: null | { left: number; paidIn: string | null; proven: boolean };
 };
-export type SettleStep = { key: string; label: string; detail: string; state: "done" | "active" | "pending"; t: number | null };
+export type SettleStep = { key: string; label: string; detail: string; state: "done" | "active" | "pending"; t: number | null; link?: Evidence };
 /** A buy-back from the borrower's payment to the holders' payouts, in the same step form. */
 export type Buyback = { steps: SettleStep[]; done: boolean };
 export type Settlement = { startedBy: StewardId | null; settler: StewardId | null; steps: SettleStep[]; done: boolean; legsPaid: { steward: StewardId | null; purpose: string; amount: string; asset: string }[] };
@@ -230,6 +230,9 @@ const find = <K extends RescueEvent["kind"]>(evs: RescueEvent[], k: K, after = -
 const all = <K extends RescueEvent["kind"]>(evs: RescueEvent[], k: K, after = -Infinity) => evs.filter((e) => e.kind === k && e.t >= after) as Ev<K>[];
 export const LEG_PURPOSE: Record<string, string> = { supplied: "supplied units", premium: "premium", fee: "takeover fee", repay: "repay reimbursed", rest: "the rest", batch: "units and premium" };
 
+/** The transaction a step links to: a payout's own transfer when recorded, else its event's. */
+const txOf = (e: RescueEvent | undefined): Evidence | undefined => (e ? ((e as any).transfer as Evidence | undefined) ?? ("evidence" in e ? e.evidence : undefined) : undefined);
+
 /** Who started the settlement: the steward a takeover took it from, else the one who repaid. */
 function startedBy(evs: RescueEvent[], from: number): StewardId | null {
   return find(evs, "SETTLE_TAKEOVER", from)?.from ?? find(evs, "SETTLE_REPAY", from)?.steward ?? null;
@@ -253,12 +256,12 @@ export function settlementAt(log: RescueLog, seen: RescueEvent[]): Settlement | 
   const lastLeg = legs[legs.length - 1];
   const total = endAll ? legsAll.length : null; // the count is final only in a complete recording
   const steps: Omit<SettleStep, "state">[] = [
-    { key: "start", label: "STARTED", detail: by ? `by ${by}, at the oracle price` : "at the oracle price", t: T },
-    ...(tkAll ? [{ key: "takeover" as const, label: "TAKEN OVER", detail: `${tkAll.to ?? "a steward"} from ${tkAll.from ?? "the settler"} · fee ${fmtAmt(tkAll.fee)} ${tkAll.asset}`, t: tk?.t ?? null }] : []),
-    { key: "repay", label: "DEBT REPAID", detail: repAll ? `${fmtAmt(repAll.amount)} ${repAll.asset} on Aave by ${repAll.steward ?? "the settler"}` : "the position's debt, on Aave", t: rep?.t ?? null },
-    { key: "legs", label: "PAID OUT", detail: legs.length ? `${legs.length}${total ? ` of ${total}` : ""} · last ${fmtAmt(lastLeg.amount)} ${lastLeg.asset} to ${lastLeg.steward ?? "a payout"}` : total ? `${total} payouts to the stewards` : "each claim's units and premium", t: lastLeg?.t ?? null },
-    { key: "settled", label: "SETTLED", detail: "claims closed, withdrawals unlocked", t: end?.t ?? null },
-    ...(refundAll ? [{ key: "refund" as const, label: "REFUNDED", detail: `${fmtAmt(refundAll.amount)} ${refundAll.asset} back to the borrower`, t: refund?.t ?? null }] : []),
+    { key: "start", label: "STARTED", detail: by ? `by ${by}, at the oracle price` : "at the oracle price", t: T, link: txOf(start) },
+    ...(tkAll ? [{ key: "takeover" as const, label: "TAKEN OVER", detail: `${tkAll.to ?? "a steward"} from ${tkAll.from ?? "the settler"} · fee ${fmtAmt(tkAll.fee)} ${tkAll.asset}`, t: tk?.t ?? null, link: txOf(tk) }] : []),
+    { key: "repay", label: "DEBT REPAID", detail: repAll ? `${fmtAmt(repAll.amount)} ${repAll.asset} on Aave by ${repAll.steward ?? "the settler"}` : "the position's debt, on Aave", t: rep?.t ?? null, link: txOf(rep) },
+    { key: "legs", label: "PAID OUT", detail: legs.length ? `${legs.length}${total ? ` of ${total}` : ""} · last ${fmtAmt(lastLeg.amount)} ${lastLeg.asset} to ${lastLeg.steward ?? "a payout"}` : total ? `${total} payouts to the stewards` : "each claim's units and premium", t: lastLeg?.t ?? null, link: txOf(lastLeg) },
+    { key: "settled", label: "SETTLED", detail: "claims closed, withdrawals unlocked", t: end?.t ?? null, link: txOf(end) },
+    ...(refundAll ? [{ key: "refund" as const, label: "REFUNDED", detail: `${fmtAmt(refundAll.amount)} ${refundAll.asset} back to the borrower`, t: refund?.t ?? null, link: txOf(refund) }] : []),
   ];
   const doneOf = (k: SettleStep["key"]) =>
     k === "start" ? true : k === "takeover" ? !!tk : k === "repay" ? !!rep : k === "legs" ? !!end || (total !== null && legs.length >= total && total > 0) : k === "settled" ? !!end : !!refund;
@@ -303,11 +306,11 @@ export function buybackAt(log: RescueLog, seen: RescueEvent[]): Buyback | null {
   const n = mints.length;
   const total = bbAll.length || n;
   const steps = [
-    ...(payAll.length ? [{ key: "paid", label: "PAID IN", detail: `${fmtAmt(sum(payAll))} ${payAll[0].asset} by the borrower, into the position`, t: pay[pay.length - 1]?.t ?? null, done: pay.length === payAll.length }] : []),
-    { key: "proven", label: "PROVEN", detail: provenAll?.evidence.block ? `the position's balance, at block ${provenAll.evidence.block.toLocaleString("en-US")}` : "the position's balance, on chain", t: proven?.t ?? null, done: !!proven },
-    { key: "bought", label: "BOUGHT BACK", detail: bbAll.length ? `${fmtAmt(sum(bbAll))} ${bbAll[0].asset} owed to ${n > 1 ? `${n} holders` : holder(bbAll[0].claim)} · withdrawals unlocked` : "claims closed, withdrawals unlocked", t: closed?.t ?? null, done: !!closed },
-    { key: "payout", label: n > 1 ? "HOLDERS PAID" : `PAID TO ${holder(mints[0].claim).toUpperCase()}`, detail: out.length ? `${n > 1 ? `${out.length} of ${total} · ` : ""}exactly ${fmtAmt(sum(out))} ${out[0].asset}` : "exactly what each claim is owed", t: out[out.length - 1]?.t ?? null, done: outAll.length > 0 && out.length === outAll.length && out.length >= total },
-    ...(refundAll ? [{ key: "refund", label: "REFUNDED", detail: `${fmtAmt(refundAll.amount)} ${refundAll.asset} excess back to the borrower`, t: refund?.t ?? null, done: !!refund }] : []),
+    ...(payAll.length ? [{ key: "paid", label: "PAID IN", detail: `${fmtAmt(sum(payAll))} ${payAll[0].asset} by the borrower, into the position`, t: pay[pay.length - 1]?.t ?? null, done: pay.length === payAll.length, link: txOf(pay[pay.length - 1]) }] : []),
+    { key: "proven", label: "PROVEN", detail: provenAll?.evidence.block ? `the position's balance, at block ${provenAll.evidence.block.toLocaleString("en-US")}` : "the position's balance, on chain", t: proven?.t ?? null, done: !!proven, link: txOf(proven) },
+    { key: "bought", label: "BOUGHT BACK", detail: bbAll.length ? `${fmtAmt(sum(bbAll))} ${bbAll[0].asset} owed to ${n > 1 ? `${n} holders` : holder(bbAll[0].claim)} · withdrawals unlocked` : "claims closed, withdrawals unlocked", t: closed?.t ?? null, done: !!closed, link: txOf(bb[bb.length - 1] ?? closed) },
+    { key: "payout", label: n > 1 ? "HOLDERS PAID" : `PAID TO ${holder(mints[0].claim).toUpperCase()}`, detail: out.length ? `${n > 1 ? `${out.length} of ${total} · ` : ""}exactly ${fmtAmt(sum(out))} ${out[0].asset}` : "exactly what each claim is owed", t: out[out.length - 1]?.t ?? null, done: outAll.length > 0 && out.length === outAll.length && out.length >= total, link: txOf(out[out.length - 1]) },
+    ...(refundAll ? [{ key: "refund", label: "REFUNDED", detail: `${fmtAmt(refundAll.amount)} ${refundAll.asset} excess back to the borrower`, t: refund?.t ?? null, done: !!refund, link: txOf(refund) }] : []),
   ];
   const s = walk(steps);
   return { steps: s, done: s.every((x) => x.state === "done") };

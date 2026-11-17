@@ -296,6 +296,9 @@
 .st-settle-step[data-state="active"] { outline: 1.5px solid var(--st-ink); outline-offset: -1.5px; }
 .st-settle-step[data-state="active"] .st-settle-mark { border-color: var(--st-ink); }
 .st-settle-step[data-state="active"] .st-settle-label { color: var(--st-ink); }
+.st-settle-tx { grid-column: 2; justify-self: start; max-width: 100%; min-width: 0; margin-top: 4px; padding: 3px 7px; font-size: 12px; }
+.st-settle-step { min-width: 0; }
+.st-pool-settle .st-txlink-where { display: none; } /* narrow columns: the explorer's name and the arrow */
 /* a step that just landed rings once (the event flash), then rests */
 .st-settle-step.is-fresh { animation: st-flash var(--st-dur-flash) ease-out; }
 @media (prefers-reduced-motion: reduce) { .st-settle-step.is-fresh { animation: none; } }
@@ -491,3 +494,15 @@
 @media (min-width: 900px) and (max-width: 1199.98px) {
   .st-annunciator { flex-wrap: wrap; }
 }
+
+/* ---------- end of a replay: stays on the final state until WATCH AGAIN or a reload ---------- */
+.st-end-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 20px; background: var(--st-panel); color: var(--st-ink); border: var(--st-border); border-radius: 0; display: none; }
+.st-end-dialog[open] { display: flex; flex-direction: column; gap: 16px; }
+.st-end-dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.st-end-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.st-end-last { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; border-top: var(--st-hairline); padding-top: 12px; }
+.st-end-last p { margin: 0; font-size: 14px; line-height: 1.5; }
+.st-end-dialog .st-settle { grid-template-columns: 1fr; }
+.st-end-dialog .st-settle-step { border-right: 0; border-bottom: var(--st-hairline); }
+.st-end-dialog .st-settle-step:last-child { border-bottom: 0; }
+.st-end-actions { display: flex; justify-content: flex-end; }

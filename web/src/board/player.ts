@@ -1,11 +1,12 @@
 // REPLAY mode: plays a recorded log at 1× against the page's clock. PLAY / PAUSE only.
 // The board is redrawn from (log, t) every frame; nothing animates on its own timer.
 import type { RescueLog } from "../../../stewards/src/rescuelog";
-import { boardAt, duration } from "./model";
+import { boardAt, duration, type Board } from "./model";
+import { settleStrip, txLink } from "./pool";
+import { icon } from "../icons";
 import { mountBoard, type BoardMode, type ReplayChoice } from "./view";
 
 const LEAD_IN = -3; // seconds of calm before the trigger
-const HOLD_S = 6; // seconds the final state stays up before the replay loops
 const FAST = 8; // the waits (proofs, Sepolia blocks, the buy-back window) play this much faster; the auction plays at 1×
 
 export async function mountReplay(root: HTMLElement, url: string, choice?: { replays: ReplayChoice[]; current: string; onPick: (id: string) => void; onMode?: (m: BoardMode) => void; note?: string }) {
@@ -41,23 +42,22 @@ export async function mountReplay(root: HTMLElement, url: string, choice?: { rep
   if (choice?.note) root.querySelector(".st-board")?.insertAdjacentHTML("afterbegin", `<p class="st-replay-note" role="status">${choice.note}</p>`);
   root.querySelector("[data-toggle]")?.insertAdjacentHTML("afterend", `<span class="st-ff" data-ff hidden>×${FAST} through the waits</span>`);
 
-  // A recorded rescue can't change, so the replay loops: hold the final state, then start over
-  // from just before the trigger. (LIVE mode follows real events instead and never loops.)
-  let held = 0; // ms the final state has been up
+  // At the end the replay stops on the final state and says so in a dialog: the outcome, the last
+  // action with its transaction, and WATCH AGAIN. Only that (or REPLAY AGAIN, or a reload) restarts it.
   let prev = 0;
+  const dlg = endDialog(root, () => { dlg.close(); restart(); });
   const ff = root.querySelector<HTMLElement>("[data-ff]");
   function frame(now: number) {
     const dt = Math.min(0.25, (now - (prev || now)) / 1000);
     prev = now;
-    if (t >= end) {
-      held += dt * 1000;
-      if (held >= HOLD_S * 1000) {
-        held = 0;
-        t = LEAD_IN;
-      }
-    } else t = Math.min(end, t + dt * speed(t));
+    t = Math.min(end, t + dt * speed(t));
     if (ff) ff.hidden = !(playing && t < end && speed(t) > 1);
-    view.update(boardAt(log, t));
+    const b = boardAt(log, t);
+    view.update(b);
+    if (t >= end) {
+      finish(b);
+      return;
+    }
     raf = requestAnimationFrame(frame);
   }
   function play() {
@@ -66,6 +66,17 @@ export async function mountReplay(root: HTMLElement, url: string, choice?: { rep
     prev = 0;
     view.setPlaying(true, false);
     raf = requestAnimationFrame(frame);
+  }
+  function finish(b: Board) {
+    playing = false;
+    if (ff) ff.hidden = true;
+    view.setPlaying(false, true);
+    dlg.fill(log, b);
+    if (root.isConnected && !dlg.open) dlg.showModal();
+  }
+  function restart() {
+    t = LEAD_IN;
+    play();
   }
   function pause() {
     playing = false;
@@ -77,5 +88,38 @@ export async function mountReplay(root: HTMLElement, url: string, choice?: { rep
   view.setPlaying(false, t >= end);
   // plays on load and loops (?t= opens paused at a moment, for screenshots and tests)
   if (!new URLSearchParams(location.search).has("t") || new URLSearchParams(location.search).has("play")) play();
-  return () => cancelAnimationFrame(raf);
+  return () => {
+    cancelAnimationFrame(raf);
+    dlg.remove();
+  };
 }
+
+/** The end-of-replay dialog: what the rescue came to, its last action and that action's transaction. */
+function endDialog(root: HTMLElement, onAgain: () => void) {
+  const d = document.createElement("dialog");
+  d.className = "st-end-dialog";
+  d.setAttribute("aria-labelledby", "st-end-title");
+  root.appendChild(d);
+  d.addEventListener("click", (e) => {
+    const el = e.target as HTMLElement;
+    if (el.closest("[data-end-again]")) onAgain();
+    else if (el.closest("[data-end-close]") || el === d) d.close();
+  });
+  return Object.assign(d, {
+    fill(log: RescueLog, b: Board) {
+      const last = b.journal.find((l) => l.kind !== "READING");
+      const strip = b.settlement ?? b.buyback;
+      const outcome = b.settlement?.done ? "settled" : b.buyback ? "bought back" : b.claim?.closedText || b.pool?.closedText || "ended";
+      d.innerHTML = `
+        <div class="st-end-top">
+          <div><div class="st-label">REPLAY FINISHED · RESCUE ${log.rescueId ?? ""}</div><h2 class="st-panel-title" id="st-end-title">Position ${log.positionId}: ${esc(outcome)}</h2></div>
+          <button type="button" class="st-icon-btn" data-end-close aria-label="Close and stay on the final state">${icon("close", 16)}</button>
+        </div>
+        ${last ? `<div class="st-end-last"><div class="st-label">LAST ACTION</div><p>${esc(last.text)}</p>${last.evidence?.url ? txLink(last.evidence) : ""}</div>` : ""}
+        ${strip ? settleStrip(strip, -1, b.settlement ? "Settlement steps" : "Buy-back steps") : ""}
+        <div class="st-end-actions"><button type="button" class="st-push st-cut" data-end-again>WATCH AGAIN</button></div>`;
+    },
+  });
+}
+
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);

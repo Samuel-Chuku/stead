@@ -157,6 +157,11 @@ describe("live board through a settlement", async () => {
     expect(boardAt(s82, firstLeg).settlement!.steps.find((x) => x.key === "legs")!.detail).toMatch(/^1 of 5 · last /);
     expect(state(at("SETTLED"))).toMatchObject({ legs: "done", settled: "done", refund: "active" });
     expect(state(duration(s82))).toMatchObject({ refund: "done" });
+    const steps = boardAt(s82, duration(s82)).settlement!.steps;
+    const legs = s82.events.filter((e) => e.kind === "SETTLE_LEG");
+    expect(steps.find((x) => x.key === "legs")!.link!.tx).toBe((legs[legs.length - 1] as any).evidence.tx);
+    expect(steps.find((x) => x.key === "repay")!.link!.chain).toBe("ethereum");
+    for (const x of steps) expect(x.link?.url, x.key).toMatch(/^https:\/\//);
   });
 
   it("names who did what on the steward cards and pays each claim's tag", () => {
@@ -195,6 +200,10 @@ describe("live board through a buy-back", () => {
     expect(payout.label).toBe("PAID TO DEEP");
     expect(payout.detail).toMatch(/^exactly 0\.00940684 WETH$/);
     expect(end.stewards.find((c) => c.steward === "deep")!.status).toBe("won · 150 bps · paid back 0.00940684 WETH");
+    // every finished step links its own transaction; the payout links the Ethereum transfer
+    for (const x of end.buyback!.steps) expect(x.link?.url, x.key).toMatch(/^https:\/\//);
+    const payoutEv = s81.events.find((e) => e.kind === "PAYOUT") as any;
+    expect(payout.link!.tx).toBe((payoutEv.transfer ?? payoutEv.evidence).tx);
   });
 
   it("gives way to the settlement when one starts first", () => {
