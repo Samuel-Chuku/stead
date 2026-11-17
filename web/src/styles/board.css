@@ -537,27 +537,39 @@
 .st-close-tx { align-self: flex-start; max-width: 100%; margin-top: auto; padding: 3px 7px; font-size: 12px; }
 .st-close-flow .st-txlink-where { display: none; } /* narrow steps: the explorer's name and the arrow */
 
-/* the arrow into a step: quiet while still to come, flowing while its transaction is awaited, solid once it landed */
-.st-close-arrow { flex: 0 0 26px; display: flex; align-items: center; position: relative; }
-.st-close-arrow > span { position: relative; flex: 1; height: 2px; margin-right: 6px; background: repeating-linear-gradient(90deg, var(--st-hair) 0 4px, transparent 4px 7px); }
-.st-close-arrow > span::after { content: ""; position: absolute; right: -6px; top: -4px; border-left: 7px solid var(--st-hair); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
-.st-close-arrow[data-state="done"] > span { background: var(--st-ink); }
-.st-close-arrow[data-state="done"] > span::after, .st-close-arrow[data-state="moving"] > span::after { border-left-color: var(--st-ink); }
-.st-close-arrow[data-state="moving"] > span { background: repeating-linear-gradient(90deg, var(--st-ink) 0 4px, transparent 4px 8px); background-size: 8px 2px; animation: st-close-flow .8s steps(4) infinite; }
+/* the arrow into a step is a short pipe in that step's colour (its steward's, else ink), like the
+   top-up feed: empty while still to come, flowing while its transaction is awaited, filled once it landed */
+.st-close-arrow { flex: 0 0 34px; display: flex; align-items: center; }
+.st-close-arrow > span { position: relative; flex: 1; height: 10px; margin-right: 7px; border: var(--st-border); border-right: 0; background: var(--st-inset); }
+.st-close-arrow > span::after { content: ""; position: absolute; right: -8px; top: -5px; border-left: 8px solid var(--st-line); border-top: 8.5px solid transparent; border-bottom: 8.5px solid transparent; }
+.st-close-arrow[data-state="pending"] > span { border-color: var(--st-hair); }
+.st-close-arrow[data-state="pending"] > span::after { border-left-color: var(--st-hair); }
+.st-close-arrow[data-state="moving"] > span, .st-close-arrow[data-state="done"] > span {
+  background: repeating-linear-gradient(90deg, var(--sc) 0 14px, transparent 14px 20px, var(--sc) 20px 34px, transparent 34px 40px), var(--st-inset);
+}
+.st-close-arrow[data-state="done"] > span { background: var(--sc); }
+.st-close-arrow[data-state="moving"] > span { animation: st-flow-x var(--st-flow-cycle) linear infinite; }
+.st-close-arrow[data-state="moving"] > span::after, .st-close-arrow[data-state="done"] > span::after { border-left-color: var(--sc); }
 .st-close-arrow[data-fresh] > span { transform-origin: left; animation: st-close-fill .4s steps(5) both; }
-@keyframes st-close-flow { from { background-position: 0 0; } to { background-position: 8px 0; } }
 @keyframes st-close-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* the current step stands out at a glance: its steward's border on the acting tint, flagged NOW */
+.st-close-step.has-steward[data-state="done"] { border-color: var(--sc); }
+.st-close-step[data-state="active"] { border: 2.5px solid var(--sc); background: var(--st-acting-tint); }
+.st-close-now-flag { margin-left: auto; padding: 1px 6px; background: var(--st-ink); color: var(--st-panel); }
+.st-close-label .st-tile { flex: none; }
 @media (max-width: 760px) {
   .st-close-flow { flex-direction: column; }
-  .st-close-arrow { flex: 0 0 22px; justify-content: flex-start; padding-left: 14px; }
-  .st-close-arrow > span { flex: none; width: 2px; height: 14px; margin: 0 0 6px; background: repeating-linear-gradient(180deg, var(--st-hair) 0 4px, transparent 4px 7px); }
-  .st-close-arrow > span::after { right: auto; left: -4px; top: auto; bottom: -6px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--st-hair); border-bottom: 0; }
-  .st-close-arrow[data-state="done"] > span::after, .st-close-arrow[data-state="moving"] > span::after { border-left-color: transparent; border-top-color: var(--st-ink); }
-  .st-close-arrow[data-state="moving"] > span { background: repeating-linear-gradient(180deg, var(--st-ink) 0 4px, transparent 4px 8px); background-size: 2px 8px; animation-name: st-close-flow-v; }
+  .st-close-arrow { flex: 0 0 28px; padding-left: 14px; }
+  .st-close-arrow > span { flex: none; width: 10px; height: 14px; margin: 0 0 8px; border: var(--st-border); border-bottom: 0; }
+  .st-close-arrow > span::after { right: auto; left: -5.5px; top: auto; bottom: -8px; border-left: 8.5px solid transparent; border-right: 8.5px solid transparent; border-top: 8px solid var(--st-line); border-bottom: 0; }
+  .st-close-arrow[data-state="pending"] > span::after { border-left-color: transparent; border-top-color: var(--st-hair); }
+  .st-close-arrow[data-state="moving"] > span::after, .st-close-arrow[data-state="done"] > span::after { border-left-color: transparent; border-top-color: var(--sc); }
+  .st-close-arrow[data-state="moving"] > span { background: repeating-linear-gradient(180deg, var(--sc) 0 14px, transparent 14px 20px, var(--sc) 20px 34px, transparent 34px 40px), var(--st-inset); animation-name: st-close-flow-v; }
   .st-close-arrow[data-fresh] > span { transform-origin: top; animation-name: st-close-fill-v; }
   .st-close-flow .st-txlink-where { display: inline; }
 }
-@keyframes st-close-flow-v { from { background-position: 0 0; } to { background-position: 0 8px; } }
+@keyframes st-close-flow-v { from { background-position: 0 0; } to { background-position: 0 40px; } }
 @keyframes st-close-fill-v { from { transform: scaleY(0); } to { transform: scaleY(1); } }
 @media (prefers-reduced-motion: reduce) {
   .st-close-step.is-fresh, .st-close-arrow > span { animation: none !important; }
@@ -566,13 +578,17 @@
 /* the end dialog: every transaction top to bottom, numbered, the last one marked */
 .st-close-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .st-close-item { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 10px 12px; border: 1.5px solid var(--st-hair); }
-.st-close-item[data-state="done"] { border-color: var(--st-ink); }
-.st-close-item.is-last { background: var(--st-inset); }
+.st-close-item[data-state="done"] { border-color: var(--sc); }
+.st-close-item.is-last { border: 2.5px solid var(--sc); background: var(--st-acting-tint); }
 .st-close-n { font-family: var(--st-font-display); font-weight: 700; font-size: 22px; line-height: 1; }
 .st-close-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.st-close-item .st-close-label { color: var(--st-ink); }
+.st-close-item .st-close-label { color: var(--st-ink); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .st-close-item .st-close-detail { font-size: 13px; color: var(--st-ink); }
 .st-close-lastflag { margin-left: 6px; padding: 1px 6px; background: var(--st-ink); color: var(--st-panel); }
 .st-close-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
 .st-close-time { font-family: var(--st-font-mono); font-size: 11px; color: var(--st-quiet); }
-.st-close-down { display: flex; padding: 3px 0 3px 18px; color: var(--st-ink); }
+.st-close-down { display: flex; padding: 0 0 0 21px; }
+.st-close-down > span { position: relative; width: 10px; height: 14px; margin-bottom: 8px; border: var(--st-border); border-bottom: 0; background: var(--sc); }
+.st-close-down > span::after { content: ""; position: absolute; left: -5.5px; bottom: -8px; border-left: 8.5px solid transparent; border-right: 8.5px solid transparent; border-top: 8px solid var(--sc); }
+.st-close-down[data-state="pending"] > span { background: var(--st-inset); border-color: var(--st-hair); }
+.st-close-down[data-state="pending"] > span::after { border-top-color: var(--st-hair); }
