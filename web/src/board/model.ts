@@ -441,7 +441,9 @@ export type Pool = {
   final: boolean;
   funded: boolean;
   draining: boolean;
-  sentT: number | null; // when the first supply landed (so a jump past it shows the column already drained)
+  sentT: number | null; // when the first supply was sent
+  /** how far the column has drained into the position, 0..1: from the supply sent to the top-up proven */
+  drain: number;
   flowing: boolean;
   confirmed: boolean;
   blocks: PoolBlock[];
@@ -456,6 +458,15 @@ export function isPooled(log: RescueLog): boolean {
   const close = log.events.find((e) => e.kind === "AUCTION_CLOSE") as Extract<RescueEvent, { kind: "AUCTION_CLOSE" }> | undefined;
   if (!open) return false;
   return (close?.winners.length ?? 0) > 1 || log.events.some((e) => e.kind === "BID" && Number(e.amount) < Number(open.topUp.amount));
+}
+
+/** The column's drain on the replay's own clock, so it reads right at any speed, paused or after a jump. */
+function drainAt(log: RescueLog, t: number): number {
+  const s = log.events.find((e) => e.kind === "TOPUP_SENT")?.t;
+  if (s === undefined || t < s) return 0;
+  const c = log.events.find((e) => e.kind === "TOPUP_CONFIRMED")?.t;
+  if (c === undefined) return Math.min(0.9, (t - s) / 60); // live: keep draining until the proof arrives
+  return c <= s ? 1 : Math.min(1, (t - s) / (c - s));
 }
 
 function poolAt(log: RescueLog, seen: RescueEvent[], t: number, phase: Phase): Pool | null {
@@ -531,6 +542,7 @@ function poolAt(log: RescueLog, seen: RescueEvent[], t: number, phase: Phase): P
     funded: committed >= gap - 1e-9,
     draining: sent,
     sentT: (seen.find((e) => e.kind === "TOPUP_SENT")?.t ?? null) as number | null,
+    drain: drainAt(log, t),
     flowing: sent && !confirmed,
     confirmed,
     blocks,

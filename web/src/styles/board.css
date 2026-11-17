@@ -244,19 +244,26 @@
 .st-pool-col.is-funded .st-pool-hatch { opacity: 0; animation: none; }
 .st-pool-block {
   position: absolute; left: 6px; right: 6px; bottom: calc(var(--bottom) * 1% + 4px); height: calc(var(--share) * 1% - 6px);
-  background: var(--sc); color: var(--st-tile-ink); border: 1.5px solid var(--st-line); padding: 8px 10px; overflow: hidden;
+  background: transparent; color: var(--st-tile-ink); border: 1.5px solid var(--st-line); padding: 8px 10px; overflow: hidden;
   display: flex; flex-direction: column; justify-content: flex-start; transform-origin: bottom;
-  transition: bottom var(--st-dur-glide) var(--st-ease-glide), height var(--st-dur-glide) var(--st-ease-glide), transform 5.5s var(--st-ease-fill);
+  transition: bottom var(--st-dur-glide) var(--st-ease-glide), height var(--st-dur-glide) var(--st-ease-glide);
 }
 .st-pool-block[hidden] { display: none; }
+/* the steward's colour is a layer that drains downward as the supply flows into the position */
+.st-pool-block::before { content: ""; position: absolute; inset: 0; background: var(--sc); transform-origin: bottom; transform: scaleY(calc(1 - var(--drain, 0))); }
+.st-pool-block > * { position: relative; }
 .st-pool-block.is-falling { animation: st-fall var(--st-dur-fall) cubic-bezier(.3, .7, .2, 1); }
 .st-pool-block-name { font-family: var(--st-font-head); font-weight: 700; font-size: 21px; line-height: 1.1; white-space: nowrap; }
 .st-pool-block-amt { font-family: var(--st-font-mono); font-size: 11px; }
 .st-pool-block.is-small { padding: 2px 8px; justify-content: center; }
 .st-pool-block.is-small .st-pool-block-name { font-size: 13px; }
 .st-pool-block.is-small .st-pool-block-amt { display: none; }
-.st-pool-col.is-draining .st-pool-block { transform: scaleY(0); opacity: 0; transition: transform 5.5s var(--st-ease-fill), opacity 5.5s var(--st-ease-fill); }
-.st-pool-col.is-drained .st-pool-block { transition: none; }
+/* once the colour has left, the block stays as an outline in the steward's colour: who supplied what */
+.st-pool-col.is-draining .st-pool-block { border: 1.5px dashed var(--sc); }
+/* while it drains, each label sits on a small panel chip so it reads over the colour and the emptied well alike */
+.st-pool-col.is-draining .st-pool-block { color: var(--st-ink); }
+.st-pool-col.is-draining .st-pool-block-name, .st-pool-col.is-draining .st-pool-block-amt { align-self: flex-start; background: var(--st-panel); padding: 0 5px; }
+.st-pool-col.is-funded.is-draining .st-pool-stamp { opacity: 0; animation: none; } /* the stamp steps aside for the funders' names */
 .st-pool-lid { position: absolute; left: -2px; right: -2px; top: 0; height: 6px; background: var(--st-ink); transform: scaleX(0); transform-origin: left; transition: transform 500ms var(--st-ease-glide); }
 .st-pool-col.is-funded .st-pool-lid { transform: scaleX(1); }
 .st-pool-stamp {

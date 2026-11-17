@@ -8,6 +8,7 @@ import { mountBoard, type BoardMode, type ReplayChoice } from "./view";
 
 const LEAD_IN = -3; // seconds of calm before the trigger
 const FAST = 8; // the waits (proofs, Sepolia blocks, the buy-back window) play this much faster; the auction plays at 1×
+const FLIGHT = 3; // the top-up in flight (supply sent → proven): slow enough to watch the column drain into the position
 
 export async function mountReplay(root: HTMLElement, url: string, choice?: { replays: ReplayChoice[]; current: string; onPick: (id: string) => void; onMode?: (m: BoardMode) => void; note?: string }) {
   root.innerHTML = `<section class="st-panel st-page"><div class="st-label">LIVE AUCTIONS</div><p class="st-empty">Loading the recorded rescue…</p></section>`;
@@ -25,7 +26,8 @@ export async function mountReplay(root: HTMLElement, url: string, choice?: { rep
   // real time while the stewards bid (from just before the auction to just after it closes)
   const at = (k: string) => log.events.find((e) => e.kind === k)?.t;
   const live0 = (at("AUCTION_OPEN") ?? 0) - 2, live1 = (at("AUCTION_CLOSE") ?? at("AUCTION_OPEN") ?? 0) + 4;
-  const speed = (x: number) => (x >= live0 && x <= live1 ? 1 : FAST);
+  const sent = at("TOPUP_SENT"), proven = at("TOPUP_CONFIRMED");
+  const speed = (x: number) => (x >= live0 && x <= live1 ? 1 : sent !== undefined && proven !== undefined && x >= sent - 1 && x <= proven + 1 ? FLIGHT : FAST);
   // ?t=SECONDS opens the replay paused at that moment (screenshots and tests).
   const tParam = Number(new URLSearchParams(location.search).get("t"));
   let t = Number.isFinite(tParam) && new URLSearchParams(location.search).has("t") ? tParam : LEAD_IN;
@@ -51,7 +53,11 @@ export async function mountReplay(root: HTMLElement, url: string, choice?: { rep
     const dt = Math.min(0.25, (now - (prev || now)) / 1000);
     prev = now;
     t = Math.min(end, t + dt * speed(t));
-    if (ff) ff.hidden = !(playing && t < end && speed(t) > 1);
+    if (ff) {
+      ff.hidden = !(playing && t < end && speed(t) > 1);
+      const txt = speed(t) === FLIGHT ? `×${FLIGHT} while the top-up flows in` : `×${FAST} through the waits`;
+      if (ff.textContent !== txt) ff.textContent = txt;
+    }
     const b = boardAt(log, t);
     view.update(b);
     if (t >= end) {

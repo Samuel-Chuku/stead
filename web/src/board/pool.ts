@@ -98,7 +98,7 @@ export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: {
   const col = q("[data-pcol]");
   col.classList.toggle("is-funded", p.funded && p.final);
   col.classList.toggle("is-draining", p.draining);
-  col.classList.toggle("is-drained", p.sentT !== null && b.t - p.sentT > 6); // jumped past the drain: no replayed motion
+  col.style.setProperty("--drain", p.drain.toFixed(3)); // the colour left in each block, on the replay's clock
   col.setAttribute("aria-label", `${p.committed.toFixed(2)} of ${p.gapText} committed by ${n} steward${n === 1 ? "" : "s"}`);
   for (const s of STEWARD_ORDER) {
     const el = q(`[data-pblock="${s}"]`);
@@ -113,7 +113,8 @@ export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: {
     el.style.setProperty("--share", String(blk.share));
     el.classList.toggle("is-small", blk.share < 16);
     el.querySelector("[data-pbname]")!.textContent = `${s} ${Math.round(blk.share)}%`;
-    el.querySelector("[data-pbamt]")!.textContent = blk.amountText;
+    // drained blocks keep their outline and say what each steward supplied
+    el.querySelector("[data-pbamt]")!.textContent = p.drain >= 1 ? `supplied ${blk.amountText}` : blk.amountText;
     // a block falls in once, when its steward's offer first enters the coalition
     if (state.fell.get(s) === undefined) {
       state.fell.set(s, blk.since);
@@ -135,8 +136,10 @@ export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: {
     x += w;
   });
   pipe.style.setProperty("--stripes", stops.length ? `repeating-linear-gradient(90deg, ${stops.join(", ")})` : "none");
-  pipe.classList.toggle("is-flowing", p.flowing);
-  pipe.classList.toggle("is-done", p.confirmed);
+  // the classes go on the pipe itself (its CSS reads .st-pool-pipe.is-flowing), not on the stripes inside it
+  const pipeBox = pipe.parentElement!;
+  pipeBox.classList.toggle("is-flowing", p.flowing);
+  pipeBox.classList.toggle("is-done", p.confirmed);
 
   const fill = q("[data-ptankfill]");
   const hfEl = q("[data-ptankhf]");

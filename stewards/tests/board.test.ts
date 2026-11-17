@@ -173,6 +173,15 @@ describe("live board through a settlement", async () => {
     expect(swiftTag.settledLines).toEqual(["Paid 0.006 WETH: supplied units", "Paid 0.000168 WETH: premium"]);
   });
 
+  it("drains each funder's colour on the replay's clock, from the supply sent to the top-up proven", () => {
+    const sent = at("TOPUP_SENT"), proven = at("TOPUP_CONFIRMED");
+    expect(boardAt(s82, sent - 1).pool!.drain).toBe(0);
+    expect(boardAt(s82, (sent + proven) / 2).pool!.drain).toBeCloseTo(0.5, 2);
+    expect(boardAt(s82, proven).pool!.drain).toBe(1);
+    // the funders stay in the column after it drained
+    expect(boardAt(s82, proven + 100).pool!.blocks.map((x) => x.steward).sort()).toEqual(["patient", "swift"]);
+  });
+
   it("shows small pooled amounts in full, never 0.00", () => {
     const p = boardAt(s82, at("SETTLE_START")).pool!;
     expect(p.blocks.map((x) => x.amountText).join(" ")).not.toMatch(/\b0\.00 /);
