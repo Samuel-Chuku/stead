@@ -346,6 +346,11 @@ function windowAt(seen: RescueEvent[], t: number, phase: Phase): Board["window"]
 }
 
 function journal(log: RescueLog, seen: RescueEvent[]): JournalLine[] {
+  // a claim's owner by name: "hedged (claim owner)", from the recorded mint
+  const owner = (claim: string | null) => {
+    const m = log.events.find((x) => x.kind === "CLAIM_MINTED" && x.claim === claim) as Extract<RescueEvent, { kind: "CLAIM_MINTED" }> | undefined;
+    return m ? `${m.holder} (claim owner)` : "the claim owner";
+  };
   const L: JournalLine[] = [];
   const pos = log.positionId;
   for (const e of seen) {
@@ -385,15 +390,15 @@ function journal(log: RescueLog, seen: RescueEvent[]): JournalLine[] {
         at("BUY-BACK", "plain", `Payment proven in the position at block ${fmtBlock(e.evidence.block)}`, e.evidence);
         break;
       case "BUYBACK":
-        at("BUY-BACK", "plain", `Buy-back committed: ${fmtAmt(e.amount)} ${e.asset} owed to the claim owner`, e.evidence);
+        at("BUY-BACK", "plain", `Buy-back committed: ${fmtAmt(e.amount)} ${e.asset} owed to ${owner(e.claim)}`, e.evidence);
         break;
       case "BOUGHT_BACK":
         at("CLAIM", "plain", `Claim closed · withdrawals unlocked`, e.evidence);
         break;
       case "PAYOUT": {
         const tx = (e as any).transfer as Evidence | undefined;
-        const who = e.purpose === "buyback" ? "the claim owner, exactly the claim" : e.purpose === "refund" ? "the borrower (overpayment refunded)" : "the steward";
-        at("PAYOUT", "plain", `${fmtAmt(e.amount)} ${e.asset} paid to ${who}${tx ? ` · ${short(tx.tx)}` : ""}`, tx ?? e.evidence);
+        const who = e.purpose === "buyback" ? `${owner(e.claim)}, exactly the claim` : e.purpose === "refund" ? "the borrower (overpayment refunded)" : e.claim ? owner(e.claim) : "the steward";
+        at("PAYOUT", "plain", `${fmtAmt(e.amount)} ${e.asset} paid back to ${who}${tx ? ` · ${short(tx.tx)}` : ""}`, tx ?? e.evidence);
         break;
       }
       case "SETTLE_START":
@@ -407,7 +412,7 @@ function journal(log: RescueLog, seen: RescueEvent[]): JournalLine[] {
         break;
       case "SETTLE_LEG": {
         const what = { supplied: "the supplied amount", premium: "the premium", fee: "the takeover fee", repay: "the repay, at the oracle price", rest: "the rest of the collateral", batch: "everything owed, to the position" }[e.purpose];
-        at("PAYOUT", "plain", e.purpose === "batch" ? `${fmtAmt(e.amount)} ${e.asset} withdrawn from Aave to the position: ${what}` : `${fmtAmt(e.amount)} ${e.asset} paid to ${e.steward ?? "the borrower"}: ${what}`, e.evidence);
+        at("PAYOUT", "plain", e.purpose === "batch" ? `${fmtAmt(e.amount)} ${e.asset} withdrawn from Aave to the position: ${what}` : e.purpose === "supplied" || e.purpose === "premium" ? `${fmtAmt(e.amount)} ${e.asset} paid back to ${e.steward ? `${e.steward} (claim owner)` : "the claim owner"}: ${what}` : `${fmtAmt(e.amount)} ${e.asset} paid to ${e.steward ?? "the borrower"}: ${what}`, e.evidence);
         break;
       }
       case "SETTLED":

@@ -215,6 +215,12 @@ describe("live board through a buy-back", () => {
     expect(payout.link!.tx).toBe((payoutEv.transfer ?? payoutEv.evidence).tx);
   });
 
+  it("names the claim owner in the journal: paid back to deep (claim owner)", () => {
+    const lines = boardAt(s81, duration(s81)).journal.map((l) => l.text);
+    expect(lines.some((x) => /^0\.00940684 WETH paid back to deep \(claim owner\), exactly the claim/.test(x))).toBe(true);
+    expect(lines.some((x) => /owed to deep \(claim owner\)$/.test(x))).toBe(true);
+  });
+
   it("gives way to the settlement when one starts first", () => {
     const log: RescueLog = { ...s81, events: [...s81.events.filter((e) => e.t <= at("PAYMENT_IN")), { t: at("PAYMENT_IN") + 1, kind: "SETTLE_START", evidence: s81.events[0].evidence } as any] };
     const b = boardAt(log, at("PAYMENT_IN") + 2);
