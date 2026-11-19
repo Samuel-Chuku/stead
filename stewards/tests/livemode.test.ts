@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import type { RescueLog } from "../src/rescuelog.js";
 import { feedRescue, type LiveFeed } from "../src/livefeed.js";
-import { DELAY_S, demoPick, liveT, NO_ANSWER_MS, screenFor, startState, stepIndex, type DemoStatus } from "../../web/src/board/live.js";
+import { DELAY_S, demoPick, liveT, NO_ANSWER_MS, screenFor, startState, stepIndex, type DemoStatus, rescueTxs } from "../../web/src/board/live.js";
 import { boardAt } from "../../web/src/board/model.js";
 
 const C = "sepolia-demo.steadfi.testnet";
@@ -101,5 +101,17 @@ describe("DEMO board", () => {
     const f = feed({ rescues: [other] });
     expect(screenFor(f, now, now - 1000, now, undefined, (r) => d.positions.has(r.positionId)).kind).toBe("empty");
     expect(screenFor(f, now, now - 1000, now).kind).toBe("rescue"); // LIVE still shows it
+  });
+});
+
+describe("demo run log", () => {
+  const tx = (label: string, step?: any) => ({ at: 0, label, chain: "near" as const, hash: "h", step });
+  it("leaves out the transactions that put the position back to rest, by step", () => {
+    const kept = rescueTxs([tx("repay to HF 1.17", "reset"), tx("Move the borrowed DAI", "reset"), tx("Borrow DAI until health is 1.14", "trigger"), tx("Buy-back: pays", "buyback")]);
+    expect(kept.map((t) => t.label)).toEqual(["Borrow DAI until health is 1.14", "Buy-back: pays"]);
+  });
+  it("tells older runs' reset transactions apart by label, the transfer going with its borrow", () => {
+    const kept = rescueTxs([tx("Reset: DAI sent into the position for the repay"), tx("repay to HF 1.17 (the contract signs it)"), tx("withdraw the extra collateral to the payout"), tx("Borrow DAI until health is 1.17"), tx("Move the borrowed DAI to the borrower's wallet"), tx("Borrow DAI until health is 1.14"), tx("Move the borrowed DAI to the borrower's wallet")]);
+    expect(kept.map((t) => t.label)).toEqual(["Borrow DAI until health is 1.14", "Move the borrowed DAI to the borrower's wallet"]);
   });
 });

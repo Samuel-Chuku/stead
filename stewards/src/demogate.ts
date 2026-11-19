@@ -39,7 +39,7 @@ export interface SlotState {
   run: null | { id: string; token: string; startedAt: number; step: Step; rescueId: number | null; error: string | null; endedAt: number | null; txs?: RunTx[] };
 }
 /** One transaction a demo run sent, labelled for the page. */
-export type RunTx = { at: number; label: string; chain: "near" | "sepolia"; hash: string };
+export type RunTx = { at: number; label: string; chain: "near" | "sepolia"; hash: string; /** the run's step when it was sent ("reset" = putting the position back to rest, not part of the rescue) */ step?: Step };
 
 export interface GateState {
   slots: SlotState[];

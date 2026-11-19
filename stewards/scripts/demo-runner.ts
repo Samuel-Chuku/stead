@@ -164,7 +164,7 @@ async function drive(i: number) {
     },
     log: (m: string) => say(`[slot ${i}] ${m}`),
     tx: (label: string, chain: "near" | "sepolia", hash: string) => {
-      (run().txs ??= []).push({ at: Date.now(), label, chain, hash });
+      (run().txs ??= []).push({ at: Date.now(), label, chain, hash, step: run().step });
       save();
     },
   };
@@ -195,6 +195,40 @@ async function drive(i: number) {
   running.delete(i);
 }
 
+// ── the live position tracker: each running slot's position read from Aave every 5 s ──
+type LivePos = { evm: string; hfBps: number | null; collBase: string; debtBase: string; at: number };
+const livePos = new Map<number, LivePos>();
+const evmOf = new Map<number, string>(); // a position's address never changes: read once
+let tracking = false;
+async function track() {
+  if (tracking) return;
+  tracking = true;
+  try {
+    for (const [i, s] of saved.gate.slots.entries()) {
+      const pid = saved.slots[i]?.positionId;
+      if (!s.run || pid === null || pid === undefined) {
+        livePos.delete(i);
+        continue;
+      }
+      try {
+        if (!evmOf.has(pid)) {
+          const p = await view<{ evm_address: string | null }>("get_position", { position_id: pid });
+          if (!p?.evm_address) continue;
+          evmOf.set(pid, p.evm_address);
+        }
+        const evm = evmOf.get(pid)!;
+        const d = await accountData(evm as Address);
+        livePos.set(i, { evm, hfBps: d.debtBase > 0n ? Number(d.hfWad / 10n ** 14n) : null, collBase: d.collateralBase.toString(), debtBase: d.debtBase.toString(), at: Date.now() });
+      } catch {
+        /* the next pass reads again; the page shows the reading's age */
+      }
+    }
+  } finally {
+    tracking = false;
+  }
+}
+setInterval(() => void track(), 5000);
+
 function status() {
   const now = Date.now();
   const free = saved.gate.slots.filter((s) => !s.run).length;
@@ -205,6 +239,7 @@ function status() {
       slot: i,
       kind: s.kind ?? DEMO_KINDS[i] ?? "single",
       positionId: saved.slots[i].positionId,
+      position: s.run ? livePos.get(i) ?? null : null,
       run: s.run && { runId: s.run.id, startedAt: s.run.startedAt, step: s.run.step, stepText: STEP_TEXT[s.run.step], rescueId: s.run.rescueId, error: s.run.error, txs: s.run.txs ?? [] },
     })),
     free,

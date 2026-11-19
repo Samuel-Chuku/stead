@@ -606,3 +606,20 @@
 .st-pool-txs { display: flex; align-items: center; gap: var(--st-space-10) 18px; flex-wrap: wrap; font-size: 13px; }
 .st-pool-txs:empty { display: none; }
 .st-pool-tx { display: inline-flex; align-items: center; gap: var(--st-space-6); }
+
+/* the demo: a live position tracker under the step bar, and the run log's sort strip */
+.st-demo-track { border: var(--st-border-heavy); background: var(--st-panel); padding: 12px 14px; display: grid; gap: 10px; }
+.st-demo-track-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.st-demo-track-age { margin-left: auto; font-family: var(--st-font-mono); font-size: var(--st-text-11); color: var(--st-quiet); }
+.st-demo-track-figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.st-demo-track-figs > div { display: grid; gap: 2px; min-width: 0; }
+.st-demo-track-figs dt { font-family: var(--st-font-head); font-weight: 600; font-size: 11px; letter-spacing: .09em; color: var(--st-quiet); }
+.st-demo-track-figs dd { margin: 0; }
+.st-demo-track-figs .st-num { font-family: var(--st-font-display); font-weight: 800; font-size: 28px; line-height: 1.05; }
+.st-demo-track-figs .st-num.is-exposed { color: var(--st-exposure-ink); }
+.st-demo-track-sub { font-size: 12px; color: var(--st-quiet); }
+.st-demo-track-note { margin: 0; font-size: 13px; }
+.st-runlog-sort { align-self: flex-start; display: inline-block; padding: 3px 8px; background: var(--st-ink); color: var(--st-ground); font-family: var(--st-font-head); font-weight: 600; font-size: 11px; letter-spacing: .09em; }
+.st-runlog-origin .st-runlog-label { font-weight: 600; }
+@media (max-width: 640px) { .st-demo-track-figs { grid-template-columns: 1fr 1fr; } .st-demo-track-figs > div:first-child { grid-column: 1 / -1; } }
+.st-demo-track-word { font-family: var(--st-font-head); font-size: 18px; font-weight: 700; }
