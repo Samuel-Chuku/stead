@@ -196,6 +196,15 @@ describe("live board through a buy-back", () => {
   const at = (k: string) => s81.events.find((e) => e.kind === k)!.t;
   const state = (t: number) => Object.fromEntries((boardAt(s81, t).buyback?.steps ?? []).map((x) => [x.key, x.state]));
 
+  it("links the winner's top-up as soon as it is sent, and says it is funded", () => {
+    const sent = s81.events.find((e) => e.kind === "TOPUP_SENT")!;
+    expect(boardAt(s81, sent.t - 0.5).topups).toEqual([]);
+    const b = boardAt(s81, sent.t);
+    expect(b.topups).toHaveLength(1);
+    expect(b.topups[0].tx?.url).toBe((sent as any).evidence.url);
+    expect(b.title).toMatch(/funded/);
+  });
+
   it("has no buy-back steps before the borrower pays", () => {
     expect(boardAt(s81, at("PAYMENT_IN") - 1).buyback).toBeNull();
   });

@@ -46,6 +46,8 @@ export type Board = {
   rows: Row[];
   stewards: StewardCard[];
   pipe: null | { steward: StewardId; amount: string; asset: string; flowing: boolean; done: boolean };
+  /** each winner's top-up transaction once it is sent (the link under the feed pipe) */
+  topups: { steward: StewardId; amount: string; asset: string; tx: Evidence | null }[];
   claim: null | { id: string; holder: StewardId; owed: string; premium: string; asset: string; windowLeft: number; closed: boolean; closedText: string };
   journal: JournalLine[];
   ended: boolean;
@@ -160,7 +162,7 @@ export function boardAt(log: RescueLog, t: number): Board {
     const who = winners.length > 1 ? `${winners.length} stewards won` : `${winnerName} won`;
     title = uncovered ? `No steward covered the top-up · position ${log.positionId} is left to Aave`
       : expired ? `Top-up not made in time · ${winnerName}'s bond slashed`
-      : phase === "topup" ? `${who} · topping up` : winners.length > 1 ? `${who} · ${bpsLo === bpsHi ? bpsLo : `${bpsLo}–${bpsHi}`} bps` : `${who} at ${winners[0]?.bps} bps`;
+      : phase === "topup" ? (sent ? `${who} · funded · proving the top-up` : `${who} · topping up`) : winners.length > 1 ? `${who} · ${bpsLo === bpsHi ? bpsLo : `${bpsLo}–${bpsHi}`} bps` : `${who} at ${winners[0]?.bps} bps`;
     subtitle = `Auction closed · ${nBid} stewards bid`;
   }
 
@@ -212,6 +214,7 @@ export function boardAt(log: RescueLog, t: number): Board {
     rows,
     stewards,
     pipe,
+    topups: (seen.filter((e) => e.kind === "TOPUP_SENT") as Ev<"TOPUP_SENT">[]).map((e) => ({ steward: e.steward, amount: e.amount, asset: e.asset, tx: txOf(e) ?? null })),
     claim,
     journal: journal(log, seen),
     collateral: confirmed?.collateral || null,

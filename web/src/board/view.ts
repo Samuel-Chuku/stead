@@ -3,7 +3,7 @@
 import type { RescueLog, StewardId } from "../../../stewards/src/rescuelog";
 import { CODE, consequence, fmtAmt, isPooled, RISK, RISK_WORD, RULE, STEWARD_ORDER, type Board, type LampId } from "./model";
 import { poolMarkup, updatePool } from "./pool";
-import { closingMarkup, updateClosing } from "./closing";
+import { closingMarkup, txLink, updateClosing } from "./closing";
 import { crown } from "../crown";
 import { powerOn } from "../ambience/stead-ambience.js";
 import { clockDigits, marketChip, replayGroups } from "./controls";
@@ -137,6 +137,7 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
           <span class="st-pipe" data-pipe-bar aria-hidden="true"></span>
           <span class="st-pipe-to">position ${log.positionId}</span>
           <span class="st-pipe-label" data-pipe-label></span>
+          <span class="st-pipe-tx" data-pipe-tx></span>
         </div>
       </section>
 
@@ -289,6 +290,13 @@ export function mountBoard(root: HTMLElement, log: RescueLog, controls: BoardCon
         bar.classList.toggle("is-flowing", b.pipe.flowing);
         bar.classList.toggle("is-done", b.pipe.done);
         q("[data-pipe-label]").textContent = `${b.pipe.done ? "SUPPLIED" : b.pipe.flowing ? "SUPPLYING" : "TO SUPPLY"} ${fmtAmt(b.pipe.amount)} ${b.pipe.asset}`;
+        const sentTx = b.topups.find((x) => x.steward === b.pipe!.steward)?.tx ?? null;
+        const txEl = q("[data-pipe-tx]");
+        const txKey = sentTx ? `${sentTx.tx}:${b.pipe.done}` : "";
+        if (txEl.dataset.key !== txKey) {
+          txEl.dataset.key = txKey;
+          txEl.innerHTML = sentTx ? `<span>${b.pipe.done ? "Funded, proven on chain" : "Funding sent"}: ${b.pipe.steward}'s supply on Aave</span>${txLink(sentTx)}` : "";
+        }
       } else pipe.hidden = true;
 
       // steward rack

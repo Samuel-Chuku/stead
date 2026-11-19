@@ -104,21 +104,33 @@ const stepOfTx = (t: TxRow) => t.step ?? (/^Test funds:/.test(t.label) ? 3 : /^(
 /** One line per step of the rescue, as it happens (from the live feed). */
 function liveLine(e: FeedRescue["events"][number]): string | null {
   const x = e as any;
-  switch (e.kind) {
-    case "TRIGGER": return `Proven: health ${Number(x.hf).toFixed(3)}, under 1.15`;
-    case "AUCTION_OPEN": return `Auction open: ${fmtAmt(x.topUp.amount)} ${x.topUp.asset} needed, premium cap ${x.capBps} bps`;
-    case "BID": return `<strong>${x.steward}</strong> bids ${x.bps} bps for ${fmtAmt(x.amount)}`;
-    case "AUCTION_CLOSE": return `Auction closed: ${x.winners.map((w: any) => `<strong>${w.steward}</strong> at ${w.bps} bps`).join(", ") || "no winner"}`;
-    case "TOPUP_SENT": return `<strong>${x.steward}</strong> tops up ${fmtAmt(x.amount)} ${x.asset} on Aave`;
-    case "TOPUP_CONFIRMED": return `Top-up proven on Sepolia`;
-    case "CLAIM_MINTED": return `Claim ${x.claim} minted to <strong>${x.holder}</strong>: owed ${fmtAmt(x.owed)} ${x.asset}`;
-    case "PAYMENT_IN": return `Payment into the position: ${fmtAmt(x.amount)} ${x.asset}`;
-    case "BOUGHT_BACK": return `Bought back`;
-    case "PAYOUT": return `Paid out: ${fmtAmt(x.amount)} ${x.asset} (${x.purpose})`;
-    case "SETTLE_START": return `Settlement started at the oracle price`;
-    case "SETTLED": return `Settled`;
-    default: return null;
-  }
+  const text = ((): string | null => {
+    switch (e.kind) {
+      case "TRIGGER": return `Proven: health ${Number(x.hf).toFixed(3)}, under 1.15`;
+      case "AUCTION_OPEN": return `Auction open: ${fmtAmt(x.topUp.amount)} ${x.topUp.asset} needed, premium cap ${x.capBps} bps`;
+      case "BID": return `<strong>${x.steward}</strong> bids ${x.bps} bps for ${fmtAmt(x.amount)}`;
+      case "AUCTION_CLOSE": return `Auction closed: ${x.winners.map((w: any) => `<strong>${w.steward}</strong> at ${w.bps} bps`).join(", ") || "no winner"}`;
+      case "TOPUP_SENT": return `Funded: <strong>${x.steward}</strong> supplied ${fmtAmt(x.amount)} ${x.asset} on Aave for your position`;
+      case "TOPUP_CONFIRMED": return `Top-up proven on ${net.evmName}`;
+      case "TOPUP_EXPIRED": return `The winner didn't top up in time: its bond is slashed`;
+      case "CLAIM_MINTED": return `Claim ${x.claim} minted to <strong>${x.holder}</strong>: owed ${fmtAmt(x.owed)} ${x.asset}`;
+      case "PAYMENT_IN": return `Payment into the position: ${fmtAmt(x.amount)} ${x.asset}`;
+      case "ESCROW_PROVEN": return `Payment proven: the buy-back is committed`;
+      case "BUYBACK": return `Buy-back: ${fmtAmt(x.amount)} ${x.asset} owed to claim ${x.claim}`;
+      case "BOUGHT_BACK": return `Bought back`;
+      case "PAYOUT": return `Paid out: ${fmtAmt(x.amount)} ${x.asset} (${x.purpose === "buyback" ? "to the claim owner" : x.purpose === "refund" ? "refund to you" : x.purpose})`;
+      case "SETTLE_START": return `Settlement started at the oracle price`;
+      case "SETTLE_TAKEOVER": return `Settlement taken over${x.to ? ` by <strong>${x.to}</strong>` : ""}${x.from ? ` from <strong>${x.from}</strong>` : ""}`;
+      case "SETTLE_REPAY": return `Settlement: ${x.steward ? `<strong>${x.steward}</strong> ` : ""}repaid ${fmtAmt(x.amount)} ${x.asset} of your debt`;
+      case "SETTLE_LEG": return `Settlement: ${fmtAmt(x.amount)} ${x.asset} to ${x.steward ? `<strong>${x.steward}</strong>` : "the payout"} (${x.purpose === "supplied" ? "the units it supplied" : x.purpose === "rest" ? "the rest, to you" : x.purpose})`;
+      case "SETTLED": return `Settled`;
+      case "LIQUIDATED": return `Liquidated by Aave`;
+      default: return null;
+    }
+  })();
+  if (!text) return null;
+  const ev = (x.transfer ?? x.evidence) as { url?: string } | undefined;
+  return ev?.url ? `${text} <a class="st-np-link" href="${ev.url.replace(/"/g, "&quot;")}" target="_blank" rel="noopener" aria-label="the transaction">${icon("external", 11)}</a>` : text;
 }
 /** What each rescue state means for the borrower, in a sentence. */
 const rescueText = (st: string, auctionS = 45) =>
@@ -641,6 +653,13 @@ export function mountOwn(root: HTMLElement): () => void {
         ? { rescueId: s.rescue.id, contractState: s.rescue.state, closesAt: rescueClock(s.rescue, s.claims).closesAtMs ?? 0 }
         : null;
     const usd8 = (v: bigint) => "$" + (Number(v) / 1e8).toLocaleString("en-US", { maximumFractionDigits: 0 });
+    // the top-up: say it is funded (with its transaction) as soon as the winner's supply is sent
+    const topupNow = (rid: number) => {
+      const sent = net.liveFeed && live ? (live.events.filter((e) => e.kind === "TOPUP_SENT") as any[]) : [];
+      if (!sent.length) return `Rescue #${rid}: the winner is topping up your position`;
+      const who = sent.map((e) => `<strong>${e.steward}</strong> supplied ${fmtAmt(e.amount)} ${e.asset}${e.evidence?.url ? ` <a class="st-np-link" href="${String(e.evidence.url).replace(/"/g, "&quot;")}" target="_blank" rel="noopener" aria-label="the top-up transaction">${icon("external", 11)}</a>` : ""}`).join(", ");
+      return `Rescue #${rid}: funded · ${who} · waiting for the proven reading that mints the claim`;
+    };
     const hf = s?.hf != null ? s.hf.toFixed(2) : "n/a";
     let now: string;
     if (!near) now = `Connect a ${net.nearName} wallet to start.`;
@@ -650,7 +669,7 @@ export function mountOwn(root: HTMLElement): () => void {
       const ends = (s?.claims ?? []).filter((c) => c.status === "open" && c.expires_at).map((c) => Number(BigInt(c.expires_at!) / 1_000_000n));
       now =
         r.contractState === "auction" && closesAt ? `Rescue #${r.rescueId}: stewards are bidding · <strong data-countdown="${closesAt}">${countdown(closesAt)}</strong> left`
-        : r.contractState === "top_up_pending" ? `Rescue #${r.rescueId}: the winner is topping up; waiting for the proof of the new collateral`
+        : r.contractState === "top_up_pending" ? topupNow(r.rescueId)
         : r.contractState === "open" && ends.length ? `Rescue #${r.rescueId}: claim open · <strong data-countdown="${Math.min(...ends)}">${countdown(Math.min(...ends))}</strong> left to buy back`
         : r.contractState === "settling" ? `Rescue #${r.rescueId}: the claim owner is settling at the oracle price`
         : `Rescue #${r.rescueId}: ${esc(r.contractState.replace(/_/g, " "))}`;
@@ -687,7 +706,7 @@ export function mountOwn(root: HTMLElement): () => void {
     }
     const rows = acts
       .sort((a, b) => b.at - a.at)
-      .slice(0, 5)
+      .slice(0, 8)
       .map((a) => `<li><span class="st-np-t">${new Date(a.at).toISOString().slice(11, 19)}</span><span>${a.html}</span></li>`)
       .join("");
     const lamp = busy || r ? "st-np-lamp is-live" : exposed ? "st-np-lamp is-exposed" : "st-np-lamp";

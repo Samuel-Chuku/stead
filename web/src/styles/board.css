@@ -599,3 +599,10 @@
 .st-close-down > span::after { content: ""; position: absolute; left: -5.5px; bottom: -8px; border-left: 8.5px solid transparent; border-right: 8.5px solid transparent; border-top: 8px solid var(--sc); }
 .st-close-down[data-state="pending"] > span { background: var(--st-inset); border-color: var(--st-hair); }
 .st-close-down[data-state="pending"] > span::after { border-top-color: var(--st-hair); }
+
+/* the funding transaction under the feed pipe (single) and under the pool (pooled) */
+.st-pipe-tx { flex-basis: 100%; display: flex; align-items: center; gap: var(--st-space-10); flex-wrap: wrap; font-size: 13px; }
+.st-pipe-tx:empty { display: none; }
+.st-pool-txs { display: flex; align-items: center; gap: var(--st-space-10) 18px; flex-wrap: wrap; font-size: 13px; }
+.st-pool-txs:empty { display: none; }
+.st-pool-tx { display: inline-flex; align-items: center; gap: var(--st-space-6); }

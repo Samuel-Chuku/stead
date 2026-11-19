@@ -2,6 +2,7 @@
 // moves blocks, toggles states and fills text. Motion is CSS reacting to classes set from events.
 import type { RescueLog, StewardId } from "../../../stewards/src/rescuelog";
 import { CODE, STEWARD_ORDER, fmtAmt, type Board } from "./model";
+import { txLink } from "./closing";
 
 const tile = (s: StewardId, size: number) => `<span class="st-tile st-tile--${size}" style="--sc: var(--st-steward-${s})" aria-hidden="true">${CODE[s]}</span>`;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -43,6 +44,7 @@ export function poolMarkup(log: RescueLog): string {
         </div>
       </div>
     </div>
+    <div class="st-pool-txs" data-ptxs></div>
     <div class="st-pool-counter"><span data-pcount></span><span class="st-quiet" data-pnote></span></div>
     <div class="st-pool-tags" data-ptags></div>
     <p class="st-note">Each block is that steward's share of the gap, filled from the lowest premium up. Each claim is held by its own steward and paid back exactly, from the same buy-back.</p>
@@ -54,6 +56,15 @@ export function updatePool(root: HTMLElement, log: RescueLog, b: Board, state: {
   const sect = root.querySelector<HTMLElement>("[data-pool]");
   if (!p || !sect) return;
   const q = <T extends HTMLElement = HTMLElement>(sel: string) => sect.querySelector<T>(sel)!;
+  // each funder's top-up transaction, under the pipe, as soon as it is sent
+  const txs = q("[data-ptxs]");
+  const txKey = b.topups.map((x) => x.tx?.tx ?? "").join(",") + (b.phase === "topup" ? "" : ":done");
+  if (txs.dataset.key !== txKey) {
+    txs.dataset.key = txKey;
+    txs.innerHTML = b.topups.length
+      ? `<span class="st-label">${b.phase === "topup" ? "FUNDING SENT" : "FUNDED"}</span>${b.topups.map((x) => `<span class="st-pool-tx">${tile(x.steward, 22)}<span>${esc(x.steward)} supplied ${fmtAmt(x.amount)} ${esc(x.asset)}</span>${x.tx ? txLink(x.tx) : ""}</span>`).join("")}`
+      : "";
+  }
   const n = p.blocks.length;
   const committedPct = Math.round((p.committed / p.gap) * 100);
   const title = !p.blocks.length && b.phase !== "auction" && b.phase !== "before"
