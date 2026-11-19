@@ -8,6 +8,7 @@ import { crown } from "../crown";
 import { story, txLink } from "./story";
 import { chartRunOf, costChart, wireCostChart } from "./costchart";
 import { powerOn, rollOnView } from "../ambience/stead-ambience.js";
+import { ago } from "../time";
 
 type Ev<K extends RescueEvent["kind"]> = Extract<RescueEvent, { kind: K }>;
 export type ProofKind = "readings" | "auction" | "topup" | "claim" | "payouts";
@@ -409,11 +410,11 @@ export async function mountProofs(root: HTMLElement, replays: { id: string; url:
       </div>
       <div class="st-table-wrap">
         <table class="st-proofs st-proofs--multi">
-          <thead><tr><th>TIME (UTC)</th><th>RESCUE</th><th>STEP</th><th>EVIDENCE</th><th>WHERE</th><th>TRUST</th></tr></thead>
+          <thead><tr><th>WHEN</th><th>RESCUE</th><th>STEP</th><th>EVIDENCE</th><th>WHERE</th><th>TRUST</th></tr></thead>
           <tbody>
             ${rows
               .map(
-                (r) => `<tr data-kind="${r.kind}" data-chain="${chainOf(r.ev)}"><td class="st-mono">${new Date(r.at).toISOString().slice(5, 19).replace("T", " ")}</td><td><a class="st-textlink" href="${main ? `?replay=${r.page}#/live` : `?rescue=${r.page}#/rescues`}">#${r.log.rescueId}</a></td><td class="st-proof-step">${esc(r.step)}</td><td class="st-mono">${esc(shortId(r.ev.tx))}${r.ev.block ? ` · block ${r.ev.block.toLocaleString("en-US")}` : ""}</td><td><a class="st-textlink st-extlink" href="${r.ev.url}" target="_blank" rel="noopener" aria-label="${r.ev.chain === "sepolia" || r.ev.chain === "ethereum" ? "Etherscan" : "NearBlocks"}: ${esc(r.step)} (opens in a new tab)">${r.ev.chain === "sepolia" || r.ev.chain === "ethereum" ? "Etherscan" : "NearBlocks"}${icon("external", 14)}</a></td><td>${chip(r.ev)}</td></tr>`,
+                (r) => `<tr data-kind="${r.kind}" data-chain="${chainOf(r.ev)}"><td>${ago(r.at)}</td><td><a class="st-textlink" href="${main ? `?replay=${r.page}#/live` : `?rescue=${r.page}#/rescues`}">#${r.log.rescueId}</a></td><td class="st-proof-step">${esc(r.step)}</td><td class="st-mono">${esc(shortId(r.ev.tx))}${r.ev.block ? ` · block ${r.ev.block.toLocaleString("en-US")}` : ""}</td><td><a class="st-textlink st-extlink" href="${r.ev.url}" target="_blank" rel="noopener" aria-label="${r.ev.chain === "sepolia" || r.ev.chain === "ethereum" ? "Etherscan" : "NearBlocks"}: ${esc(r.step)} (opens in a new tab)">${r.ev.chain === "sepolia" || r.ev.chain === "ethereum" ? "Etherscan" : "NearBlocks"}${icon("external", 14)}</a></td><td>${chip(r.ev)}</td></tr>`,
               )
               .join("")}
             <tr class="st-proof-empty" data-proof-empty hidden><td colspan="6">No record of this kind on this chain.</td></tr>

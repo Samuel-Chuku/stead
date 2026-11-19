@@ -6,12 +6,12 @@ import type { WebRuns } from "../../../stewards/src/trailcheck";
 import type { Move, RescueView, StewardView } from "../../../stewards/src/stewardview";
 import { icon } from "../icons";
 import { CODE } from "../board/model";
+import { ago } from "../time";
 
 type Run = WebRuns["runs"][number];
 type Entry = Run["entries"][number];
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-const when = (iso: string) => new Date(iso).toISOString().slice(0, 16).replace("T", " ") + " UTC";
 const hms = (iso: string) => new Date(iso).toISOString().slice(11, 19);
 // the trails write arrows; the site uses words (no emoji-prone glyphs)
 const plainStep = (s: string) => s.replace(/^\d+[a-z]?:\s*/, "").replace(/\s*→\s*/g, ", ");
@@ -49,13 +49,13 @@ function runSection(r: Run, i: number): string {
   const all = r.confirmed === r.total;
   const state = r.state.checked ? (r.state.matches ? "matches the recording" : "differs from the recording") : "not compared";
   return `
-  <details class="st-mn-trail" data-run="${i}"><summary><span class="st-mn-trail-t">${esc(r.title.split(":")[0])}</span><span class="st-mn-trail-d">${when(r.started)}</span><span class="st-chip${all ? " st-chip--rescued" : ""}">${r.confirmed}/${r.total} ON CHAIN</span><span class="st-item-caret" aria-hidden="true"></span></summary>
+  <details class="st-mn-trail" data-run="${i}"><summary><span class="st-mn-trail-t">${esc(r.title.split(":")[0])}</span><span class="st-mn-trail-d">${ago(Date.parse(r.started))}</span><span class="st-chip${all ? " st-chip--rescued" : ""}">${r.confirmed}/${r.total} ON CHAIN</span><span class="st-item-caret" aria-hidden="true"></span></summary>
   <section class="st-panel st-sect st-mn-runs">
     <div class="st-sect-head">
       <div>
         <div class="st-label">${esc(r.label.toUpperCase())}</div>
         <h2 class="st-panel-title">${esc(r.title)}</h2>
-        <p class="st-list-src">${when(r.started)}${r.finished ? ` to ${when(r.finished)}` : ""} · contract ${ext(r.contractLink, `<span class="st-mono">${esc(r.contract)}</span>`)}</p>
+        <p class="st-list-src">started ${ago(Date.parse(r.started))}${r.finished ? `, finished ${ago(Date.parse(r.finished))}` : ""} · contract ${ext(r.contractLink, `<span class="st-mono">${esc(r.contract)}</span>`)}</p>
       </div>
       <span class="st-chip${all ? " st-chip--rescued" : ""}">${r.confirmed}/${r.total} CONFIRMED</span>
     </div>

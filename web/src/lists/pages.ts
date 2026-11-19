@@ -10,6 +10,7 @@ import { crown } from "../crown";
 import { icon } from "../icons";
 import { posFlowDialogHtml, protectionsHtml, wireProtections } from "./posflow";
 import { chooseNet, listNet, loadMainnetRecords, MAINNET_NOTE, readStoredNet, type ListNet } from "./mainnet";
+import { ago } from "../time";
 
 export type ListRoute = "overview" | "positions" | "rescues" | "claims" | "stewards";
 /** Rescues with a published recording (their own page with timeline, chart and proofs). */
@@ -23,8 +24,6 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 const usd = (n: number | null) => (n === null ? "—" : "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 /** Amounts for reading: two decimals from 1 up, else up to 6 significant decimals. Exact values sit in the details. */
 const amt = fmtAmt;
-const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ") + " UTC";
 const shortC = (c: string) => (c.startsWith("sepolia-demo") ? "sepolia-demo" : c.split(".")[0]);
 const isSteward = (s: string): s is StewardId => (STEWARD_ORDER as string[]).includes(s);
 const tile = (s: string, size = 22) => (isSteward(s) ? `<span class="st-tile st-tile--${size}" style="--sc: var(--st-steward-${s})" aria-hidden="true">${CODE[s]}</span>` : "");
@@ -90,7 +89,7 @@ export function head(label: string, title: string, sub: string, live: boolean, g
       <div class="st-label">${label}</div>
       <h1 class="st-page-title">${title}</h1>
       <p class="st-list-sub">${sub}</p>
-      <p class="st-list-src">${live ? `<span class="st-live-dot" aria-hidden="true"></span>Read from the contracts at ${when(Date.parse(generated))}` : `Snapshot of the contracts from ${when(Date.parse(generated))}`}</p>
+      <p class="st-list-src">${live ? `<span class="st-live-dot" aria-hidden="true"></span>Read from the contracts ${ago(Date.parse(generated))}` : `Snapshot of the contracts from ${ago(Date.parse(generated))}`}</p>
     </header>`;
 }
 const chainSelect = (c: Record<"real" | "fork" | "all", number>) =>
@@ -129,7 +128,7 @@ const positionItem = (p: PositionRow, rescues: RescueRow[]): Item => ({
   cells: [`<span class="st-num">#${p.id}</span>`, `<span class="st-item-main">${esc(p.pair)}</span><span class="st-item-sub">${esc(p.owner)}</span>`, hfShort(p), state(p.status)],
   details: [
     ["Health factor", p.hf === null ? (p.status === "no reading" ? "no reading yet" : "no debt at the last reading") : `${p.hf.toFixed(4)}, ${markOf(p)}`],
-    ["Last reading", p.hfBlock ? `block ${p.hfBlock.toLocaleString("en-US")}${p.hfAtMs ? `, ${when(p.hfAtMs)}` : ""}` : "—"],
+    ["Last reading", p.hfBlock ? `block ${p.hfBlock.toLocaleString("en-US")}${p.hfAtMs ? `, ${ago(p.hfAtMs)}` : ""}` : "—"],
     ["Collateral", usd(p.collateralUsd)],
     ["Debt", usd(p.debtUsd)],
     ["Chain", esc(p.chain)],
@@ -168,13 +167,13 @@ function rescueItem(r: RescueRow, recorded: Recorded[]): Item {
     chain: r.chain,
     href: page ?? undefined,
     cells: [
-      `<span class="st-num">#${r.id}</span><span class="st-item-sub">${day(r.openedAtMs)}</span>`,
+      `<span class="st-num">#${r.id}</span><span class="st-item-sub">${ago(r.openedAtMs)}</span>`,
       `<span class="st-item-main">${amt(r.topUp)} ${esc(r.asset)}</span><span class="st-item-sub">${usd(r.topUpUsd)}</span>`,
       winnersShort(r.winners, range),
       state(r.state),
     ],
     details: [
-      ["Opened", when(r.openedAtMs)],
+      ["Opened", ago(r.openedAtMs)],
       ["Position", `#${r.positionId} · ${esc(r.pair)} on ${esc(r.chain)}${r.chain === "local fork" ? " (unverified)" : ""}`],
       ["Top-up", `${r.topUp} ${esc(r.asset)}, ${usd(r.topUpUsd)} at the trigger price`],
       ["Bids", `${r.bids} · premium cap ${r.capBps.toLocaleString("en-US")} bps (below Aave's liquidation penalty)`],
@@ -198,12 +197,14 @@ function rescuesPage(rec: Records, live: boolean, recorded: Recorded[]) {
 
 function claimsPage(rec: Records, live: boolean) {
   const chainOf = (c: ClaimRow) => rec.rescues.find((r) => r.contract === c.contract && r.id === c.rescueId)?.chain ?? "Sepolia";
+  // a claim is minted in its rescue: the rescue's opening time dates it
+  const openedOf = (c: ClaimRow) => rec.rescues.find((r) => r.contract === c.contract && r.id === c.rescueId)?.openedAtMs ?? null;
   const items = rec.claims.map((c): Item => {
     const st = c.status === "open" ? (c.expiresAtMs > Date.now() ? "open" : "window ended") : c.status;
     return {
       chain: chainOf(c),
       cells: [
-        `<span class="st-item-main st-mono">${esc(c.token)}</span><span class="st-item-sub">rescue #${c.rescueId}</span>`,
+        `<span class="st-item-main st-mono">${esc(c.token)}</span><span class="st-item-sub">rescue #${c.rescueId}${openedOf(c) ? ` · ${ago(openedOf(c)!)}` : ""}</span>`,
         `<span class="st-item-who">${tile(c.owner)}${esc(c.owner)}</span>`,
         `<span class="st-item-main">${amt(c.owed)} ${esc(c.asset)}</span><span class="st-item-sub">${c.bps} bps</span>`,
         state(st),
@@ -211,7 +212,8 @@ function claimsPage(rec: Records, live: boolean) {
       details: [
         ["Owed", `${amt(c.owed)} ${esc(c.asset)}: ${amt(c.share)} supplied + ${amt(c.premium)} premium`],
         ["Premium", `${c.bps} bps`],
-        ["Buy-back window", c.status === "open" ? `until ${when(c.expiresAtMs)}` : `ended ${when(c.expiresAtMs)}`],
+        ["Rescue opened", openedOf(c) ? ago(openedOf(c)!) : "—"],
+        ["Buy-back window", c.expiresAtMs > Date.now() ? `ends ${ago(c.expiresAtMs)}` : `ended ${ago(c.expiresAtMs)}`],
         ["Rescue", `<a class="st-textlink" href="${pageHref(c.contract, c.rescueId)}">Rescue #${c.rescueId}</a> on position ${c.positionId}`],
         ...(c.topupUrl || c.mintUrl || c.paidUrl
           ? ([["On chain", [ext(c.topupUrl, "Top-up on Etherscan"), ext(c.mintUrl, "Minted on NearBlocks"), ext(c.paidUrl, "Payout signed on NearBlocks"), ext(c.paidTransferUrl, "Payout transfer on Etherscan")].filter(Boolean).join("<br>")]] as [string, string][])
@@ -249,7 +251,7 @@ function stewardsPage(rec: Records, live: boolean) {
       details: [
         ...(id ? ([["Strategy", STRATEGY[id]]] as [string, string][]) : []),
         ["Claims", `${s.claimsOpen} open, ${s.claimsTotal} in all`],
-        ["Last win", s.lastWinAtMs ? when(s.lastWinAtMs) : "none yet"],
+        ["Last win", s.lastWinAtMs ? ago(s.lastWinAtMs) : "none yet"],
         ["Account", `<span class="st-mono">${esc(s.account)}</span>`],
         ["Contracts", s.contracts.map((c) => `<span class="st-mono">${esc(c)}</span>`).join(", ")],
       ],

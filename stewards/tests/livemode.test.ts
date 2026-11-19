@@ -77,7 +77,7 @@ describe("DEMO board", () => {
     // slot 0 (single) runs rescue 31; slot 1 (pooled) is free
     expect(startState(st(), now, false, "pooled").can).toBe(true);
     expect(startState(st(), now, false, "single")).toMatchObject({ can: false, reason: expect.stringContaining("Running now (rescue 31)") });
-    expect(startState(st({ nextStartAt: now + 60_000 }), now, false, "pooled")).toMatchObject({ can: false, reason: expect.stringContaining("Next start possible at") });
+    expect(startState(st({ nextStartAt: now + 60_000 }), now, false, "pooled")).toMatchObject({ can: false, reason: "Next start possible in 1m." });
     expect(startState(st({ paused: true }), now, false)).toMatchObject({ can: false, reason: expect.stringContaining("Demo paused") });
     expect(startState(st({ leftToday: 0 }), now, false).can).toBe(false);
     expect(startState(st(), now, true)).toMatchObject({ can: false, reason: "Your demo rescue is running below." });

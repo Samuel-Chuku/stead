@@ -24,11 +24,12 @@ import {
   checkPayout, gasAsk, arrived, depositPlan, buybackDue, qrSvg,
   hfBand, hfPulses, riskLines, pctText, ltvView, premiumCapBase, barZones, BAR_MARKS, EARLY_SETTLE_BPS, linePrice,
   ladderStep, bidBarPct, premiumCostBase, stewardIdOf, fundAsk, gasLow, liveStewardView, positionEmpty,
-  flowActivity, sortActivity, clockText, flowMoves, type ActRow,
+  flowActivity, sortActivity, flowMoves, type ActRow,
   nearGate, windowRefused, parkedView, repayPlan, defaultRepaySrc, positionRepayOffer, payoutLine, payoutChangeState, durationText,
   doneView, relayedHash, lastProtection, protectionTally, wethOutAvail, wethOutNext, wethOutArg, type DoneKind,
   type Account, type Avail, type Op, type Phase, type Projection, type SeenBid, type LadderRow,
 } from "./dashlogic";
+import { ago, agoText, exactText } from "../time";
 
 const net = NETS.mainnet;
 const C = net.collateral;
@@ -946,7 +947,7 @@ export function mountDash(root: HTMLElement): () => void {
     return run("Requesting a payout change", async () => {
       await stead("request_payout_change", { position_id: pid(), payout: to }, `Request a payout change to ${short(to)} (takes effect after ${delayText()})`);
       payoutNew = "";
-    }, { act: "payoutReq", done: () => ({ kind: "payout", what: "", payout: to, atText: s?.pos?.payout_change ? dayText(nsMs(s.pos.payout_change.effective_at)) : `in ${delayText()}` }) });
+    }, { act: "payoutReq", done: () => ({ kind: "payout", what: "", payout: to, atText: s?.pos?.payout_change ? agoText(nsMs(s.pos.payout_change.effective_at)) : `in ${delayText()}` }) });
   };
   const applyPayout = () =>
     run("Applying the payout change", async () => {
@@ -1287,7 +1288,7 @@ export function mountDash(root: HTMLElement): () => void {
     const { rows, noBids } = protRows();
     const last = lastProtection(rows, noBids);
     const line = last
-      ? `<p class="st-dash-lastprot"><button type="button" class="st-dash-linkbtn" data-prot="${last.id}" aria-haspopup="dialog">Rescue <b class="st-num">${last.id}</b></button><span class="st-dash-pchip is-${last.outcome}">${esc(last.outcome === "running" ? last.stage : OUTCOME_WORD[last.outcome])}</span>${last.winners.map((w) => `<span class="st-dash-lastprot-w">${protTile(w.steward)}${esc(w.name)} <b class="st-num">${w.bps}</b> bps</span>`).join("")}${last.winners.length ? `<span class="st-dash-lastprot-amt">topped up <b>${fmt(BigInt(last.topupUnits), C.decimals, 6)}</b> ${C.symbol}</span>` : ""}<span class="st-dash-lastprot-d">${dayText(last.openedMs)}</span></p>`
+      ? `<p class="st-dash-lastprot"><button type="button" class="st-dash-linkbtn" data-prot="${last.id}" aria-haspopup="dialog">Rescue <b class="st-num">${last.id}</b></button><span class="st-dash-pchip is-${last.outcome}">${esc(last.outcome === "running" ? last.stage : OUTCOME_WORD[last.outcome])}</span>${last.winners.map((w) => `<span class="st-dash-lastprot-w">${protTile(w.steward)}${esc(w.name)} <b class="st-num">${w.bps}</b> bps</span>`).join("")}${last.winners.length ? `<span class="st-dash-lastprot-amt">topped up <b>${fmt(BigInt(last.topupUnits), C.decimals, 6)}</b> ${C.symbol}</span>` : ""}<span class="st-dash-lastprot-d">${ago(last.openedMs)}</span></p>`
       : `<p class="st-dash-lastprot is-none">${protLoading() ? "Reading this position's protections…" : "No protections yet. Stewards act if its health factor falls under 1.15."}</p>`;
     return `<div class="st-dash-lastprot-strip">
       <div class="st-dash-jhead"><span class="st-label">LAST PROTECTION · POSITION ${s.pos.id}</span><button type="button" class="st-dash-jmore st-dash-protview" data-prots="view" aria-haspopup="dialog">View${glyph("M6 3.5 10.5 8 6 12.5", 14)}</button></div>
@@ -1702,7 +1703,7 @@ export function mountDash(root: HTMLElement): () => void {
     const rows = sortActivity([...own, ...steps]);
     if (!rows.length) return "";
     const now = Date.now();
-    const li = (r: ActRow) => `<li><span class="st-np-t${r.exact ? "" : " is-after"}"${r.exact ? "" : ' title="No time of its own on chain: it follows the step before it"'}>${r.exact ? clockText(r.at, now) : `after ${clockText(r.afterMs, now)}`}</span><span>${r.html}</span></li>`;
+    const li = (r: ActRow) => `<li><span class="st-np-t${r.exact ? "" : " is-after"}"${r.exact ? "" : ' title="No time of its own on chain: it follows the step before it"'}>${r.exact ? ago(r.at, now) : ago(r.afterMs, now)}</span><span>${r.html}</span></li>`;
     const more = latestOnly ? 0 : rows.length - 1;
     if (latestOnly) return `<div class="st-np-journal st-dash-journal is-latest">
       <div class="st-dash-jhead"><span class="st-journal-head">LAST ACTION · POSITION ${s.pos.id}</span></div>
@@ -1721,7 +1722,6 @@ export function mountDash(root: HTMLElement): () => void {
     const id = stewardIdOf(acct);
     return id ? `<span class="st-tile st-tile--22" style="--sc: var(--st-steward-${id})" aria-hidden="true">${CODE[id]}</span>` : "";
   };
-  const dayText = (ms: number) => `${new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })} · ${new Date(ms).toISOString().slice(11, 16)} UTC`;
   function protRowHtml(x: ProtectionRow): string {
     const who = x.winners.length
       ? x.winners.map((w) => `<span class="st-dash-prow-w">${protTile(w.steward)}<span>${esc(w.name)}</span><span class="st-dash-prow-bps"><b class="st-num">${w.bps}</b> bps</span></span>`).join("")
@@ -1733,7 +1733,7 @@ export function mountDash(root: HTMLElement): () => void {
       <span class="st-dash-pchip is-${x.outcome}">${esc(chip)}</span>
       <span class="st-dash-prow-who">${who}</span>
       <span class="st-dash-prow-amt">${x.winners.length ? `<b>${fmt(BigInt(x.topupUnits), C.decimals, 6)}</b> ${C.symbol}` : ""}</span>
-      <span class="st-dash-prow-date">${dayText(x.openedMs)}</span>
+      <span class="st-dash-prow-date">${ago(x.openedMs)}</span>
       ${glyph("M6 3.5 10.5 8 6 12.5", 14, "st-dash-prow-go")}
     </button></li>`;
   }
@@ -1775,7 +1775,7 @@ export function mountDash(root: HTMLElement): () => void {
       const bps = row.winners.map((w) => `${w.bps} bps`).join(", ");
       return `<p class="st-dash-protback"><button type="button" class="st-dash-linkbtn" data-prot-back>${glyph("M10 3.5 5.5 8l4.5 4.5", 14)}All protections</button></p>
         <dl class="st-kpis st-sv-kpis st-dash-prot-kpis">
-          <div><dt>OUTCOME</dt><dd class="st-kpi-word"><span class="st-dash-pchip is-${row.outcome}">${esc(row.outcome === "running" ? `${OUTCOME_WORD.running} · ${row.stage}` : OUTCOME_WORD[row.outcome])}</span></dd><dd class="st-kpi-sub">opened ${dayText(row.openedMs)}</dd></div>
+          <div><dt>OUTCOME</dt><dd class="st-kpi-word"><span class="st-dash-pchip is-${row.outcome}">${esc(row.outcome === "running" ? `${OUTCOME_WORD.running} · ${row.stage}` : OUTCOME_WORD[row.outcome])}</span></dd><dd class="st-kpi-sub">opened ${ago(row.openedMs)}</dd></div>
           <div><dt>${row.winners.length > 1 ? "WINNERS" : "WINNER"}</dt><dd class="st-dash-prot-win">${win || `<span class="st-kpi-word">none</span>`}</dd><dd class="st-kpi-sub">${bps ? `${bps} · ` : ""}cap ${r.cap_bps} bps · ${r.bids.length} bid${r.bids.length === 1 ? "" : "s"}</dd></div>
           <div><dt>TOPPED UP</dt><dd>${row.winners.length ? `<span class="st-num">${fmt(BigInt(row.topupUnits), C.decimals, 6)}</span> <span class="st-sv-u">${C.symbol}</span>` : `<span class="st-kpi-word">nothing</span>`}</dd><dd class="st-kpi-sub">${fmt(BigInt(r.topup_units), C.decimals, 6)} ${C.symbol} needed</dd></div>
           ${owed > 0n ? `<div><dt>CLAIM OWED</dt><dd><span class="st-num">${fmt(owed, C.decimals, 6)}</span> <span class="st-sv-u">${C.symbol}</span></dd><dd class="st-kpi-sub">${x.claims.map((c) => esc(c.token_id)).join(", ")}</dd></div>` : ""}
@@ -2035,7 +2035,7 @@ export function mountDash(root: HTMLElement): () => void {
       const same = c.ok && c.address.toLowerCase() === pos.payout.toLowerCase();
       const back = v.back ? `<p class="st-dash-protback"><button type="button" class="st-dash-linkbtn" data-payout-back>${glyph("M10 3.5 5.5 8l4.5 4.5", 14)}Back to the withdrawal</button></p>` : "";
       const pending = st.kind === "waiting"
-        ? `<div class="st-dash-dest"><p class="st-dash-dest-line">Requested: ${esc(short(getAddr(st.to)))}</p><p>Takes effect ${esc(dayText(st.atMs))} (in ${esc(durationText(st.leftMs))}); then apply it here with one more call. A new request replaces it.</p></div>`
+        ? `<div class="st-dash-dest"><p class="st-dash-dest-line">Requested: ${esc(short(getAddr(st.to)))}</p><p>Takes effect <span title="${exactText(st.atMs)}">${esc(agoText(st.atMs))}</span> (${esc(durationText(st.leftMs))} from now); then apply it here with one more call. A new request replaces it.</p></div>`
         : st.kind === "ready"
           ? `<div class="st-dash-dest"><p class="st-dash-dest-line">Ready: ${esc(short(getAddr(st.to)))}</p><p>The delay is over. Apply it to make it the payout.</p><div class="st-dash-cf-go">${btn(`Apply the payout change to ${short(getAddr(st.to))}`, "data-payout-apply", true, st.locked)}</div></div>`
           : "";

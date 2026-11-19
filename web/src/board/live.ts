@@ -7,6 +7,7 @@ import type { FeedRescue, LiveFeed } from "../../../stewards/src/livefeed";
 import { boardAt, isPooled } from "./model";
 import { icon } from "../icons";
 import { bindModeSwitch, modeSwitch, mountBoard, type BoardMode } from "./view";
+import { ago, agoText } from "../time";
 
 /** Seconds the board runs behind the chain: the feed sees an event ~3–5 s after it lands. */
 export const DELAY_S = 6;
@@ -82,10 +83,10 @@ const txHref = (t: RunTx) => (t.chain === "near" ? `https://testnet.nearblocks.i
 /** The run log, newest first, ending (at the bottom) on the position the rescue starts from. */
 const runLog = (all: RunTx[], start?: { positionId: number | null; at: number }) => {
   const txs = rescueTxs(all).slice().reverse();
-  const origin = start && start.positionId !== null ? `<li class="st-runlog-origin"><span class="st-runlog-time">${new Date(start.at).toISOString().slice(11, 19)}</span><span class="st-runlog-label">Start: position ${start.positionId}, created for the demo and at rest (health 1.17)</span></li>` : "";
+  const origin = start && start.positionId !== null ? `<li class="st-runlog-origin"><span class="st-runlog-time">${ago(start.at)}</span><span class="st-runlog-label">Start: position ${start.positionId}, created for the demo and at rest (health 1.17)</span></li>` : "";
   return txs.length || origin
     ? `<div class="st-runlog-sort">NEWEST FIRST</div><ol class="st-runlog">${txs
-        .map((t) => `<li><span class="st-runlog-time">${new Date(t.at).toISOString().slice(11, 19)}</span><span class="st-runlog-label">${esc(t.label)}</span><a class="st-txlink" href="${txHref(t)}" target="_blank" rel="noopener"><span>${t.chain === "near" ? "NearBlocks" : "Etherscan"}</span><span class="st-txlink-where">${t.hash.slice(0, 8)}…</span>${icon("external", 12)}</a></li>`)
+        .map((t) => `<li><span class="st-runlog-time">${ago(t.at)}</span><span class="st-runlog-label">${esc(t.label)}</span><a class="st-txlink" href="${txHref(t)}" target="_blank" rel="noopener"><span>${t.chain === "near" ? "NearBlocks" : "Etherscan"}</span><span class="st-txlink-where">${t.hash.slice(0, 8)}…</span>${icon("external", 12)}</a></li>`)
         .join("")}${origin}</ol>`
     : "";
 };
@@ -136,10 +137,9 @@ export function startState(st: DemoStatus | null, nowMs: number, mineRunning: bo
   const slot = st.slots.find((x, i) => (x.kind ?? (i === 1 ? "pooled" : "single")) === kind);
   if (!slot) return { can: false, reason: "Not offered right now." };
   if (slot.run) return { can: false, reason: `Running now${slot.run.rescueId !== null ? ` (rescue ${slot.run.rescueId})` : ""}. Watch it below; it can start again when it finishes.` };
-  if (st.nextStartAt !== null && st.nextStartAt > nowMs) return { can: false, reason: `Next start possible at ${hhmm(st.nextStartAt)}.` };
+  if (st.nextStartAt !== null && st.nextStartAt > nowMs) return { can: false, reason: `Next start possible ${agoText(st.nextStartAt, nowMs)}.` };
   return { can: true, reason: "" };
 }
-const hhmm = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 /** Step index for the stepper: done < current < pending. Reset and done count as past "Paid". */
 export function stepIndex(step: DemoStep): number {
@@ -331,7 +331,7 @@ export function mountLive(root: HTMLElement, onMode: (m: BoardMode) => void, mod
       </div>
       ${stepper}
       ${status?.history?.length ? `<details class="st-demo-history"${watching ? "" : " open"}><summary>Recent demo rescues (${status.history.length})</summary><ul>${status.history
-        .map((h) => `<li><span class="st-mono">${new Date(h.startedAt).toISOString().slice(5, 16).replace("T", " ")}</span><span>${h.kind === "pooled" ? "Pooled" : "One steward"}</span><span>${h.rescueId !== null ? `Rescue ${h.rescueId}` : "—"}</span><span>${h.outcome === "bought_back" ? "Bought back" : h.outcome === "settled" ? "Settled" : esc(h.outcome)}</span><span>${rescueTxs(h.txs).length} transactions</span>${h.rescueId !== null ? `<a class="st-textlink" href="?rescue=sepolia-demo:${h.rescueId}#/rescues">The whole story</a>` : ""}</li>`)
+        .map((h) => `<li><span class="st-demo-hist-when">${ago(h.startedAt)}</span><span>${h.kind === "pooled" ? "Pooled" : "One steward"}</span><span>${h.rescueId !== null ? `Rescue ${h.rescueId}` : "—"}</span><span>${h.outcome === "bought_back" ? "Bought back" : h.outcome === "settled" ? "Settled" : esc(h.outcome)}</span><span>${rescueTxs(h.txs).length} transactions</span>${h.rescueId !== null ? `<a class="st-textlink" href="?rescue=sepolia-demo:${h.rescueId}#/rescues">The whole story</a>` : ""}</li>`)
         .join("")}</ul></details>` : ""}`;
     for (const b of ctl.querySelectorAll<HTMLButtonElement>("[data-break]"))
       b.addEventListener("click", () => watching && void tryBreak(watching.runId, b.dataset.break as "withdraw" | "borrow"));

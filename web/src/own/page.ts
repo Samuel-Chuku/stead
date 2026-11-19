@@ -21,6 +21,7 @@ import {
 } from "./net";
 import { mountDash } from "./dashboard";
 import { hfBand } from "./dashlogic";
+import { ago } from "../time";
 
 const E18 = 10n ** 18n;
 /** NEAR-only visitors: the sponsor's Sepolia address is the position's payout (it holds the Sepolia side). */
@@ -707,7 +708,7 @@ export function mountOwn(root: HTMLElement): () => void {
     const rows = acts
       .sort((a, b) => b.at - a.at)
       .slice(0, 8)
-      .map((a) => `<li><span class="st-np-t">${new Date(a.at).toISOString().slice(11, 19)}</span><span>${a.html}</span></li>`)
+      .map((a) => `<li><span class="st-np-t">${ago(a.at)}</span><span>${a.html}</span></li>`)
       .join("");
     const lamp = busy || r ? "st-np-lamp is-live" : exposed ? "st-np-lamp is-exposed" : "st-np-lamp";
     lastActivity = rows ? `<div class="st-np-journal"><div class="st-journal-head">LATEST ACTIVITY · POSITION ${pos?.id ?? ""}</div><ol class="st-np-lines">${rows}</ol></div>` : "";
@@ -1102,7 +1103,7 @@ export function mountOwn(root: HTMLElement): () => void {
           .slice()
           .reverse()
           .slice(0, showAllTxs ? undefined : 3)
-          .map((t) => `<li><span class="st-runlog-time">${new Date(t.at).toISOString().slice(11, 19)}</span><span class="st-runlog-label">${esc(t.label)}</span>${t.hash ? `<a class="st-txlink" href="${txHref(t)}" target="_blank" rel="noopener"><span>${t.chain === "near" ? "NearBlocks" : "Etherscan"}</span><span class="st-txlink-where">${t.hash.slice(0, 8)}…</span>${icon("external", 12)}</a>` : ""}</li>`)
+          .map((t) => `<li><span class="st-runlog-time">${ago(t.at)}</span><span class="st-runlog-label">${esc(t.label)}</span>${t.hash ? `<a class="st-txlink" href="${txHref(t)}" target="_blank" rel="noopener"><span>${t.chain === "near" ? "NearBlocks" : "Etherscan"}</span><span class="st-txlink-where">${t.hash.slice(0, 8)}…</span>${icon("external", 12)}</a>` : ""}</li>`)
           .join("")}</ol>${shown().length > 3 ? `<button type="button" class="st-secondary st-cut st-own-more" data-more-txs>${showAllTxs ? "Show the latest 3" : `See all ${shown().length}`}</button>` : ""}` : ""}
       </section>`;
     main.querySelector("[data-near]")?.addEventListener("click", () => run("Connecting your NEAR wallet", async () => {

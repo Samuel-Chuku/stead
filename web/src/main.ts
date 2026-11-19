@@ -1,6 +1,7 @@
 // Stead front end: the app shell (sidebar, mobile drawer, theme switch) and hash routes.
 // Pages fill the content column; the shell holds no data of its own.
 import { icon, logo, type IconName } from "./icons";
+import { startAgoTicker } from "./time";
 import { mountReplay } from "./board/player";
 import { mountLive } from "./board/live";
 import type { BoardMode } from "./board/view";
@@ -481,5 +482,6 @@ window.addEventListener("hashchange", onRoute);
 
 bindCrowns();
 render();
+startAgoTicker();
 // Screenshot/testing aid: ?drawer=open opens the drawer on load.
 if (new URLSearchParams(location.search).get("drawer") === "open") setDrawer(true);

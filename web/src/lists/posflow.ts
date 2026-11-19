@@ -8,6 +8,7 @@ import { attachRecorded, loadRecording, replayLink } from "../own/flowlinks";
 import { contractSnapshot } from "../own/snapshot";
 import { dialogHtml, flowSeq } from "../mainnet/runs";
 import { CODE, fmtAmt } from "../board/model";
+import { ago } from "../time";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const STAGE: Record<string, string> = { auction: "stewards bidding", top_up_pending: "topping up", open: "claim open", settling: "settling" };
@@ -33,7 +34,6 @@ export function positionProtections(rescues: RescueRow[], p: Pick<PositionRow, "
 }
 
 const tile = (s: string) => (s in CODE ? `<span class="st-tile st-tile--22" style="--sc: var(--st-steward-${s})" aria-hidden="true">${CODE[s as keyof typeof CODE]}</span>` : "");
-const dayText = (ms: number) => `${new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })} · ${new Date(ms).toISOString().slice(11, 16)} UTC`;
 const go = `<svg aria-hidden="true" class="st-dash-prow-go" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>`;
 
 function rowHtml(x: PosProtection): string {
@@ -45,7 +45,7 @@ function rowHtml(x: PosProtection): string {
       <span class="st-dash-pchip is-${x.outcome}">${esc(x.chip)}</span>
       <span class="st-dash-prow-who">${who}</span>
       <span class="st-dash-prow-amt">${x.winners.length ? `<b>${fmtAmt(x.topUp)}</b> ${esc(x.asset)}` : ""}</span>
-      <span class="st-dash-prow-date">${dayText(x.openedAtMs)}</span>
+      <span class="st-dash-prow-date">${ago(x.openedAtMs)}</span>
       ${go}
     </button></li>`;
 }
@@ -136,7 +136,7 @@ function flowBody(row: RescueRow, x: Story, flowMoves: (typeof import("../own/da
   const win = row.winners.map((w) => `<span class="st-dash-prot-w">${tile(w.steward)}<span>${esc(w.steward)}</span></span>`).join("");
   const bps = row.winners.map((w) => `${w.bps} bps`).join(", ");
   return `<dl class="st-kpis st-sv-kpis st-dash-prot-kpis">
-      <div><dt>OUTCOME</dt><dd class="st-kpi-word"><span class="st-dash-pchip is-${outcome}">${esc(outcome === "running" ? `${OUTCOME_WORD.running} · ${STAGE[row.state] ?? row.state}` : OUTCOME_WORD[outcome])}</span></dd><dd class="st-kpi-sub">opened ${dayText(row.openedAtMs)}</dd></div>
+      <div><dt>OUTCOME</dt><dd class="st-kpi-word"><span class="st-dash-pchip is-${outcome}">${esc(outcome === "running" ? `${OUTCOME_WORD.running} · ${STAGE[row.state] ?? row.state}` : OUTCOME_WORD[outcome])}</span></dd><dd class="st-kpi-sub">opened ${ago(row.openedAtMs)}</dd></div>
       <div><dt>${row.winners.length > 1 ? "WINNERS" : "WINNER"}</dt><dd class="st-dash-prot-win">${win || `<span class="st-kpi-word">none</span>`}</dd><dd class="st-kpi-sub">${bps ? `${bps} · ` : ""}cap ${row.capBps} bps · ${row.bids} bid${row.bids === 1 ? "" : "s"}</dd></div>
       <div><dt>TOPPED UP</dt><dd>${row.winners.length ? `<span class="st-num">${u(x.rescue.members.reduce((t, m) => t + BigInt(m.share_units), 0n))}</span> <span class="st-sv-u">${esc(coll.symbol)}</span>` : `<span class="st-kpi-word">nothing</span>`}</dd><dd class="st-kpi-sub">${u(x.rescue.topup_units)} ${esc(coll.symbol)} needed</dd></div>
       ${owed > 0n ? `<div><dt>CLAIM OWED</dt><dd><span class="st-num">${u(owed)}</span> <span class="st-sv-u">${esc(coll.symbol)}</span></dd><dd class="st-kpi-sub">${x.claims.map((c) => esc(c.token_id)).join(", ")}</dd></div>` : ""}

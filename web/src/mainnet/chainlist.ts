@@ -10,6 +10,7 @@ import { chainRuns, claimIdsOf, proofBlocks, readFrom, trailRescueIds, type Chai
 import { dialogHtml, flowSeq } from "./runs";
 import { attachRecorded, recordingNow, replayLink } from "../own/flowlinks";
 import { contractSnapshot } from "../own/snapshot";
+import { ago } from "../time";
 
 const net = NETS.mainnet;
 const C = net.collateral;
@@ -23,7 +24,6 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   });
 const ext = (href: string, label: string) => `<a class="st-textlink st-extlink" href="${href}" target="_blank" rel="noopener">${label}${icon("external", 13)}</a>`;
 const contractLink = () => ext(`https://nearblocks.io/address/${net.contract}`, `<span class="st-mono">${net.contract}</span>`);
-const dayText = (ms: number) => `${new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })} · ${new Date(ms).toISOString().slice(11, 16)} UTC`;
 const tile = (acct: string, size = 22) => {
   const id = acct.split(".")[0];
   return id in CODE ? `<span class="st-tile st-tile--${size}" style="--sc: var(--st-steward-${id})" aria-hidden="true">${CODE[id as keyof typeof CODE]}</span>` : "";
@@ -147,7 +147,7 @@ function rowHtml(x: ChainRow): string {
       <span class="st-dash-pchip is-${x.outcome}">${esc(chip)}</span>
       <span class="st-dash-prow-who">${who}</span>
       <span class="st-dash-prow-amt">${x.winners.length ? `<b>${weth(x.topupUnits)}</b> ${C.symbol}` : ""}</span>
-      <span class="st-dash-prow-date">${dayText(x.openedMs)}</span>
+      <span class="st-dash-prow-date">${ago(x.openedMs)}</span>
       ${glyph("M6 3.5 10.5 8 6 12.5", 14, "st-dash-prow-go")}
     </button></li>`;
 }
@@ -214,7 +214,7 @@ function flowBody(id: number, flowMoves: FlowMovesFn, trail: { run: number; resc
   const bps = one ? one.winners.map((w) => `${w.bps} bps`).join(", ") : "";
   const outcome = one?.outcome ?? "no_bids";
   return `<dl class="st-kpis st-sv-kpis st-dash-prot-kpis">
-      <div><dt>OUTCOME</dt><dd class="st-kpi-word"><span class="st-dash-pchip is-${outcome}">${esc(outcome === "running" ? `${OUTCOME_WORD.running} · ${one!.stage}` : OUTCOME_WORD[outcome])}</span></dd><dd class="st-kpi-sub">opened ${dayText(one?.openedMs ?? 0)}</dd></div>
+      <div><dt>OUTCOME</dt><dd class="st-kpi-word"><span class="st-dash-pchip is-${outcome}">${esc(outcome === "running" ? `${OUTCOME_WORD.running} · ${one!.stage}` : OUTCOME_WORD[outcome])}</span></dd><dd class="st-kpi-sub">opened ${ago(one?.openedMs ?? 0)}</dd></div>
       <div><dt>${one && one.winners.length > 1 ? "WINNERS" : "WINNER"}</dt><dd class="st-dash-prot-win">${win || `<span class="st-kpi-word">none</span>`}</dd><dd class="st-kpi-sub">${bps ? `${bps} · ` : ""}cap ${r.cap_bps} bps · ${r.bids.length} bid${r.bids.length === 1 ? "" : "s"}</dd></div>
       <div><dt>TOPPED UP</dt><dd>${one?.winners.length ? `<span class="st-num">${weth(one.topupUnits)}</span> <span class="st-sv-u">${C.symbol}</span>` : `<span class="st-kpi-word">nothing</span>`}</dd><dd class="st-kpi-sub">${weth(r.topup_units)} ${C.symbol} needed</dd></div>
       ${owed > 0n ? `<div><dt>CLAIM OWED</dt><dd><span class="st-num">${weth(owed)}</span> <span class="st-sv-u">${C.symbol}</span></dd><dd class="st-kpi-sub">${x.claims.map((c) => esc(c.token_id)).join(", ")}</dd></div>` : ""}

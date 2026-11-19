@@ -9,6 +9,7 @@ import { list, wire, type Item } from "../lists/pages";
 import { icon } from "../icons";
 import { loadRuns, runsHtml, wireRuns } from "./runs";
 import { chainSectionHtml, mountChainRuns } from "./chainlist";
+import { ago } from "../time";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const usd = (n: number, dp = 0) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
@@ -16,8 +17,6 @@ const usdBig = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e4
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 const addr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const etherscan = (path: string, label: string) => `<a class="st-textlink st-extlink" href="https://etherscan.io/${path}" target="_blank" rel="noopener">${label}${icon("external", 13)}</a>`;
-const hhmm = (iso: string) => new Date(iso).toISOString().slice(11, 16) + " UTC";
-const when = (iso: string) => new Date(iso).toISOString().slice(0, 16).replace("T", " ") + " UTC";
 
 const feedUrl = () =>
   (import.meta as any).env?.VITE_LIVE_FEED ?? (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? "http://127.0.0.1:8788" : "https://live.usestead.xyz");
@@ -40,13 +39,13 @@ function liquidationItem(l: Liquidation): Item {
     chain: "Ethereum",
     group: s ? "real" : "fork", // the dropdown: liquidations Stead could have rescued, or all
     cells: [
-      `<span class="st-item-main">${hhmm(l.at)}</span><span class="st-item-sub st-mono">${addr(l.user)}</span>`,
+      `<span class="st-item-main">${ago(Date.parse(l.at))}</span><span class="st-item-sub st-mono">${addr(l.user)}</span>`,
       `<span class="st-item-main">${usd(l.debt.usd)} ${esc(l.debt.symbol)}</span><span class="st-item-sub">repaid, ${esc(l.collateral.symbol)} seized</span>`,
       `<span class="st-item-main">${usd(l.bonusPaidUsd)}</span><span class="st-item-sub">liquidation bonus paid</span>`,
       s ? `<span class="st-item-main">${usd(s.savedUsd)} kept</span><span class="st-item-sub">with Stead: ${usd(s.premiumUsd)} premium</span>` : `<span class="st-item-sub st-item-note">${esc(l.steadNote ?? "no estimate")}</span>`,
     ],
     details: [
-      ["Liquidated", `${when(l.at)} · block ${l.block.toLocaleString("en-US")} · ${etherscan(`tx/${l.tx}`, "Etherscan")}`],
+      ["Liquidated", `${ago(Date.parse(l.at))} · block ${l.block.toLocaleString("en-US")} · ${etherscan(`tx/${l.tx}`, "Etherscan")}`],
       ["Borrower", `<span class="st-mono">${esc(l.user)}</span>`],
       ["Repaid", `${usd(l.debt.usd, 2)} of ${esc(l.debt.symbol)}`],
       ["Seized", `${usd(l.collateral.usd, 2)} of ${esc(l.collateral.symbol)}`],
@@ -68,13 +67,13 @@ function triggerItem(t: TriggerEvent): Item {
   return {
     chain: "Ethereum",
     cells: [
-      `<span class="st-item-main">seen ${hhmm(t.at)}</span><span class="st-item-sub st-mono">${addr(t.address)}</span>`,
+      `<span class="st-item-main">seen ${ago(Date.parse(t.at))}</span><span class="st-item-sub st-mono">${addr(t.address)}</span>`,
       `<span class="st-item-main">${t.hfBefore.toFixed(3)} to <span class="st-item-hf-below">${t.hf.toFixed(3)}</span></span><span class="st-item-sub">health factor</span>`,
       `<span class="st-item-main">${usdBig(t.debtUsd)}</span><span class="st-item-sub">debt</span>`,
       w ? `<span class="st-item-main">${esc(w.steward)} at ${w.bps} bps</span><span class="st-item-sub">${usd(w.premiumUsd)} to top up ${usd(t.stead.topupUsd)}</span>` : `<span class="st-item-sub st-item-note">no steward would bid</span>`,
     ],
     details: [
-      ["Seen below 1.15", `${when(t.at)} · block ${t.block.toLocaleString("en-US")} (the first reading below the trigger; the feed reads every 5 minutes)`],
+      ["Seen below 1.15", `${ago(Date.parse(t.at))} · block ${t.block.toLocaleString("en-US")} (the first reading below the trigger; the feed reads every 5 minutes)`],
       ["Position", `<span class="st-mono">${esc(t.address)}</span> · ${etherscan(`address/${t.address}`, "Etherscan")}`],
       ["Collateral", usd(t.collateralUsd, 2)],
       ["Stead's auction", `top-up ${usd(t.stead.topupUsd)} to bring health back to 1.50 · premium cap ${usd(t.stead.capUsd, 2)}`],
@@ -124,7 +123,7 @@ function render(f: PanelFeed, live: boolean, runs: string) {
       <div class="st-label">ETHEREUM MAINNET</div>
       <h1 class="st-page-title">Aave on mainnet, with Stead</h1>
       <p class="st-list-sub">Stead runs on Ethereum mainnet with real funds: below the totals, every rescue its contract has run, read straight from the contract. Then real Aave V3 positions and real liquidations on Ethereum, read from public RPCs, each with what Stead's contract and stewards would have done at the 1.15 trigger.</p>
-      <p class="st-list-src">${live ? `<span class="st-live-dot" aria-hidden="true"></span>` : ""}${live ? "Read" : "Snapshot read"} at block ${f.block.toLocaleString("en-US")}, ${when(f.blockTime)} · ${f.coverage.borrowers.toLocaleString("en-US")} borrowers followed</p>
+      <p class="st-list-src">${live ? `<span class="st-live-dot" aria-hidden="true"></span>` : ""}${live ? "Read" : "Snapshot read"} at block ${f.block.toLocaleString("en-US")}, ${ago(Date.parse(f.blockTime))} · ${f.coverage.borrowers.toLocaleString("en-US")} borrowers followed</p>
     </header>
     <dl class="st-kpis">
       <div><dt>LIQUIDATED, 24 H</dt><dd><span class="st-num">${s.liquidations24h}</span></dd><dd class="st-kpi-sub">${usdBig(s.bonusPaid24hUsd)} in liquidation bonuses</dd></div>
