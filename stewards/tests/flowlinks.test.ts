@@ -1,9 +1,9 @@
 // A rescue's flow linked to its transactions from the board's recording (web/src/own/flowlinks.ts),
 // and the Positions page's protections (web/src/lists/posflow.ts). Offline: the recordings are the
 // files the site ships.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { attachRecorded, txLink, RECORDINGS, recordingFile, type Recording } from "../../web/src/own/flowlinks.js";
+import { attachRecorded, txLink, RECORDINGS, recordingFile, recordingNow, type Recording } from "../../web/src/own/flowlinks.js";
 import { NETS, rescueFlow, type ClaimView, type RescueView } from "../../web/src/own/net.js";
 import { flowMoves } from "../../web/src/own/dashlogic.js";
 import { positionProtections, rowOutcome } from "../../web/src/lists/posflow.js";
@@ -170,5 +170,33 @@ describe("a recorded settlement on the timeline (rescue 82, mainnet)", async () 
   it("every step of the settlement is on chain in the timeline (no contract-record step left)", () => {
     const moves = flowMoves(flow.filter((s) => ["settle", "takeover", "repay", "leg", "settled"].includes(s.kind)));
     expect(moves.filter((m) => m.note === "contract record")).toEqual([]);
+  });
+});
+
+// A dashboard opened while the rescue ran asks for the recording before it exists; it must keep
+// asking and redraw with the transactions linked once the recording is written (rescue 83: the
+// payout to deep showed without its Etherscan link because the first miss was kept for good).
+describe("a recording that appears after the page asked", () => {
+  it("is picked up within a minute and redraws once", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("location", { hostname: "app.usestead.xyz" }); // the site's feed URL
+    try {
+      let written = false;
+      const rec = { contract: "test.near", rescueId: 7, events: [{ t: 0, kind: "TRIGGER" }] };
+      const fetcher = (async () => (written ? { ok: true, json: async () => rec } : { ok: false, json: async () => null })) as unknown as typeof fetch;
+      let redraws = 0;
+      expect(recordingNow("test.near", 7, () => redraws++, fetcher)).toBeNull();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(recordingNow("test.near", 7, () => redraws++, fetcher)).toBeNull(); // still not written
+      written = true;
+      await vi.advanceTimersByTimeAsync(61_000); // the miss expires; the next render asks again
+      recordingNow("test.near", 7, () => redraws++, fetcher);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(recordingNow("test.near", 7, () => redraws++, fetcher)).toMatchObject({ rescueId: 7 });
+      expect(redraws).toBe(1);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 });

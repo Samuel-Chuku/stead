@@ -246,15 +246,19 @@ export function loadRecording(contract: string, id: number, fetcher: typeof fetc
   }
   return cache.get(k)!;
 }
-const held = new Map<string, Recording | null>();
-/** The recording if it has already arrived (else null, and it starts loading; `then` runs when it lands). */
-export function recordingNow(contract: string, id: number, then?: () => void): Recording | null {
+const held = new Map<string, Recording>();
+/** The recording if it has already arrived (else null, and it is asked for; `then` runs when it lands).
+ *  A miss is never kept: a page opened while the rescue ran keeps asking (once a minute, through
+ *  `loadRecording`'s cache) and redraws with every transaction linked once the recording is written. */
+export function recordingNow(contract: string, id: number, then?: () => void, fetcher: typeof fetch = fetch): Recording | null {
   const k = `${contract}#${id}`;
-  if (held.has(k)) return held.get(k)!;
-  void loadRecording(contract, id).then((r) => {
-    const first = !held.has(k);
-    held.set(k, r);
-    if (first && r) then?.();
+  const got = held.get(k);
+  if (got) return got;
+  void loadRecording(contract, id, fetcher).then((r) => {
+    if (r && !held.has(k)) {
+      held.set(k, r);
+      then?.();
+    }
   });
   return null;
 }
