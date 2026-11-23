@@ -25,12 +25,21 @@ pub const TRANSFER_GAS: u128 = 21_000;
 /// Ethereum WETH; Aave's Sepolia test WETH (also on the local Sepolia fork, chain 31337). On these
 /// markets gas, paid in ETH, is charged 1:1 in collateral units, so a settlement is batched: one
 /// withdraw to the position (the borrower's gas), then one transfer per payout, each recipient
-/// paying its own transfer's gas out of what it receives.
-pub const WRAPPED_NATIVE: [(u64, &str); 3] = [
+/// paying its own transfer's gas out of what it receives. Base, Optimism, Arbitrum and Base Sepolia
+/// from Aave's address book (bgd-labs/aave-address-book, `WETH_UNDERLYING`, read 2026-11-23).
+pub const WRAPPED_NATIVE: [(u64, &str); 7] = [
     (1, "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
     (11155111, "0xc558dbdd856501fcd9aaf1e62eae57a9f0629a3c"),
     (31337, "0xc558dbdd856501fcd9aaf1e62eae57a9f0629a3c"),
+    (8453, "0x4200000000000000000000000000000000000006"),
+    (10, "0x4200000000000000000000000000000000000006"),
+    (42161, "0x82af49447d8a07e3bd95bd0d56f35241523fbab1"),
+    (84532, "0x4200000000000000000000000000000000000006"),
 ];
+/// MPC derivation path of every account's home address (with the account itself as predecessor).
+pub const HOME_PATH: &str = "stead-home";
+/// The most an owner may set as a market's L1 data fee cap: 0.01 ETH per transaction.
+pub const MAX_L1_FEE_CAP_WEI: u128 = 10_000_000_000_000_000;
 /// If the settler hasn't supplied the deleverage repayment within this time, anyone may
 /// switch the settlement to the fallback (withdraw the owed units only). A constant, not a
 /// `Params` field, so the storage layout stays unchanged.
@@ -161,6 +170,37 @@ impl Market {
     }
 }
 
+/// Per-market settings for the multi-chain markets, kept beside `Market` so its stored layout and
+/// JSON stay as they are. All off by default.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub struct MarketExt {
+    /// Aave's WrappedTokenGatewayV3 for this market's pool (native ETH in and out). Set only on a
+    /// wrapped-native collateral market, together with `a_collateral`.
+    pub gateway: Option<EvmAddr>,
+    /// The collateral's aToken (aWETH), the one aToken that may be approved, and only to `gateway`.
+    pub a_collateral: Option<EvmAddr>,
+    /// OP-stack chains (Base, Optimism) take an L1 data fee on top of gas used x gas price, from
+    /// the sender's balance in the same transaction. The most a settlement payout's own
+    /// transaction may cost in L1 fee; added to its gas charge so the borrower never pays it.
+    /// 0 where there is no separate L1 fee (Ethereum, Sepolia, Arbitrum).
+    #[serde(with = "crate::as_str")]
+    pub l1_fee_cap: u128,
+}
+
+impl MarketExt {
+    fn validate(&self, m: &Market) -> R<()> {
+        ensure!(self.gateway.is_some() == self.a_collateral.is_some(), "gateway and a_collateral are set together");
+        if let (Some(g), Some(a)) = (self.gateway, self.a_collateral) {
+            let native = WRAPPED_NATIVE.iter().any(|(chain, w)| *chain == m.chain_id && EvmAddr::parse(w).ok() == Some(m.collateral));
+            ensure!(native, "a gateway needs wrapped-native collateral on this chain");
+            ensure!(g != EvmAddr::default() && a != EvmAddr::default(), "zero gateway address");
+            ensure!(![m.pool, m.collateral, m.debt].contains(&g) && ![m.pool, m.collateral, m.debt, g].contains(&a), "gateway and a_collateral must be their own contracts");
+        }
+        ensure!(self.l1_fee_cap <= MAX_L1_FEE_CAP_WEI, "l1_fee_cap above {MAX_L1_FEE_CAP_WEI} wei");
+        Ok(())
+    }
+}
+
 // ───────────────────────────── records ─────────────────────────────
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -207,19 +247,24 @@ pub enum TxKind {
     /// A batched settlement's payout: one `collateral.transfer` from the position to one payout,
     /// covering these legs (indexes into `Settlement.legs`). Appended last.
     SettlementPay { rescue_id: u64, legs: Vec<u32> },
+    /// The borrower's `depositETH` through the gateway, carrying `value` wei. Appended last.
+    DepositEth {
+        #[serde(with = "crate::as_str")]
+        value: u128,
+    },
 }
 
 impl TxKind {
     /// The native value the tx carries: only a sweep has one.
     pub fn value(&self) -> u128 {
         match self {
-            TxKind::SweepEth { value } => *value,
+            TxKind::SweepEth { value } | TxKind::DepositEth { value } => *value,
             _ => 0,
         }
     }
     /// Requested by the position owner (burnable after the timeout, owner-only replacement).
     pub fn is_borrower(&self) -> bool {
-        matches!(self, TxKind::Borrower { .. } | TxKind::SweepEth { .. })
+        matches!(self, TxKind::Borrower { .. } | TxKind::SweepEth { .. } | TxKind::DepositEth { .. })
     }
 }
 
@@ -689,6 +734,13 @@ pub struct Stead {
     pub watch: BTreeMap<u64, Watch>,
     /// Size cap and borrower allow-list (owner-set, bounded).
     pub limits: Limits,
+    /// Gateway and L1 fee settings per market (owner-set).
+    pub market_ext: BTreeMap<u32, MarketExt>,
+    /// Each NEAR account's home address: derived on-chain from the MPC key with the account itself
+    /// as predecessor (path `stead-home`), so only that account can sign for it.
+    pub homes: BTreeMap<String, EvmAddr>,
+    /// The aToken amount a position approved to its gateway, until the `WithdrawEth` that uses it.
+    pub gateway_allowance: BTreeMap<u64, u128>,
     /// NEP-297 events produced by the last call; the wrapper drains and logs them.
     #[borsh(skip)]
     pub events: Vec<String>,
@@ -698,9 +750,9 @@ pub struct Stead {
     pub payouts: Vec<Transfer>,
 }
 
-/// The stored layout before the owner-set limits (for `migrate`). Field order must match it.
+/// The stored layout before the multi-chain settings (for `migrate`). Field order must match it.
 #[derive(BorshSerialize, BorshDeserialize)]
-pub struct SteadV5 {
+pub struct SteadV6 {
     pub owner: String,
     pub reporters: BTreeSet<String>,
     pub stewards: BTreeSet<String>,
@@ -721,10 +773,11 @@ pub struct SteadV5 {
     pub verified: BTreeMap<u64, VerifiedState>,
     pub removed_stewards: BTreeSet<String>,
     pub watch: BTreeMap<u64, Watch>,
+    pub limits: Limits,
 }
 
-impl From<SteadV5> for Stead {
-    fn from(o: SteadV5) -> Self {
+impl From<SteadV6> for Stead {
+    fn from(o: SteadV6) -> Self {
         Stead {
             owner: o.owner,
             reporters: o.reporters,
@@ -746,7 +799,10 @@ impl From<SteadV5> for Stead {
             verified: o.verified,
             removed_stewards: o.removed_stewards,
             watch: o.watch,
-            limits: Limits::default(),
+            limits: o.limits,
+            market_ext: BTreeMap::new(),
+            homes: BTreeMap::new(),
+            gateway_allowance: BTreeMap::new(),
             events: vec![],
             payouts: vec![],
         }
@@ -777,6 +833,9 @@ impl Stead {
             removed_stewards: BTreeSet::new(),
             watch: BTreeMap::new(),
             limits: Limits::default(),
+            market_ext: BTreeMap::new(),
+            homes: BTreeMap::new(),
+            gateway_allowance: BTreeMap::new(),
             events: vec![],
             payouts: vec![],
         }
@@ -968,7 +1027,7 @@ impl Stead {
         let p = self.position(id)?;
         ensure!(p.owner == c, "only the position owner");
         let addr = p.evm_address.ok_or("position address not derived yet")?;
-        let adds_only = matches!(action, Action::Supply { .. } | Action::Repay { .. });
+        let adds_only = matches!(action, Action::Supply { .. } | Action::Repay { .. } | Action::DepositEth { .. });
         if !adds_only {
             self.not_paused()?;
         }
@@ -1002,14 +1061,25 @@ impl Stead {
                 (t, evm::approve(&m.pool, amount))
             }
             Action::Supply { amount } => {
-                ensure!(amount > 0, "zero amount");
-                let cap = self.limits.max_collateral_base;
-                if cap > 0 {
-                    let h = p.health.as_ref().ok_or("size cap set: a price reading is needed before a supply")?;
-                    let adds = math::units_to_base_ceil(amount, h.r.collateral_price_base, m.collateral_decimals);
-                    ensure!(h.r.collateral_base.saturating_add(adds) <= cap, "supply would take the collateral above the size cap");
-                }
+                self.check_supply_cap(p, m, amount)?;
                 (m.pool, evm::supply(&m.collateral, amount, &addr))
+            }
+            Action::DepositEth { amount } => {
+                let (gw, _) = self.gateway_of(p.market_id)?;
+                self.check_supply_cap(p, m, amount)?;
+                (gw, evm::deposit_eth(&m.pool, &addr))
+            }
+            Action::ApproveGateway { amount } => {
+                let (gw, a) = self.gateway_of(p.market_id)?;
+                ensure!(amount > 0, "zero amount");
+                (a, evm::approve(&gw, AmountArg::Exact(amount)))
+            }
+            Action::WithdrawEth { amount } => {
+                let (gw, a) = self.gateway_of(p.market_id)?;
+                ensure!(amount > 0, "zero amount");
+                ensure!(self.gateway_allowance.get(&id) == Some(&amount), "withdraw_eth must be exactly the amount approved to the gateway just before");
+                ensure!(![m.pool, m.collateral, m.debt, gw, a].contains(&p.payout), "payout is a market contract: ETH withdrawal refused");
+                (gw, evm::withdraw_eth(&m.pool, amount, &p.payout))
             }
             Action::Borrow { amount } => {
                 ensure!(amount > 0, "zero amount");
@@ -1032,9 +1102,72 @@ impl Stead {
         let tx = TxFields { chain_id: m.chain_id, nonce: p.next_nonce, to, data, gas };
         let kind = match action {
             Action::SweepEth { amount } => TxKind::SweepEth { value: amount },
+            Action::DepositEth { amount } => TxKind::DepositEth { value: amount },
             _ => TxKind::Borrower { action: action.name().into() },
         };
-        self.set_pending(id, tx, kind, now)
+        let plan = self.set_pending(id, tx, kind, now)?;
+        // The approval is good for exactly one withdraw_eth; any other signed action clears it
+        match action {
+            Action::ApproveGateway { amount } => {
+                self.gateway_allowance.insert(id, amount);
+            }
+            _ => {
+                self.gateway_allowance.remove(&id);
+            }
+        }
+        Ok(plan)
+    }
+
+    fn check_supply_cap(&self, p: &Position, m: &Market, amount: u128) -> R<()> {
+        ensure!(amount > 0, "zero amount");
+        let cap = self.limits.max_collateral_base;
+        if cap > 0 {
+            let h = p.health.as_ref().ok_or("size cap set: a price reading is needed before a supply")?;
+            let adds = math::units_to_base_ceil(amount, h.r.collateral_price_base, m.collateral_decimals);
+            ensure!(h.r.collateral_base.saturating_add(adds) <= cap, "supply would take the collateral above the size cap");
+        }
+        Ok(())
+    }
+
+    /// The market's gateway and aToken, or a refusal when the market has none.
+    fn gateway_of(&self, market_id: u32) -> R<(EvmAddr, EvmAddr)> {
+        let e = self.market_ext.get(&market_id).ok_or("no ETH gateway on this market")?;
+        match (e.gateway, e.a_collateral) {
+            (Some(g), Some(a)) => Ok((g, a)),
+            _ => Err("no ETH gateway on this market".into()),
+        }
+    }
+
+    /// The L1 data fee cap of a position's market (0 where none is set).
+    pub fn l1_fee_cap(&self, market_id: u32) -> u128 {
+        self.market_ext.get(&market_id).map_or(0, |e| e.l1_fee_cap)
+    }
+
+    // ── multi-chain settings and home addresses ──
+    pub fn set_market_ext(&mut self, c: &str, market_id: u32, ext: MarketExt) -> R<()> {
+        self.only_owner(c)?;
+        let m = self.markets.get(&market_id).ok_or("no such market")?;
+        ext.validate(m)?;
+        self.emit("market_ext", json!({"market_id": market_id, "ext": ext}));
+        self.market_ext.insert(market_id, ext);
+        Ok(())
+    }
+
+    pub fn market_ext_of(&self, market_id: u32) -> MarketExt {
+        self.market_ext.get(&market_id).cloned().unwrap_or_default()
+    }
+
+    /// Records `account`'s home address. Only the wrapper calls this, from the callback of its own
+    /// `derived_public_key(path = HOME_PATH, predecessor = account)` request.
+    pub fn set_home(&mut self, account: &str, addr: EvmAddr) -> R<()> {
+        ensure!(addr != EvmAddr::default(), "zero home address");
+        self.homes.insert(account.to_string(), addr);
+        self.emit("home_address", json!({"account_id": account, "evm_address": addr}));
+        Ok(())
+    }
+
+    pub fn home_of(&self, account: &str) -> Option<EvmAddr> {
+        self.homes.get(account).copied()
     }
 
     fn set_pending(&mut self, id: u64, tx: TxFields, kind: TxKind, now: u64) -> R<SignPlan> {
@@ -2321,7 +2454,8 @@ impl Stead {
             let tx = TxFields { chain_id: m.chain_id, nonce, to: m.pool, data: evm::withdraw(&m.collateral, AmountArg::Exact(total), &pos), gas };
             return self.set_pending(pid, tx, TxKind::Settlement { rescue_id: rid, leg: 0 }, now).map(Some);
         }
-        let charge = gas.gas_limit.saturating_mul(gas.max_fee_per_gas);
+        // what this transfer can cost at most: gas, plus the L1 data fee on OP-stack chains
+        let charge = gas.gas_limit.saturating_mul(gas.max_fee_per_gas).saturating_add(self.l1_fee_cap(p.market_id));
         loop {
             let Some(s) = self.rescue(rid)?.settlement.clone() else { return Ok(None) };
             if self.rescue(rid)?.state != RescueState::Settling {

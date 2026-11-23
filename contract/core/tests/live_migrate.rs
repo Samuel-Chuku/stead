@@ -9,13 +9,13 @@ fn live_state_migrates() {
         return;
     };
     let bytes = std::fs::read(path).unwrap();
-    let (old, mpc): (SteadV5, String) = borsh::from_slice(&bytes).expect("decodes with the previous layout");
+    let (old, mpc): (SteadV6, String) = borsh::from_slice(&bytes).expect("decodes with the previous layout");
     let before = serde_json_count(&old);
     let removed = old.removed_stewards.clone();
     let watch = old.watch.clone();
     let claims = old.claims.clone();
     let new: Stead = old.into();
-    assert_eq!(new.limits, Limits::default(), "limits start off");
+    assert!(new.market_ext.is_empty() && new.homes.is_empty(), "multi-chain settings start empty");
     assert_eq!(new.removed_stewards, removed, "removed stewards carried over");
     assert_eq!(new.watch, watch, "watch carried over");
     assert_eq!(new.claims, claims, "claims carried over");
@@ -26,7 +26,7 @@ fn live_state_migrates() {
     println!("ok: {before} · mpc {mpc} · {} bytes old → {} bytes new", bytes.len(), again.len());
 }
 
-fn serde_json_count(s: &SteadV5) -> String {
+fn serde_json_count(s: &SteadV6) -> String {
     format!("positions {} rescues {} claims {} stewards {:?}", s.positions.len(), s.rescues.len(), s.claims.len(), s.stewards)
 }
 

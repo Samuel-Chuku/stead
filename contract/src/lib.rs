@@ -13,14 +13,14 @@ use near_sdk::{env, ext_contract, near, AccountId, Gas, NearToken, PanicOnDefaul
 use omni_transaction::evm::types::Signature;
 use stead_core::{
     Action, Books, Claim, ClaimStatus, EvmAddr, GasArgs, HealthReport, Market, Params, PendingTx, Position, Rescue,
-    SignPlan, Stead, SteadV5, Transfer, Limits, VerifiedOutput, VerifyConfig, Watch,
+    SignPlan, Stead, SteadV6, Transfer, Limits, MarketExt, VerifiedOutput, VerifyConfig, Watch, HOME_PATH,
 };
 
-/// The stored contract before the owner-set limits, for `migrate`.
+/// The stored contract before the multi-chain settings (gateways, L1 fee caps, home addresses), for `migrate`.
 #[derive(near_sdk::borsh::BorshDeserialize)]
 #[borsh(crate = "near_sdk::borsh")]
-struct ContractV5 {
-    core: SteadV5,
+struct ContractV6 {
+    core: SteadV6,
     mpc: AccountId,
 }
 
@@ -175,12 +175,12 @@ impl Contract {
         c
     }
 
-    /// One-off state migration to the limits layout (adds the size cap and borrower allow-list, both off).
-    /// Only the contract account itself can call it, with the deploy.
+    /// One-off state migration to the multi-chain layout (market settings and home addresses, all
+    /// empty). Only the contract account itself can call it, with the deploy.
     #[private]
     #[init(ignore_state)]
     pub fn migrate() -> Self {
-        let old: ContractV5 = env::state_read().unwrap_or_else(|| env::panic_str("no state to migrate"));
+        let old: ContractV6 = env::state_read().unwrap_or_else(|| env::panic_str("no state to migrate"));
         Self { core: old.core.into(), mpc: old.mpc }
     }
 
@@ -307,10 +307,52 @@ impl Contract {
     pub fn set_paused(&mut self, paused: bool) {
         ok(self.core.set_paused(&caller(), paused));
     }
+    /// Owner: a market's ETH gateway + aToken (wrapped-native collateral only) and its L1 data fee cap.
+    pub fn set_market_ext(&mut self, market_id: u32, ext: MarketExt) {
+        ok(self.core.set_market_ext(&caller(), market_id, ext));
+        self.flush();
+    }
+    pub fn get_market_ext(&self, market_id: u32) -> MarketExt {
+        self.core.market_ext_of(market_id)
+    }
+
+    // ── home addresses ──
+    /// Anyone: derive the caller's home address from the MPC key, with the caller itself as the
+    /// predecessor, so only the caller's own `sign` requests can move funds from it. Afterwards
+    /// `"home"` can be given wherever a payout address is asked for.
+    pub fn register_home(&mut self) -> Promise {
+        let account = env::predecessor_account_id();
+        mpc::ext(self.mpc.clone())
+            .with_static_gas(DERIVE_GAS)
+            .derived_public_key(HOME_PATH.to_string(), Some(account.clone()), Some(0))
+            .then(Self::ext(env::current_account_id()).with_static_gas(CALLBACK_GAS).on_home(account))
+    }
+
+    #[private]
+    pub fn on_home(&mut self, account: AccountId, #[callback_result] key: Result<String, PromiseError>) -> String {
+        let key = key.unwrap_or_else(|_| env::panic_str("derived_public_key failed"));
+        let addr = ok(address_from_derived_key(&key));
+        ok(self.core.set_home(account.as_str(), addr));
+        self.flush();
+        addr.to_hex()
+    }
+
+    pub fn get_home(&self, account_id: AccountId) -> Option<String> {
+        self.core.home_of(account_id.as_str()).map(|a| a.to_hex())
+    }
+
+    /// A payout argument: an EVM address, or `"home"` for the caller's registered home address.
+    fn payout_arg(&self, s: &str) -> EvmAddr {
+        if s == "home" {
+            return self.core.home_of(&caller()).unwrap_or_else(|| env::panic_str("no home address: call register_home first"));
+        }
+        parse_addr(s)
+    }
 
     // ── anyone ──
     pub fn set_evm_payout(&mut self, address: String) {
-        ok(self.core.set_evm_payout(&caller(), parse_addr(&address)));
+        let to = self.payout_arg(&address);
+        ok(self.core.set_evm_payout(&caller(), to));
     }
 
     /// Anyone can become a steward: attach `STEWARD_DEPOSIT` (0.005 NEAR; the rest is refunded)
@@ -319,7 +361,8 @@ impl Contract {
     #[payable]
     pub fn register_steward(&mut self, payout: String) {
         let dep = env::attached_deposit().as_yoctonear();
-        let ts = ok(self.core.register_steward(&caller(), parse_addr(&payout), dep));
+        let to = self.payout_arg(&payout);
+        let ts = ok(self.core.register_steward(&caller(), to, dep));
         self.flush();
         Self::pay(ts);
     }
@@ -339,7 +382,8 @@ impl Contract {
     // ── borrower ──
     /// Registers a position and derives its EVM address from the MPC key (never trusted from the caller).
     pub fn register_position(&mut self, market_id: u32, payout: String) -> Promise {
-        let id = ok(self.core.register_position(&caller(), market_id, parse_addr(&payout)));
+        let to = self.payout_arg(&payout);
+        let id = ok(self.core.register_position(&caller(), market_id, to));
         self.flush();
         let path = self.core.position(id).unwrap().path.clone();
         mpc::ext(self.mpc.clone())
@@ -373,7 +417,8 @@ impl Contract {
     }
 
     pub fn request_payout_change(&mut self, position_id: u64, payout: String) {
-        ok(self.core.request_payout_change(&caller(), position_id, parse_addr(&payout), env::block_timestamp()));
+        let to = self.payout_arg(&payout);
+        ok(self.core.request_payout_change(&caller(), position_id, to, env::block_timestamp()));
     }
 
     pub fn apply_payout_change(&mut self, position_id: u64) {

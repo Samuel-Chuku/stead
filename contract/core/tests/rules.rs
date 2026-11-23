@@ -49,6 +49,7 @@ fn allow_list_targets_and_pinned_arguments() {
             }
             Action::TransferDebt { .. } => assert_eq!(arg_addr(&tx.data, 0), a(PAYOUT), "transfer to = payout"),
             Action::SweepEth { .. } => unreachable!("covered by the sweep tests"),
+            Action::DepositEth { .. } | Action::ApproveGateway { .. } | Action::WithdrawEth { .. } => unreachable!("covered by the gateway tests"),
         }
     }
 }

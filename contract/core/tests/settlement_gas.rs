@@ -256,3 +256,34 @@ fn the_same_weth_address_on_another_chain_is_not_batched() {
     let s = settle(&mut f, rid, STEWARDS[0]);
     assert!(s.legs.iter().all(|l| l.to != a(POS_ADDR)));
 }
+
+#[test]
+fn on_an_op_stack_market_each_payout_also_pays_the_capped_l1_data_fee_of_its_own_transfer() {
+    // Base and Optimism take an L1 data fee on top of gas x price, from the position's ETH: it is
+    // added to each recipient's charge, so the borrower still pays none of it
+    let l1 = 3_000_000_000_000u128; // 0.000003 ETH
+    let mut f = F::with_market(weth_market());
+    f.s.set_market_ext(OWNER, 0, MarketExt { l1_fee_cap: l1, ..Default::default() }).unwrap();
+    let rid = pooled(&mut f);
+    let s = settle(&mut f, rid, STEWARDS[0]);
+    let owed = owed_by_address(&s, a(POS_ADDR));
+    let r = run(&mut f, rid, &|_| gas());
+    assert!(!r.transfers.is_empty());
+    for (to, sent, gas_bound) in &r.transfers {
+        assert_eq!(*sent + *gas_bound + l1, owed[to], "{to:?} paid its transfer's gas bound plus the L1 fee cap");
+    }
+    let sent: u128 = r.transfers.iter().map(|t| t.1).sum();
+    let AmountArg::Exact(w) = r.withdraws[0].1 else { panic!() };
+    assert_eq!(f.idle_link, w - sent, "the charges stay at the position, the borrower's");
+}
+
+#[test]
+fn without_an_l1_fee_cap_the_charge_is_the_gas_bound_alone() {
+    let mut f = F::with_market(weth_market());
+    let rid = pooled(&mut f);
+    let s = settle(&mut f, rid, STEWARDS[0]);
+    let owed = owed_by_address(&s, a(POS_ADDR));
+    for (to, sent, gas_bound) in run(&mut f, rid, &|_| gas()).transfers {
+        assert_eq!(sent + gas_bound, owed[&to]);
+    }
+}

@@ -11,6 +11,9 @@ pub const SEL_SUPPLY: [u8; 4] = [0x61, 0x7b, 0xa0, 0x37]; // supply(address,uint
 pub const SEL_BORROW: [u8; 4] = [0xa4, 0x15, 0xbc, 0xad]; // borrow(address,uint256,uint256,uint16,address)
 pub const SEL_REPAY: [u8; 4] = [0x57, 0x3a, 0xde, 0x81]; // repay(address,uint256,uint256,address)
 pub const SEL_WITHDRAW: [u8; 4] = [0x69, 0x32, 0x8d, 0xec]; // withdraw(address,uint256,address)
+/// Aave's WrappedTokenGatewayV3 (native ETH in and out); selectors computed with viem on 2026-11-23.
+pub const SEL_DEPOSIT_ETH: [u8; 4] = [0x47, 0x4c, 0xf5, 0x3d]; // depositETH(address,address,uint16)
+pub const SEL_WITHDRAW_ETH: [u8; 4] = [0x80, 0x50, 0x0d, 0x20]; // withdrawETH(address,uint256,address)
 
 /// Aave variable-rate mode.
 const VARIABLE: u128 = 2;
@@ -79,6 +82,15 @@ pub enum Action {
     /// A plain transfer of `amount` wei of the position's own native ETH (left over from gas) to
     /// the payout, no calldata. Appended last: variant order is part of the borsh encoding.
     SweepEth { #[serde(with = "crate::as_str")] amount: u128 },
+    /// `gateway.depositETH(pool, onBehalfOf = position, 0)` carrying `amount` wei: native ETH
+    /// supplied as the market's wrapped-native collateral. Only on markets with a gateway.
+    DepositEth { #[serde(with = "crate::as_str")] amount: u128 },
+    /// `aCollateral.approve(gateway, amount)`: the exact amount of the `WithdrawEth` that follows.
+    /// The only approval of an aToken, and only ever to the market's gateway.
+    ApproveGateway { #[serde(with = "crate::as_str")] amount: u128 },
+    /// `gateway.withdrawETH(pool, amount, to = payout)`: collateral out as native ETH, to the
+    /// payout only, for exactly the amount approved just before.
+    WithdrawEth { #[serde(with = "crate::as_str")] amount: u128 },
 }
 
 impl Action {
@@ -91,6 +103,9 @@ impl Action {
             Action::Withdraw { .. } => "withdraw",
             Action::TransferDebt { .. } => "transfer",
             Action::SweepEth { .. } => "sweep_eth",
+            Action::DepositEth { .. } => "deposit_eth",
+            Action::ApproveGateway { .. } => "approve_gateway",
+            Action::WithdrawEth { .. } => "withdraw_eth",
         }
     }
 }
@@ -193,6 +208,13 @@ pub fn repay(asset: &EvmAddr, amount: AmountArg, on_behalf: &EvmAddr) -> Vec<u8>
 }
 pub fn withdraw(asset: &EvmAddr, amount: AmountArg, to: &EvmAddr) -> Vec<u8> {
     call(SEL_WITHDRAW, &[w_addr(asset), w_amount(amount), w_addr(to)])
+}
+
+pub fn deposit_eth(pool: &EvmAddr, on_behalf: &EvmAddr) -> Vec<u8> {
+    call(SEL_DEPOSIT_ETH, &[w_addr(pool), w_addr(on_behalf), w_u128(0)])
+}
+pub fn withdraw_eth(pool: &EvmAddr, amount: u128, to: &EvmAddr) -> Vec<u8> {
+    call(SEL_WITHDRAW_ETH, &[w_addr(pool), w_u128(amount), w_addr(to)])
 }
 
 /// Decode word `i` (0-based, after the selector) as an address. Test and view helper.
