@@ -67,6 +67,10 @@ pub struct Config {
     /// `wadDiv(percentMul(collateral, avgLT), debt)`.
     #[serde(default)]
     pub hf_from_sum: bool,
+    /// Round each aToken balance down, as newer Aave does (visible on 8-decimal collateral such as
+    /// WBTC, where one unit is worth ~$0.001); off: to nearest (Aave 3.0).
+    #[serde(default)]
+    pub coll_round_down: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -374,6 +378,10 @@ pub fn ray_mul_up(a: U256, b: U256) -> U256 {
     let q = p / ray();
     if q * ray() == p { q } else { q + U256::from(1u128) }
 }
+/// `a × b / RAY`, rounded down (newer Aave rounds a user's aToken balance down).
+pub fn ray_mul_down(a: U256, b: U256) -> U256 {
+    a * b / ray()
+}
 pub fn percent_mul(v: U256, p: U256) -> U256 {
     (v * p + U256::from(5000u128)) / U256::from(10_000u128)
 }
@@ -580,7 +588,7 @@ fn read_reserve(pv: &mut Prover, rpc: &dyn Rpc, cfg: &Config, rid: u32, expect: 
     if collateral {
         let a_tok = as_addr(r[4]);
         cs = pv.read(&a_tok, &[map_slot(user, U256::from(ATOKEN_USER_STATE))])?.values[0].mask(128);
-        let bal = ray_mul(cs, income);
+        let bal = if cfg.coll_round_down { ray_mul_down(cs, income) } else { ray_mul(cs, income) };
         let base = bal * price / unit;
         coll_base = base;
         lt_part = base * lt;
@@ -694,6 +702,7 @@ pub fn sepolia_config() -> Config {
         price_by_call: false,
         debt_round_up: false,
         hf_from_sum: false,
+        coll_round_down: false,
     }
 }
 
@@ -734,7 +743,8 @@ pub fn mainnet_config() -> Config {
         keyed_more: vec![],
         price_by_call: true,
         debt_round_up: true,
-        hf_from_sum: false,
+        hf_from_sum: true,
+        coll_round_down: true,
     }
 }
 
@@ -771,6 +781,7 @@ pub fn base_sepolia_config() -> Config {
         price_by_call: true,
         debt_round_up: true,
         hf_from_sum: true,
+        coll_round_down: true,
     }
 }
 
