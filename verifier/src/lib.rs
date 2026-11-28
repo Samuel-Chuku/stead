@@ -62,6 +62,11 @@ pub struct Config {
     /// Round each user's debt up (Aave 3.4+, as on Ethereum mainnet); off: to nearest (Aave 3.0, Sepolia).
     #[serde(default)]
     pub debt_round_up: bool,
+    /// Health factor as newer Aave computes it: `wadDiv(Σ collateral × LT, debt) / 10_000`
+    /// (Base Sepolia, revision 10, matches `getUserAccountData` to the wei); off: Aave 3.0's
+    /// `wadDiv(percentMul(collateral, avgLT), debt)`.
+    #[serde(default)]
+    pub hf_from_sum: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -493,7 +498,13 @@ fn verify_inner(rpc: &dyn Rpc, cfg: &Config, input: &Input) -> Result<Output, St
         }
     }
     let avg_lt = if tot_coll.is_zero() { U256::ZERO } else { lt_acc / tot_coll };
-    let hf = if tot_debt.is_zero() { U256::MAX } else { wad_div(percent_mul(tot_coll, avg_lt), tot_debt) };
+    let hf = if tot_debt.is_zero() {
+        U256::MAX
+    } else if cfg.hf_from_sum {
+        wad_div(lt_acc, tot_debt) / U256::from(10_000u128)
+    } else {
+        wad_div(percent_mul(tot_coll, avg_lt), tot_debt)
+    };
 
     // escrow: the position's own token balances
     let mut bal = vec![];
@@ -682,6 +693,7 @@ pub fn sepolia_config() -> Config {
         keyed_more: vec![],
         price_by_call: false,
         debt_round_up: false,
+        hf_from_sum: false,
     }
 }
 
@@ -722,19 +734,60 @@ pub fn mainnet_config() -> Config {
         keyed_more: vec![],
         price_by_call: true,
         debt_round_up: true,
+        hf_from_sum: false,
     }
 }
 
-/// The config for a request: Ethereum mainnet when every reserve it names is a mainnet token this
-/// program knows (the contract names the market's collateral and debt), else Sepolia. The contract
-/// still refuses a result whose `chain` isn't its market's.
-pub fn config_for(input: &Input) -> Config {
-    let m = mainnet_config();
-    let known = |a: &String| m.tokens.iter().any(|t| t.address.eq_ignore_ascii_case(a));
-    match &input.reserves {
-        Some(r) if !r.is_empty() && r.iter().all(known) => m,
-        _ => sepolia_config(),
+/// Base Sepolia: Aave V3 Pool (revision 10) and AaveOracle (read from the Pool's AddressesProvider
+/// on chain, 2026-11-28); header voters and storage-proof sources each tested 2026-11-28 at
+/// head − 3 (publicnode, dRPC and Tenderly refuse proofs: votes only); escrow tokens Aave's test
+/// USDC (balances slot 0) and WETH (the OP-stack predeploy, slot 3). Prices by agreed `eth_call`.
+pub fn base_sepolia_config() -> Config {
+    Config {
+        chain_id: 84532,
+        header_rpcs: vec![
+            "https://sepolia.base.org".into(),
+            "https://base-sepolia-rpc.publicnode.com".into(),
+            "https://base-sepolia.drpc.org".into(),
+            "https://base-sepolia.gateway.tenderly.co".into(),
+            "https://84532.rpc.thirdweb.com".into(),
+            "https://base-sepolia.api.onfinality.io/public".into(),
+        ],
+        proof_rpcs: vec![
+            "https://sepolia.base.org".into(),
+            "https://base-sepolia.api.onfinality.io/public".into(),
+            "https://84532.rpc.thirdweb.com".into(),
+        ],
+        min_agree: 3,
+        depth: 3,
+        pool: "0x8bab6d1b75f19e9ed9fce8b9bd338844ff79ae27".into(),
+        oracle: "0x943b0de18d4abf4ef02a85912f8fc07684c141df".into(),
+        tokens: vec![
+            TokenSlot { address: "0xba50cd2a20f6da35d788639e581bca8d0b5d4d5f".into(), balances_slot: 0 },
+            TokenSlot { address: "0x4200000000000000000000000000000000000006".into(), balances_slot: 3 },
+        ],
+        keyed: None,
+        keyed_more: vec![],
+        price_by_call: true,
+        debt_round_up: true,
+        hf_from_sum: true,
     }
+}
+
+/// The config for a request, chosen by the market's tokens (the contract names its collateral and
+/// debt): Ethereum mainnet or Base Sepolia when every reserve named is a token that chain's config
+/// knows, else Sepolia. The contract still refuses a result whose `chain` isn't its market's.
+pub fn config_for(input: &Input) -> Config {
+    let all_known = |c: &Config| match &input.reserves {
+        Some(r) if !r.is_empty() => r.iter().all(|a| c.tokens.iter().any(|t| t.address.eq_ignore_ascii_case(a))),
+        _ => false,
+    };
+    for c in [mainnet_config(), base_sepolia_config()] {
+        if all_known(&c) {
+            return c;
+        }
+    }
+    sepolia_config()
 }
 
 /// WASI Preview 2 HTTP transport (OutLayer). JSON-RPC over HTTPS with a connect timeout.

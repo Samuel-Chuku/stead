@@ -1,7 +1,7 @@
 //! OutLayer entry point: reads `{"position": "0x…", "block": null}` on stdin, prints the verified
-//! result (≤ 900 bytes of JSON) on stdout. The chain follows the market's tokens (Ethereum mainnet
-//! or Sepolia). RPC set: the public voters of that chain plus optional keyed ones from the secret:
-//! `MAINNET_RPC_URL` / `SEPOLIA_RPC_URL`, several separated by commas (never printed).
+//! result (≤ 900 bytes of JSON) on stdout. The chain follows the market's tokens (Ethereum mainnet,
+//! Base Sepolia or Sepolia). RPC set: the public voters of that chain plus optional keyed ones from the secret:
+//! `MAINNET_RPC_URL` / `BASE_SEPOLIA_RPC_URL` / `SEPOLIA_RPC_URL`, several separated by commas (never printed).
 fn main() {
     let mut s = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut s).expect("stdin");
@@ -10,7 +10,11 @@ fn main() {
         Err(e) => return println!("{{\"err\":\"bad input: {e}\"}}"),
     };
     let mut cfg = stead_verifier::config_for(&input);
-    let var = if cfg.chain_id == 1 { "MAINNET_RPC_URL" } else { "SEPOLIA_RPC_URL" };
+    let var = match cfg.chain_id {
+        1 => "MAINNET_RPC_URL",
+        84532 => "BASE_SEPOLIA_RPC_URL",
+        _ => "SEPOLIA_RPC_URL",
+    };
     if let Ok(list) = std::env::var(var) {
         // keyed RPCs first: they give the head and the first proofs; each votes like any other
         let keys: Vec<String> = list.split(',').map(|k| k.trim().to_string()).filter(|k| !k.is_empty()).collect();
